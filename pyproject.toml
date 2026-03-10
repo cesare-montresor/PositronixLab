@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "modularnet"
+dynamic = ["version"]
+description = "A complete framework to explore functional modularity for neural networks"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+dependencies = [
+    "torch>=2.0.0",
+    "numpy>=1.24.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "modularnet.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["modularnet*"]
