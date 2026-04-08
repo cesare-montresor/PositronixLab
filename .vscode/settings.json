@@ -1,0 +1,11 @@
+{
+    "python.defaultInterpreterPath": "./venv/bin/python",
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/libs/Ax",
+    ],
+    "python.testing.pytestArgs": [
+        ".modularnet/"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
+}
