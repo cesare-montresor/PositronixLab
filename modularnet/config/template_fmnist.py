@@ -1,7 +1,10 @@
      
 
 
-class TemplateFMnistFC(ExpTemplateFC):
+from modularnet.config.template_base import TemplateFC, TemplateCNN
+
+
+class TemplateFMnistFC(TemplateFC):
 
     def __init__(self, name: str=None):
         super().__init__(name)   
@@ -11,7 +14,7 @@ class TemplateFMnistFC(ExpTemplateFC):
         #self.add_fixed('modular_space_name', name, "str")  # Default modular space name
 
 
-class TemplateFMnistCNN(ExpTemplateCNN):
+class TemplateFMnistCNN(TemplateCNN):
 
     def __init__(self, name: str=None):
         super().__init__(name)   

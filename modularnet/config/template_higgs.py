@@ -1,5 +1,8 @@
 
-class TemplateHiggs(ExpTemplateFC):
+from modularnet.config.template_base import TemplateFC
+
+
+class TemplateHiggs(TemplateFC):
 
     def __init__(self, name:str = None):
         super().__init__(name)   

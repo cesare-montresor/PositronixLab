@@ -1,6 +1,6 @@
 
 
-class BaseExpTemplate:
+class TemplateBase:
 
     VARIANTS = [ 'a', 'b', 'c', 'd' ]
     
@@ -108,10 +108,10 @@ class BaseExpTemplate:
         # print(f"Template {self.name} signature: {sign}\n\n---\n\n{self.params}\n\n---\n\n")
         return sign
     
-    def clone(self) -> BaseExpTemplate:
+    def clone(self) -> TemplateBase:
         return copy.deepcopy(self)
     
-    def get_variant(self, variant: str=None, inplace: bool = False) -> BaseExpTemplate:
+    def get_variant(self, variant: str=None, inplace: bool = False) -> TemplateBase:
         template = self if inplace else self.clone()
         
         if variant == None:
@@ -121,7 +121,7 @@ class BaseExpTemplate:
             return template
 
 
-        if variant not in BaseExpTemplate.VARIANTS:
+        if variant not in TemplateBase.VARIANTS:
             raise ValueError(f"Unknown variant: {variant}")
         
         template.variant = variant
@@ -145,7 +145,7 @@ class BaseExpTemplate:
         
 
     @classmethod
-    def from_dict(cls, data: dict) -> BaseExpTemplate:
+    def from_dict(cls, data: dict) -> TemplateBase:
         tpl = cls(name=data.get('name', 'default_template'))
         tpl.params = data.get('params', {})
         tpl.variant = data.get('variant', None)
@@ -159,14 +159,14 @@ class BaseExpTemplate:
         Save the options to a YAML file.
         """
         if filepath is None:
-            filepath = f"{BaseExpTemplate.CONFIG_PATH}/template_{self.name}.yaml"
+            filepath = f"{TemplateBase.CONFIG_PATH}/template_{self.name}.yaml"
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, 'w') as f:
             
             yaml.dump(self.to_dict(), f)
     
     @classmethod
-    def load(cls, filepath) -> BaseExpTemplate:
+    def load(cls, filepath) -> TemplateBase:
         """
         Load options from a YAML file and return a MetaModelTemplate instance.
         """
@@ -178,7 +178,7 @@ class BaseExpTemplate:
     
 
 
-class ExpTemplateCNN(BaseExpTemplate):
+class TemplateCNN(TemplateBase):
 
     def __init__(self, name: str=None):
         super().__init__(name)   
@@ -188,7 +188,7 @@ class ExpTemplateCNN(BaseExpTemplate):
         self.add_range('modular_cnn_locality', [0.8, 0.99], "float") # Default modular space size
 
 
-class ExpTemplateFC(BaseExpTemplate):
+class TemplateFC(TemplateBase):
 
     def __init__(self, name: str=None):
         super().__init__(name)   

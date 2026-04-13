@@ -29,7 +29,7 @@ dependencies = [
     "kaleido",
     "tabulate",
     "faiss-cpu",
-    "faiss-gpu-cu12",
+    #"faiss-gpu-cu12",
     "ax-platform"
 ]
 

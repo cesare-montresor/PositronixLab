@@ -10,7 +10,7 @@ class CovertypeDataProvider(BaseDataProvider):
     Features (54 total):
     - Elevation, Aspect, Slope (3 continuous)
     - Distances to hydrology, roadways, fire points (4 continuous)
-    - Hillshade 9am/12pm/3pm (3 continuous)
+    - Hillshade 9am/12pm/3pm (3 continuous) 
     - Wilderness area (4 binary)
     - Soil type (40 binary)
     

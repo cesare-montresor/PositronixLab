@@ -1,5 +1,5 @@
 
-class BaseTrialConfig:
+class TrialConfig:
     """
     A class to hold options for the MetaModel.
     This class can be extended to include various configuration parameters.
