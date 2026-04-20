@@ -1,5 +1,5 @@
 
-class DataProvider():
+class DataProvider:
 
     @staticmethod
     def from_config(config:MetaModelConfig, device=None, split=None, num_workers=None):
