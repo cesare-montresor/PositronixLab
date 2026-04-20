@@ -42,10 +42,10 @@ A thread-safe and process-safe logging system with native stdout/stderr capturin
 ### 1. Quick Start (One-liner)
 
 ```python
-from modularnet.logger import activate_logger_for_thread
+from modularnet.logger import Logger 
 
 # Activate logger for current thread/subprocess with stdout/stderr capture
-logger = activate_logger_for_thread(name='myapp')
+logger = Logger.capture(name='myapp')
 
 logger.log('Application started')
 logger.warning('Be careful!')
@@ -55,9 +55,9 @@ print("This is captured automatically")
 ### 2. Basic Logging
 
 ```python
-from modularnet.logger import activate_logger_for_thread
+from modularnet.logger import Logger.capture
 
-logger = activate_logger_for_thread(name='myapp', base_path='./logs')
+logger = Logger.capture(name='myapp', base_path='./logs')
 
 # Different log levels
 logger.debug('Debug information')
@@ -73,12 +73,12 @@ logger.log('Custom level message', level='CUSTOM')
 ### 3. Multithreading
 
 ```python
-from modularnet.logger import activate_logger_for_thread
+from modularnet.logger import Logger.capture
 import threading
 
 def worker_task(worker_id):
     # Each thread gets its own logger context and log file
-    logger = activate_logger_for_thread(name=f'worker_{worker_id}')
+    logger = Logger.capture(name=f'worker_{worker_id}')
     
     logger.log(f'Worker {worker_id} started')
     print(f"Worker {worker_id} doing work...")  # Captured automatically
@@ -103,12 +103,12 @@ Log files created:
 ### 4. Multiprocessing
 
 ```python
-from modularnet.logger import activate_logger_for_thread
+from modularnet.logger import Logger.capture
 import multiprocessing
 
 def process_task(task_id):
     # Each process gets its own logger context (different PID)
-    logger = activate_logger_for_thread(name=f'task_{task_id}')
+    logger = Logger.capture(name=f'task_{task_id}')
     
     logger.log(f'Task {task_id} started in process {os.getpid()}')
     print(f"Processing task {task_id}...")  # Captured
@@ -167,7 +167,7 @@ print("Back to not captured")
 ### 7. Manual File Writing + Capture
 
 ```python
-logger = activate_logger_for_thread(name='app')
+logger = Logger.capture(name='app')
 
 # Direct logging (not from print statements)
 logger.log('This is written directly')
@@ -218,7 +218,7 @@ Wrapper class that captures stdout/stderr writes while allowing passthrough.
 **Used Internally By:**
 - `enable_capture()`: Wraps stdout/stderr with StreamCapture instances
 
-### activate_logger_for_thread()
+### Logger.capture()
 Convenience function for one-liner logger activation.
 
 **Parameters:**
@@ -232,7 +232,7 @@ Convenience function for one-liner logger activation.
 
 **Usage:**
 ```python
-logger = activate_logger_for_thread(name='my_task')
+logger = Logger.capture(name='my_task')
 ```
 
 ## Log File Organization
@@ -271,11 +271,11 @@ Process ID: 364072, Thread: Thread-1 (thread_worker)
 ```python
 # ✅ Good: Create logger for each worker
 def worker():
-    logger = activate_logger_for_thread(name='worker')
+    logger = Logger.capture(name='worker')
     logger.log('Started')
 
 # ❌ Avoid: Sharing logger across threads without proper setup
-logger = activate_logger_for_thread(name='app')
+logger = Logger.capture(name='app')
 def worker():
     logger.log('From worker')  # Works but logs to main thread's file
 ```
@@ -283,18 +283,18 @@ def worker():
 ### 2. Use Meaningful Names
 ```python
 # ✅ Good: Descriptive context names
-logger = activate_logger_for_thread(name='model_training')
-logger = activate_logger_for_thread(name='data_loader')
+logger = Logger.capture(name='model_training')
+logger = Logger.capture(name='data_loader')
 
 # ❌ Avoid: Generic names
-logger = activate_logger_for_thread(name='worker')
-logger = activate_logger_for_thread(name='task')
+logger = Logger.capture(name='worker')
+logger = Logger.capture(name='task')
 ```
 
 ### 3. Cleanup After Use
 ```python
 # ✅ Good: Cleanup when done
-logger = activate_logger_for_thread(name='app')
+logger = Logger.capture(name='app')
 try:
     # ... work ...
 finally:
@@ -310,7 +310,7 @@ if __name__ == '__main__':
 ### 4. Enable Capture for Key Operations
 ```python
 # ✅ Good: Capture for interactive components
-logger = activate_logger_for_thread(capture_stdout=True, capture_stderr=True)
+logger = Logger.capture(capture_stdout=True, capture_stderr=True)
 
 # ✅ Selective capture
 logger = Logger(capture_stdout=False)  # No capture initially
@@ -435,7 +435,7 @@ class AsyncLogger(Logger):
 ```python
 from contextlib import redirect_stdout, redirect_stderr
 
-logger = activate_logger_for_thread(name='app', capture_stdout=False)
+logger = Logger.capture(name='app', capture_stdout=False)
 
 # Capture specific library output
 with logger.capture_context(stdout=True, stderr=True):
@@ -490,7 +490,7 @@ print(f"Logger stats: {stats}")
 ### Issue: stdout/stderr not captured
 **Solutions:**
 - Enable capturing: `logger.enable_capture(stdout=True, stderr=True)`
-- Or use one-liner: `activate_logger_for_thread()`
+- Or use one-liner: `Logger.capture()`
 - Check that `sys.stdout` isn't being redirected elsewhere
 
 ### Issue: Lost logs when process crashes
@@ -509,10 +509,10 @@ print(f"Logger stats: {stats}")
 
 ### Web Server
 ```python
-from modularnet.logger import activate_logger_for_thread
+from modularnet.logger import Logger.capture
 
 def handle_request(request_id):
-    logger = activate_logger_for_thread(name=f'request_{request_id}')
+    logger = Logger.capture(name=f'request_{request_id}')
     logger.log('Request started')
     # ... process request ...
     logger.log('Request completed')
@@ -520,7 +520,7 @@ def handle_request(request_id):
 
 ### Machine Learning Training
 ```python
-logger = activate_logger_for_thread(name='training')
+logger = Logger.capture(name='training')
 logger.log('Training started')
 
 for epoch in range(num_epochs):
@@ -534,17 +534,17 @@ logger.log('Training completed')
 ### Data Processing Pipeline
 ```python
 def extract():
-    logger = activate_logger_for_thread(name='extract')
+    logger = Logger.capture(name='extract')
     logger.log('Extracting data')
     return data
 
 def transform():
-    logger = activate_logger_for_thread(name='transform')
+    logger = Logger.capture(name='transform')
     logger.log('Transforming data')
     return transformed_data
 
 def load():
-    logger = activate_logger_for_thread(name='load')
+    logger = Logger.capture(name='load')
     logger.log('Loading data')
     return result
 

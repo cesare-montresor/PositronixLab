@@ -5,10 +5,10 @@ The rewritten `Logger` class provides robust multithreading and multiprocessing 
 ## Quick Start (One-liner)
 
 ```python
-from modularnet.common.logger import activate_logger_for_thread
+from modularnet.common.logger import Logger.capture
 
 # Activate logger for current thread/subprocess
-logger = activate_logger_for_thread(name='my_task')
+logger = Logger.capture(name='my_task')
 logger.log('Hello world')
 print("This is captured automatically")
 ```
@@ -16,9 +16,9 @@ print("This is captured automatically")
 ## Basic Logging Methods
 
 ```python
-from modularnet.common.logger import Logger, activate_logger_for_thread
+from modularnet.common.logger import Logger, Logger.capture
 
-logger = activate_logger_for_thread()
+logger = Logger.capture()
 
 # Different log levels
 logger.debug('Debug message')      # [DEBUG]
@@ -31,12 +31,12 @@ logger.error('Error message')      # [ERROR]
 ## Example: Multithreading
 
 ```python
-from modularnet.common.logger import activate_logger_for_thread
+from modularnet.common.logger import Logger.capture
 import threading
 
 def worker_task(worker_id):
     # Each thread gets its own logger context
-    logger = activate_logger_for_thread(name=f'worker_{worker_id}')
+    logger = Logger.capture(name=f'worker_{worker_id}')
     logger.log(f'Worker {worker_id} started')
     print(f"Worker {worker_id} doing work...")  # Captured automatically
     logger.log(f'Worker {worker_id} done')
@@ -60,12 +60,12 @@ for t in threads:
 ## Example: Multiprocessing
 
 ```python
-from modularnet.common.logger import activate_logger_for_thread
+from modularnet.common.logger import Logger.capture
 import multiprocessing
 
 def process_task(task_id):
     # Each process gets its own logger context
-    logger = activate_logger_for_thread(name=f'process_{task_id}')
+    logger = Logger.capture(name=f'process_{task_id}')
     logger.log(f'Process {task_id} started')
     print(f"Processing task {task_id}...")  # Captured automatically
     logger.log(f'Process {task_id} complete')
@@ -102,7 +102,7 @@ logger = Logger(
 ### Context Manager for Temporary Capture
 
 ```python
-logger = activate_logger_for_thread()
+logger = Logger.capture()
 
 logger.log('Starting')
 print("Not captured initially")
@@ -118,7 +118,7 @@ print("Back to not captured")
 ### Manual Capture Control
 
 ```python
-logger = activate_logger_for_thread(capture_stdout=False)
+logger = Logger.capture(capture_stdout=False)
 
 # Manually enable later
 logger.enable_capture(stdout=True, stderr=True)
@@ -132,7 +132,7 @@ print("No longer captured")
 ### Cleanup
 
 ```python
-logger = activate_logger_for_thread()
+logger = Logger.capture()
 # ... do work ...
 
 # Flush all log files
@@ -166,7 +166,7 @@ Example:
 ✅ **Thread-safe**: Each thread/process gets isolated log files  
 ✅ **Process-safe**: Different processes (different PIDs) logged separately  
 ✅ **Automatic stdout/stderr capture**: Optional capturing of print() statements  
-✅ **One-liner activation**: Simple `activate_logger_for_thread()` call  
+✅ **One-liner activation**: Simple `Logger.capture()` call  
 ✅ **Multiple log levels**: DEBUG, LOG, WARNING, ERROR  
 ✅ **Meaningful context names**: Process ID, thread name in all logs  
 ✅ **Context managers**: Temporary capture control  

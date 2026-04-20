@@ -1,10 +1,12 @@
 
+from __future__ import annotations
+
 from modularnet.logger import Logger
 import time
+from typing import Dict, List
 
 from torch import multiprocessing as mp
 
-from modularnet.plugin.plugin_manager import PluginManagerBase
 from modularnet.task.task import Task
 
 

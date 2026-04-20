@@ -4,7 +4,7 @@ from typing import Callable, Dict, Optional, Tuple
 import torch
 from torch import multiprocessing as mp
 
-from modularnet.plugin.plugin_pubsub_old import PluginManagerPubSub, PluginPubSub
+from draft.plugin_pubsub_old import PluginManagerPubSub, PluginPubSub
 
 
 # ---------------------------------------------------------------------------

@@ -2,35 +2,10 @@ import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import torch
-import torch.nn as nn
 from torch import multiprocessing as mp
 
 from modularnet.plugin.plugin_base import PluginBase, PluginManagerBase
-
-
-
-# ---------------------------------------------------------------------------
-# Transport strategies — auto-detected from value type
-# ---------------------------------------------------------------------------
-
-class _Transport:
-    PICKLE        = "pickle"         # small objects, stateless modules, criterion
-    SHARED_MODULE = "shared_module"  # nn.Module with parameters → share_memory_()
-    SHARED_TENSOR = "shared_tensor"  # CPU tensor → TensorChannel-style slot
-    CUDA_IPC      = "cuda_ipc"       # CUDA tensor → CUDA IPC handle
-    SIGNAL_ONLY   = "signal_only"    # large/unserializable → notify only, no value
-
-
-def _classify(value: Any) -> str:
-    if isinstance(value, nn.Module):
-        if len(list(value.parameters())) > 0:
-            return _Transport.SHARED_MODULE
-        return _Transport.PICKLE           # stateless module (pure functional)
-    if isinstance(value, torch.Tensor):
-        if value.is_cuda:
-            return _Transport.CUDA_IPC
-        return _Transport.SHARED_TENSOR
-    return _Transport.PICKLE
+from modularnet.plugin.plugin_transport import _Transport, _classify
 
 
 # ---------------------------------------------------------------------------

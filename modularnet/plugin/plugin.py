@@ -1,19 +1,32 @@
+"""
+Backward-compatible aliases for the unified plugin system.
 
-from torch import P
+These provide convenient imports for the main Plugin and PluginManager classes
+that combine pub/sub and environment variable functionality.
+"""
 
 from modularnet.plugin.plugin_env import PluginEnv, PluginManagerEnv
-from modularnet.plugin.plugin_pubsub_old import PluginManagerPubSub, PluginPubSub
+from modularnet.plugin.plugin_pubsub import PluginManagerPubSub, PluginPubSub
 
 
 class PluginManager(PluginManagerPubSub, PluginManagerEnv):
-    """Backward-compatible alias for PluginManagerPubSub with full pub/sub support."""
+    """
+    Unified plugin manager with full pub/sub and environment variable support.
+    
+    Combines:
+    - PluginManagerPubSub: unified pub/sub with automatic transport detection
+    - PluginManagerEnv: environment variable registry and synchronization
+    """
     pass
-            
-
 
 
 class Plugin(PluginPubSub, PluginEnv):
-    """Backward-compatible alias for PluginManagerPubSub with full pub/sub support."""
+    """
+    Unified plugin base class with full pub/sub and environment variable support.
+    
+    Combines:
+    - PluginPubSub: unified pub/sub with automatic transport detection
+    - PluginEnv: environment variable get/set/watch capabilities
+    """
     pass
-            
 

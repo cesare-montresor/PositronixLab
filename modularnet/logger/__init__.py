@@ -1,3 +1,3 @@
-from .logger import Logger, activate_logger_for_thread, StreamCapture
+from .logger import Logger, StreamCapture
 
-__all__ = ['Logger', 'activate_logger_for_thread', 'StreamCapture']
+__all__ = ['Logger', 'StreamCapture']
