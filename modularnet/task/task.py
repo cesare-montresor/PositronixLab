@@ -1,91 +1,109 @@
-
-from threading import Thread
-
-from torch.multiprocessing import Process, Queue, Event
-from typing import Literal, Optional, Tuple, Dict
-import os
-import time
-
+import threading
+import multiprocessing
 from abc import ABC, abstractmethod
-
-from modularnet.utils.logger import Logger
-
-
+from typing import Callable, Any
 
 class BaseTask(ABC):
-    EXEC_THREAD = 'thread'
-    EXEC_PROCESS = 'process'
-    EXEC_SYNC = 'sync'
-    EXEC_LIST = [EXEC_THREAD, EXEC_PROCESS, EXEC_SYNC]
-    EXEC_DEFAULT = EXEC_PROCESS
+    """Abstract base class for parallel tasks."""
+    
+    @abstractmethod
+    def run(self) -> Any:
+        """Execute the task logic."""
+        pass
+    
+    @abstractmethod
+    def start(self) -> None:
+        """Start the task."""
+        pass
+    
+    @abstractmethod
+    def join(self) -> None:
+        """Wait for the task to complete."""
+        pass
+    
+    @abstractmethod
+    def is_alive(self) -> bool:
+        """Check if the task is still running."""
+        pass
+    
 
-    def __init__(self, exec_type=EXEC_DEFAULT, repeat: int = -1, fatal_errros: bool = False,  autostart: bool = True):
-        self.exec_type = exec_type
-        if self.exec_type not in self.EXEC_LIST:
-            raise ValueError(f"Invalid exec_type '{self.exec_type}'. Must be one of {self.EXEC_LIST}.")
-        
-        
-        self.process = Process(target=self.run)
-        self.thread = Thread(target=self.run)
-        
-        self.in_queue = Queue()
-        self.out_queue = Queue()
-        self.start_event = Event()
-        self.stop_event = Event()
-        self.fatal_errors = fatal_errros
-        self.repeat = repeat
-        
 
-        if autostart:
-            self.start()
+class ThreadTask(BaseTask):
+    """Task that runs in a separate thread."""
+    
+    def __init__(self, target: Callable, args: tuple = (), kwargs: dict = None):
+        self.target = target
+        self.args = args
+        self.kwargs = kwargs or {}
+        self.thread = threading.Thread(target=self.run)
+    
+    def run(self) -> Any:
+        """Execute the target function."""
+        return self.target(*self.args, **self.kwargs)
+    
+    def start(self) -> None:
+        """Start the thread."""
+        self.thread.start()
+    
+    def join(self) -> None:
+        """Wait for the thread to complete."""
+        self.thread.join()
+    
+    def is_alive(self) -> bool:
+        """Check if the thread is still running."""
+        return self.thread.is_alive()
 
-        
-    def start(self, wait: bool = False):
-        self.start_event.clear()
-        self.stop_event.clear()
+
+class ProcessTask(BaseTask):
+    """Task that runs in a separate process."""
+    
+    def __init__(self, target: Callable, args: tuple = (), kwargs: dict = None):
+        self.target = target
+        self.args = args
+        self.kwargs = kwargs or {}
+        self.process = multiprocessing.Process(target=self.run)
+    
+    def run(self) -> Any:
+        """Execute the target function."""
+        return self.target(*self.args, **self.kwargs)
+    
+    def start(self) -> None:
+        """Start the process."""
         self.process.start()
-        if wait:
-            self.start_event.wait()
-        self.onStart()   
+    
+    def join(self) -> None:
+        """Wait for the process to complete."""
+        self.process.join()
         
     
-
-    def stop(self, wait: bool = True):
-        self.stop_event.set()
-        self.process.terminate()
-        if wait: 
-            self.process.join()
-
-    def run(self):
-        self.start_event.set()
-        Logger().capture_stdout()
-        while not self.stop_event.is_set():
-            try:
-                self.onUpdate()
-            except Exception as e:
-                print(f"{self.__class__.__name__} encountered an error: {e}")
-                import traceback
-                traceback.print_exc()
-                if self.fatal_errors:
-                    self.stop_event.set()
-                    raise e
+    def is_alive(self) -> bool:
+        """Check if the process is still running."""
+        return self.process.is_alive()
 
 
-        self.stop_event.clear()
-        self.start_event.clear()
-        
-    def add_data(self, data):
-        uid = f"uid_{self.__class__.__name__}_{os.getpid()}_{time.time()}"
-        self.in_queue.put( (uid, data) )
-        return uid
-
-    def get_result(self, block: bool = True, timeout: Optional[float] = None):
-        return self.out_queue.get(block=block, timeout=timeout)
+class Task:
+    """Factory class to create parallel tasks (thread or process)."""
     
-    def queue_status(self):
-        return self.in_queue.qsize(), self.out_queue.qsize()
-
-
-    # to override
-    def onStart(self): pass
-    def onUpdate(self): pass
+    @staticmethod
+    def create(target: Callable, mode: str = "thread", args: tuple = (), kwargs: dict = None) -> BaseTask:
+        """
+        Create a parallel task.
+        
+        Args:
+            target: The function to execute.
+            mode: "thread" for threading or "process" for multiprocessing.
+            args: Positional arguments for the target function.
+            kwargs: Keyword arguments for the target function.
+        
+        Returns:
+            A BaseTask instance (ThreadTask or ProcessTask).
+        
+        Raises:
+            ValueError: If mode is not "thread" or "process".
+        """
+        if mode == "thread":
+            return ThreadTask(target, args, kwargs)
+        elif mode == "process":
+            return ProcessTask(target, args, kwargs)
+        else:
+            raise ValueError(f"Mode must be 'thread' or 'process', got '{mode}'")
