@@ -97,6 +97,14 @@ class PluginManagerBase:
         self.plugins[name] = plugin
         plugin.set_manager(self)
     
+    def unregister_plugin(self, plugin: PluginBase, name: str = None):
+        """Unregister a plugin with the manager."""
+        if name is None:
+            name = plugin.name
+        if name in self.plugins:
+            del self.plugins[name]
+        plugin.set_manager(None)
+    
     def start_plugin(self, name: str):
         """Start a registered plugin."""
         if name in self.plugins:
