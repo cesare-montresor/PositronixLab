@@ -2,7 +2,7 @@
 import os
 import time
 
-from modularnet.metamodel.metamodelconfig import MetaModelConfig
+from modularnet.config.trial_config import TrialConfig
 import torch
 from torchvision import transforms
 
@@ -10,6 +10,8 @@ import torch.nn as nn
 from collections import OrderedDict
 
 from torchsummary import summary
+
+from modularnet.metamodel.metacriterion import MetaCriterion
 
 
 class BaseModel(nn.Module):
@@ -50,7 +52,7 @@ class MetaModel(BaseModel):
     LAYER_TYPES = {'fc': nn.Linear, 'cnn': nn.Conv2d, 'decnn': nn.ConvTranspose2d, 'rnn': nn.RNN, 'transformer': nn.TransformerEncoder}
     # TODO: implementre support for 'rnn', 'transformer']
         
-    def __init__(self, name, config:MetaModelConfig, device=None):
+    def __init__(self, name, config:TrialConfig, device=None):
         super().__init__()
         self.name = name
         self.config = config
@@ -428,86 +430,3 @@ class ResNet(nn.Module):
     def forward(self, inputs):
         return self.module(inputs) + inputs
     
-
-class MetaCriterion():
-    """
-    A class to hold options for the MetaCriterion.
-    This class can be extended to include various configuration parameters.
-    """
-    def __init__(self, options):
-        self.custom_losses = {}
-        self.task =  options.task  # Default task is regression
-        self.criterion_type = options.criterion_type
-
-    def custom_loss(self, name, function):
-        self.custom_losses[name] = function
-    
-    def loss(self, x, y, y_hat):
-        if self.task == 'autoencoder': y = x
-
-        name = self.criterion_type
-        if name == 'cross_entropy':
-            return nn.functional.cross_entropy(y_hat, y)        
-        elif name == 'mse':
-            return nn.functional.mse_loss(y_hat, y)
-        elif name == 'mae':
-            return nn.functional.l1_loss(y_hat, y)
-        elif name == 'huber':
-            return nn.functional.huber_loss(y_hat, y)
-        elif name == 'bce_with_logits':
-            return nn.functional.binary_cross_entropy_with_logits(y_hat, y)
-        elif name == 'bce':
-            return nn.functional.binary_cross_entropy(y_hat, y)
-        elif name in self.custom_losses:
-            return self.custom_losses[name](y_hat, y)
-        else:
-            raise ValueError(f"Unsupported criterion type: {name}")
-        
-
-
-
-class MetaTransform():
-    """
-    A class to hold options for the MetaTransform.
-    This class can be extended to include various configuration parameters.
-    """
-    def __init__(self, transform_list):
-        self.transform_list = transform_list
-        self.transforms = None
-        
-        ts = []
-        for name in self.transform_list:
-            
-            if name == 'normalize':
-                t = transforms.Normalize(mean=[0.5], std=[0.5])
-            elif name == 'flatten':
-                t = transforms.Lambda(lambda x: torch.flatten(x, start_dim=0))
-            elif name == 'to_tensor':
-                t = transforms.ToTensor()
-            elif name == 'to_float':
-                t = transforms.Lambda(lambda x: x.float())
-            elif name == 'to_long':
-                t = transforms.Lambda(lambda x: x.long())
-            elif name == 'normalize_image':
-                t = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-            elif name == 'augment_image':
-                t = transforms.Compose([
-                    transforms.ToPILImage(),
-                    transforms.RandomHorizontalFlip(),
-                    transforms.RandomVerticalFlip(),
-                    transforms.RandomRotation(360),
-                    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-                    transforms.ToTensor(),
-                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                ])
-            else:
-                raise ValueError(f"Unsupported transform type: {name}")
-
-            ts.append(t)
-        self.transforms = transforms.Compose(ts)
-    
-
-        
-    def apply(self, x):
-        
-        return self.transforms(x)
