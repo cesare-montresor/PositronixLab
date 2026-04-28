@@ -1,18 +1,34 @@
-
 # =============================================================================
 # HIGGS Dataset
 # =============================================================================
 
+from pathlib import Path
+import gzip
+import shutil
+import requests
+import numpy as np
+import pandas as pd
+import torch
+from torch.utils.data import Dataset, DataLoader, random_split
+from modularnet.dataprovider.base_dataprovider import BaseDataProvider
+
+
 class HIGGSDataProvider(BaseDataProvider):
     """
-    HIGGS Dataset Provider for binary classification.
+    HIGGS Dataset Provider for binary classification - optimized for large datasets.
     
     Features:
     - 21 low-level features (raw detector measurements)
     - 7 high-level features (physics-derived quantities)
     - Total: 28 features
-    - 11M samples (use subset_size for smaller experiments)
+    - 11M samples (process via epoch_size for efficiency)
     - Binary classification: signal (1) vs background (0)
+    
+    Design for large physics datasets:
+    - Splits data into train/val/test chunks first
+    - Within each chunk, randomly samples epoch_size for each epoch
+    - No need to load entire dataset into memory
+    - Ideal for multi-job scenarios on shared hardware
     
     Args:
         batch_size: Batch size for dataloaders
@@ -20,8 +36,13 @@ class HIGGSDataProvider(BaseDataProvider):
         device: Device to use
         num_workers: Number of dataloader workers
         transforms: Optional transforms
-        normalize: Whether to normalize features
-        subset_size: Use only this many samples (for testing)
+        normalize: Whether to normalize features (computed from train set)
+        epoch_size: Samples per epoch. Two modes:
+            - Float (0.0-1.0): percentage applied independently to each split
+              e.g., 0.1 = 10% of train, 10% of val, 10% of test
+            - Int (>1): absolute sample count for training set; percentage computed
+              and applied to val/test as well
+              e.g., 1000000 samples in train → compute %, apply to val and test
         root: Root directory for data
     """
     def __init__(self,
@@ -31,7 +52,7 @@ class HIGGSDataProvider(BaseDataProvider):
                  num_workers=None,
                  transforms=None,
                  normalize=True,
-                 subset_size=None,
+                 epoch_size=0.1,
                  root='./data'):
         super().__init__(
             batch_size=batch_size,
@@ -48,46 +69,97 @@ class HIGGSDataProvider(BaseDataProvider):
         self.y_shape = ()
         self.normalize = normalize
         self.root = Path(root)
+        self.epoch_size = epoch_size
         
-        # Create dataset
-        self.dataset = HIGGSDataset(
+        # Load full dataset metadata (lazy load) - always use 100% for accurate split size
+        self.dataset_full = HIGGSDataset(
             root=root,
-            normalize=normalize,
-            subset_size=subset_size,
             device=device,
-            transforms=transforms
+            transforms=transforms,
+            epoch_size=1.0  # Use full dataset to compute accurate split indices
         )
         
-        # Split dataset
+        # Get true dataset size from full_x/full_y (set by _load_full_data)
+        true_dataset_size = len(self.dataset_full.full_x)
+        
+        # Split into train/val/test indices (doesn't load data yet)
         if len(self.dataset_split) == 3:
-            # Three-way split
-            train_size = int(self.dataset_split[0] * len(self.dataset))
-            val_size = int(self.dataset_split[1] * len(self.dataset))
-            test_size = len(self.dataset) - train_size - val_size
+            train_size = int(self.dataset_split[0] * true_dataset_size)
+            val_size = int(self.dataset_split[1] * true_dataset_size)
+            test_size = true_dataset_size - train_size - val_size
             
-            self.dataset_train, self.dataset_val, self.dataset_test = random_split(
-                self.dataset, 
+            splits = random_split(
+                self.dataset_full, 
                 [train_size, val_size, test_size],
                 generator=torch.Generator().manual_seed(42)
             )
             
-            # Create subset datasets
-            self.dataset_train = self.dataset.copy(self.dataset_train.indices)
-            self.dataset_val = self.dataset.copy(self.dataset_val.indices)
-            self.dataset_test = self.dataset.copy(self.dataset_test.indices)
-            
-            # Normalize using train statistics
-            if normalize:
-                self.dataset_train.compute_normalization()
-                self.dataset_val.apply_normalization(self.dataset_train.mean, self.dataset_train.std)
-                self.dataset_test.apply_normalization(self.dataset_train.mean, self.dataset_train.std)
+            self.train_indices = splits[0].indices
+            self.val_indices = splits[1].indices
+            self.test_indices = splits[2].indices
         else:
-            # Two-way split (train/val only)
-            self.dataset_train, self.dataset_val = self.dataset.random_split(self.dataset_split)
-            if normalize:
-                self.dataset_train.compute_normalization()
-                self.dataset_val.apply_normalization(self.dataset_train.mean, self.dataset_train.std)
+            train_size = int(self.dataset_split[0] * true_dataset_size)
+            self.train_indices = np.arange(train_size)
+            self.val_indices = np.arange(train_size, true_dataset_size)
+            self.test_indices = None
+            val_size = true_dataset_size - train_size
+            test_size = 0
+        
+        # Compute effective epoch_size for each split
+        # If epoch_size is int (>1): compute percentage from training set, apply to all splits
+        # If epoch_size is float (0.0-1.0): apply independently to each split
+        if isinstance(epoch_size, int) and epoch_size > 1:
+            # epoch_size is absolute number for training set
+            percentage = epoch_size / train_size
+            epoch_size_train = epoch_size
+            epoch_size_val = int(percentage * val_size)
+            epoch_size_test = int(percentage * test_size) if test_size > 0 else 0
+        else:
+            # epoch_size is percentage, apply to each split independently
+            epoch_size_train = epoch_size
+            epoch_size_val = epoch_size
+            epoch_size_test = epoch_size
+        
+        # Create split datasets with computed epoch_size
+        self.dataset_train = HIGGSDataset(
+            root=root,
+            device=device,
+            transforms=transforms,
+            indices=self.train_indices,
+            epoch_size=epoch_size_train,
+            normalize=normalize,
+            split_name='train'
+        )
+        
+        self.dataset_val = HIGGSDataset(
+            root=root,
+            device=device,
+            transforms=transforms,
+            indices=self.val_indices,
+            epoch_size=epoch_size_val,
+            normalize=normalize,
+            split_name='val'
+        )
+        
+        if self.test_indices is not None:
+            self.dataset_test = HIGGSDataset(
+                root=root,
+                device=device,
+                transforms=transforms,
+                indices=self.test_indices,
+                epoch_size=epoch_size_test,
+                normalize=normalize,
+                split_name='test'
+            )
+        else:
             self.dataset_test = None
+        
+        # Compute normalization from training set
+        if normalize:
+            self.dataset_train.compute_normalization()
+            self.dataset_val.apply_normalization(self.dataset_train.mean, self.dataset_train.std)
+            if self.dataset_test is not None:
+                self.dataset_test.apply_normalization(self.dataset_train.mean, self.dataset_train.std)
         
         # Create dataloaders
         self.train = DataLoader(
@@ -123,30 +195,34 @@ class HIGGSDataProvider(BaseDataProvider):
 
 
 class HIGGSDataset(Dataset):
-    """HIGGS Dataset with lazy loading and normalization support"""
+    """
+    HIGGS Dataset with lazy loading, efficient splits, and epoch-based sampling.
+    
+    Features:
+    - Lazy loading: doesn't load data until needed
+    - Epoch sampling: randomly samples epoch_size from the split each time __getitem__ is called
+    - Memory efficient: only keeps active epoch in memory
+    - Supports arbitrary train/val/test splits
+    """
     
     URL = "https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz"
     
     def __init__(self,
                  root='./data',
-                 normalize=True,
-                 subset_size=None,
                  device=None,
                  indices=None,
-                 transforms=None):
+                 transforms=None,
+                 epoch_size=0.1,
+                 normalize=True,
+                 split_name=None):
         super().__init__()
         
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
-        self.normalize = normalize
-        self.subset_size = subset_size
-        self.indices = indices
+        self.device = device if device is not None else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.transforms = transforms
-        
-        if device is None:
-            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        else:
-            self.device = device
+        self.normalize = normalize
+        self.split_name = split_name
         
         # File paths
         self.raw_file = self.root / "HIGGS.csv.gz"
@@ -157,12 +233,39 @@ class HIGGSDataset(Dataset):
         if not self.processed_file.exists() and not self.npy_file.exists():
             self._download()
         
-        # Load data
-        self._load_data()
+        # Load full dataset first (to get indices)
+        self._load_full_data()
         
-        # Normalization stats (computed later)
+        # Apply split indices if provided
+        if indices is not None:
+            self.indices = indices if isinstance(indices, np.ndarray) else np.array(indices)
+            self.split_size = len(self.indices)
+        else:
+            self.indices = np.arange(len(self.full_x))
+            self.split_size = len(self.full_x)
+        
+        # Compute epoch size
+        self.epoch_size = self._compute_epoch_size(epoch_size)
+        
+        # Current epoch data (sampled on demand)
+        self.x = None
+        self.y = None
+        self.current_epoch_indices = None
+        
+        # Normalization stats
         self.mean = None
         self.std = None
+    
+    def _compute_epoch_size(self, epoch_size):
+        """Convert epoch_size to integer sample count"""
+        if isinstance(epoch_size, int):
+            return min(epoch_size, self.split_size)
+        elif isinstance(epoch_size, float):
+            if not (0.0 < epoch_size <= 1.0):
+                raise ValueError(f"epoch_size as float must be in (0.0, 1.0], got {epoch_size}")
+            return max(1, int(epoch_size * self.split_size))
+        else:
+            raise TypeError(f"epoch_size must be int or float, got {type(epoch_size)}")
     
     def _download(self):
         """Download HIGGS dataset"""
@@ -184,76 +287,71 @@ class HIGGSDataset(Dataset):
         
         print("Download complete!")
     
-    def _load_data(self):
-        """Load data from CSV or NPY"""
-        # Try to load from npy (faster)
+    def _load_full_data(self):
+        """Load full dataset from CSV or NPY (cached for efficiency)"""
         if self.npy_file.exists():
             print(f"Loading HIGGS from {self.npy_file}...")
             data = np.load(self.npy_file)
-            if self.subset_size:
-                data = data[:self.subset_size]
         else:
             print(f"Loading HIGGS from {self.processed_file}...")
             columns = ['label'] + [f'feature_{i}' for i in range(28)]
-            
-            if self.subset_size:
-                df = pd.read_csv(self.processed_file, names=columns, nrows=self.subset_size)
-            else:
-                df = pd.read_csv(self.processed_file, names=columns)
-            
+            df = pd.read_csv(self.processed_file, names=columns)
             data = df.values
-            # Save as npy for faster loading next time
             np.save(self.npy_file, data)
         
-        # Split features and labels
-        self.x = torch.from_numpy(data[:, 1:].astype(np.float32))
-        self.y = torch.from_numpy(data[:, 0].astype(np.int64))
+        self.full_x = torch.from_numpy(data[:, 1:].astype(np.float32))
+        self.full_y = torch.from_numpy(data[:, 0].astype(np.int64))
+    
+    def _sample_epoch(self, seed=None):
+        """Randomly sample epoch_size from the split"""
+        if seed is None:
+            # Use a seed derived from current time for variety across runs
+            seed = np.random.randint(0, 2**31)
         
-        # Apply indices if provided
-        if self.indices is not None:
-            self.x = self.x[self.indices]
-            self.y = self.y[self.indices]
+        np.random.seed(seed)
+        epoch_indices = np.random.choice(self.indices, size=self.epoch_size, replace=False)
+        
+        self.x = self.full_x[epoch_indices]
+        self.y = self.full_y[epoch_indices]
+        self.current_epoch_indices = epoch_indices
     
     def compute_normalization(self):
-        """Compute mean and std for normalization (call on training set)"""
-        self.mean = self.x.mean(dim=0)
-        self.std = self.x.std(dim=0)
-        if self.normalize:
-            self.x = (self.x - self.mean) / (self.std + 1e-8)
+        """Compute normalization stats from full split (for efficiency, sample if large)"""
+        # Sample a reasonable size for computing stats (max 100k samples)
+        sample_size = min(100000, self.split_size)
+        if sample_size < self.split_size:
+            np.random.seed(42)
+            stat_indices = np.random.choice(self.indices, size=sample_size, replace=False)
+            x_sample = self.full_x[stat_indices]
+        else:
+            x_sample = self.full_x[self.indices]
+        
+        self.mean = x_sample.mean(dim=0)
+        self.std = x_sample.std(dim=0)
     
     def apply_normalization(self, mean, std):
-        """Apply normalization using provided statistics (for val/test sets)"""
-        if self.normalize:
-            self.mean = mean
-            self.std = std
-            self.x = (self.x - mean) / (std + 1e-8)
-    
-    def copy(self, indices=None):
-        """Create a copy with subset of indices"""
-        return HIGGSDataset(
-            root=str(self.root),
-            normalize=self.normalize,
-            subset_size=self.subset_size,
-            device=self.device,
-            indices=indices,
-            transforms=self.transforms
-        )
-    
-    def random_split(self, split):
-        """Split dataset randomly"""
-        subsets = random_split(self, split, generator=torch.Generator().manual_seed(42))
-        ds_subs = []
-        for subset in subsets:
-            ds_sub = self.copy(subset.indices)
-            ds_subs.append(ds_sub)
-        return ds_subs
+        """Apply precomputed normalization (from training set)"""
+        self.mean = mean
+        self.std = std
     
     def __len__(self):
-        return len(self.x)
+        """Returns epoch_size (samples available per epoch)"""
+        return self.epoch_size
     
     def __getitem__(self, idx):
+        """Get item, sampling new epoch if needed"""
+        # Sample a new epoch on first access or after resets
+        if self.x is None:
+            self._sample_epoch()
+        
+        # Apply normalization if available
+        x = self.x[idx % len(self.x)]
+        y = self.y[idx % len(self.y)]
+        
+        if self.normalize and self.mean is not None:
+            x = (x - self.mean) / (self.std + 1e-8)
+        
         if self.transforms is not None:
-            x = self.transforms.apply(self.x[idx])
-            return x, self.y[idx]
-        return self.x[idx], self.y[idx]
-
+            x = self.transforms.apply(x)
+        
+        return x, y

@@ -1,4 +1,7 @@
 
+import torch
+
+
 class BaseDataProvider():
     def __init__(self, 
                  batch_size=32,
