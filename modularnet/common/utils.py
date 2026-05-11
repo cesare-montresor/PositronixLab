@@ -128,6 +128,9 @@ def is_layer(module):
 def is_conv(module):
     return module_name(module) == 'torch.nn.modules.conv'
 
+def is_linear(module):
+    return module_name(module) == 'torch.nn.modules.linear'
+
 def truth_table_from_cm(confusion_matrix:np.ndarray):
     truth_table = []
     for i in range(len(confusion_matrix)):

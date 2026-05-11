@@ -23,7 +23,6 @@ from scipy.stats import entropy
 
 
 from modularnet.modularspace.modularobserver import ModularObserver
-from modularnet.common.utils import  is_activation, is_conv, is_layer
 
 
 
@@ -68,9 +67,6 @@ class ModularSpace():
         self.num_workers = 4 if num_workers is None else num_workers
         self.base_path = './' if base_path is None else base_path
         
-        #print('summary model', summary(self.module,(784,)))
-        self.inject_observer(self.module, useLayers=useLayers, useActivations=useActivations)
-       
 
         self.space_loss = SpaceLoss(self)
         self.last_space_loss = self.space_loss
@@ -314,17 +310,7 @@ class ModularSpace():
         ax = x.detach()
         mos_id = self.mos_id(mos)
         self.activation_queue.put((self.last_batch, mos_id, ax))
-        
-    def mos_id(self, mo:ModularObserver):
-        for i, m in enumerate(self.mos):
-            if m == mo: return str(i)
-        return str(-1)
-
-    def mos_get(self, mos_id:str):
-        for i, m in enumerate(self.mos):
-            if str(i) == mos_id: return m
-        return None
-
+     
 
     def reset(self):
         self.position_history = []
@@ -345,39 +331,6 @@ class ModularSpace():
         return path
 
 
-    def save_cluster_map(self, filename=None):
-        filename = f'{self.name}_clusters.pth' if filename is None else filename
-        path = self.path_checkpoint(filename)
-        if os.path.exists(path): os.remove(path)
-        clustering_data = (self.last_cluster_centers,self.last_clustering_all, self.last_clustering)
-        torch.save(clustering_data, path) 
-    
-    def load_cluster_map(self, filename=None):
-        filename = f'{self.name}_clusters.pth' if filename is None else filename
-        path = self.path_checkpoint(filename)
-        if not os.path.exists(path): return False
-        clustering_data = torch.load(path, weights_only=True)
-        self.last_cluster_centers, self.last_clustering_all, self.last_clustering = clustering_data
-        self.last_clustering_all = self.last_clustering_all.to(device=self.device)
-        self.last_clustering = [clustering.to(device=self.device) for clustering in self.last_clustering]
-        return True
-    
-    def save_cluster_stats(self, filename=None):
-        filename = f'{self.name}_clusters_stats.pth' if filename is None else filename
-        path = self.path_checkpoint(filename)
-        if os.path.exists(path): os.remove(path)
-        clustering_data = (self.last_cluster_stats, self.last_cluster_stats_wrong)
-        torch.save(clustering_data, path) 
-    
-    def load_cluster_stats(self, filename=None):
-        filename = f'{self.name}_clusters_stats.pth' if filename is None else filename
-        path = self.path_checkpoint(filename)
-        if not os.path.exists(path): return False
-        clustering_data = torch.load(path, weights_only=True)
-        self.last_cluster_stats, self.last_cluster_stats_wrong = clustering_data
-        #self.last_cluster_stats = [clustering.to(device=self.device) for clustering in self.last_cluster_stats]
-        #self.last_cluster_stats_wrong = [clustering.to(device=self.device) for clustering in self.last_cluster_stats_wrong]
-        return True
 
     def save_space(self, filename=None):
         filename = f'{self.name}_space.pth' if filename is None else filename
@@ -394,46 +347,6 @@ class ModularSpace():
             pos.data += data.data 
         return True
 
-    def inject_observer(self, parent: nn.Module, num_units:int|None=None, depth=1, useLayers=True, useActivations=True):
-        for name, child in parent.named_children():
-            # child.register_full_backward_hook(self.backward_hook)
-            if hasattr(child,'out_features'): num_units = child.out_features
-            elif hasattr(parent,'out_features'): num_units = parent.out_features
-
-            if (useActivations and is_activation(child)):
-                self.mos[-1].observed_activation = child
-            elif (useLayers and is_layer(child)):
-                #print(name)
-
-                if is_conv(child):
-                    num_units = child.out_channels
-                
-                mo = ModularObserver(self, num_units, child, depth, self.device)
-                self.mos.append(mo)
-
-                # Forward search for activation layer
-                #activation_layer = self.find_activation_layer(child)
-                #if activation_layer:
-                #    mo.activation_layer = activation_layer
-                #    print(f"Associated activation layer: {activation_layer}")
-
-                #new_sequence = nn.Sequential( child, mo )
-                #setattr(parent, name, new_sequence)
-                
-                depth +=1
-            else:
-                num_units = self.inject_observer(child, num_units, depth, useLayers, useActivations)
-        
-        return num_units
-
-    def find_activation_layer(self, module: nn.Module):
-        """ Recursively searches for an activation layer in the given module's children. """
-        for _, child in module.named_children():
-            if is_activation(child): return child
-            result = self.find_activation_layer(child)  # Recursive search
-            if result: return result
-                
-        return None  # No activation found
             
     """
     def last_centers(self):
@@ -595,6 +508,45 @@ class ModularSpace():
             
         if save: self.save_cluster_map()
     """
+
+
+
+
+
+
+    def save_cluster_map(self, filename=None):
+        filename = f'{self.name}_clusters.pth' if filename is None else filename
+        path = self.path_checkpoint(filename)
+        if os.path.exists(path): os.remove(path)
+        clustering_data = (self.last_cluster_centers,self.last_clustering_all, self.last_clustering)
+        torch.save(clustering_data, path) 
+    
+    def load_cluster_map(self, filename=None):
+        filename = f'{self.name}_clusters.pth' if filename is None else filename
+        path = self.path_checkpoint(filename)
+        if not os.path.exists(path): return False
+        clustering_data = torch.load(path, weights_only=True)
+        self.last_cluster_centers, self.last_clustering_all, self.last_clustering = clustering_data
+        self.last_clustering_all = self.last_clustering_all.to(device=self.device)
+        self.last_clustering = [clustering.to(device=self.device) for clustering in self.last_clustering]
+        return True
+    
+    def save_cluster_stats(self, filename=None):
+        filename = f'{self.name}_clusters_stats.pth' if filename is None else filename
+        path = self.path_checkpoint(filename)
+        if os.path.exists(path): os.remove(path)
+        clustering_data = (self.last_cluster_stats, self.last_cluster_stats_wrong)
+        torch.save(clustering_data, path) 
+    
+    def load_cluster_stats(self, filename=None):
+        filename = f'{self.name}_clusters_stats.pth' if filename is None else filename
+        path = self.path_checkpoint(filename)
+        if not os.path.exists(path): return False
+        clustering_data = torch.load(path, weights_only=True)
+        self.last_cluster_stats, self.last_cluster_stats_wrong = clustering_data
+        #self.last_cluster_stats = [clustering.to(device=self.device) for clustering in self.last_cluster_stats]
+        #self.last_cluster_stats_wrong = [clustering.to(device=self.device) for clustering in self.last_cluster_stats_wrong]
+        return True
 
     # DEPS: cluster stats
     def cluster_class_stats(self):
@@ -763,18 +715,6 @@ class ModularSpace():
             self.last_cluster_stats[cluster][ys] += counts
 
 
-        
-    # DEPS: modularobserver
-    def set_pruning_masks(self, masks:List[torch.Tensor]=None):
-        if masks is None: masks = []
-        
-        for mo, mask in zip(self.mos, masks):
-            if mo == self.mos[-1]: continue #print("set_pruning_masks: skip last layer"); continue
-            if mask is None: print("set_pruning_masks: empty mask"); continue
-            if not isinstance(mask, torch.Tensor): print("set_pruning_masks: not a tensor!"); continue
-            mos_id = self.mos.index(mo)
-            if len(mask) != len(self.positions[mos_id]): print("set_pruning_masks: size mismatch!"); continue
-            mo.set_pruning_mask(mask)
 
     def mask_by_class(self, class_num, threshold=0.0):# -> list[Tensor | Any]:
         masks = [torch.zeros_like(ls) for ls in self.last_clustering]

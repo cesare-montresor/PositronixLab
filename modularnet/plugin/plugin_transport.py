@@ -16,6 +16,8 @@ import torch
 import torch.nn as nn
 from torch import multiprocessing as mp
 
+from modularnet.plugin.plugin import PluginManagerPubSub
+
 
 # ---------------------------------------------------------------------------
 # Transport strategies — auto-detected from value type
@@ -55,6 +57,55 @@ class TensorDeliveryMode:
     """Delivery guarantees for tensor topics."""
     SYNC   = "sync"    # writer blocks until reader consumed — every frame guaranteed
     LATEST = "latest"  # writer never blocks — reader gets newest, may skip frames
+
+
+
+# ---------------------------------------------------------------------------
+# ActivationTap — forward hook with lazy buffer allocation
+# ---------------------------------------------------------------------------
+
+class ActivationTap:
+    """
+    Attaches to a nn.Module as a forward hook and publishes the output
+    activation to a named tensor topic — with zero allocation after the
+    very first forward pass.
+
+    The shared buffer is created on the first hook invocation by inferring
+    the output shape, so you never need to know layer output sizes upfront.
+    The hook itself does only: detach() + copy_() + Event.set() — the
+    forward pass is blocked for the absolute minimum time.
+
+    Usage
+    -----
+        tap    = ActivationTap("layer3_act", manager, mode=TensorDeliveryMode.LATEST)
+        handle = model.layer3.register_forward_hook(tap.hook)
+
+        # Later, to detach:
+        handle.remove()
+
+    Any plugin subscribed to "layer3_act" will receive the activation
+    through its normal TensorChannel callback.
+    """
+
+    def __init__(
+        self,
+        topic_name: str,
+        manager: "PluginManagerPubSub",
+        dtype: torch.dtype = torch.float32,
+        mode: str = TensorDeliveryMode.LATEST,
+    ):
+        self.topic_name = topic_name
+        self.manager    = manager
+        self.dtype      = dtype
+        self.mode       = mode
+
+    def hook(self, module, input, output):
+        """Forward hook — runs in the training process, must return fast."""
+        out = output.detach()
+        self.manager.publish_tensor_to_topic(
+            self.topic_name, out, lazy=True, dtype=self.dtype, mode=self.mode
+        )
+
 
 
 # ---------------------------------------------------------------------------
