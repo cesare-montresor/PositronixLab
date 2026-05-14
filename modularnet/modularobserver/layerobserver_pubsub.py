@@ -20,9 +20,7 @@ class LayerObserverPubSub(BaseLayerObserver):
         
         self.is_linear = self.layer_type(self.observed) == 'linear'
         self.is_conv = self.layer_type(self.observed) == 'conv'
-         
-        self.publisher = ActivationTap(observed, self.observer.config.activation_tap_mode, self.observer.config.activation_tap_buffer_size)
-        # debug
+
         
 
     def forward_callback(self, layer:nn.Module, x_in:torch.Tensor, x_out:torch.Tensor):

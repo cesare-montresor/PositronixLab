@@ -1,13 +1,15 @@
 
 import re
-from typing import List
+from typing import List, TYPE_CHECKING
 
 import torch
 from torch import nn
 
 from modularnet.common.utils import is_activation, is_conv, is_layer
 from modularnet.config.trial_config import TrialConfig
-from modularnet.modularobserver.layerobserver_pubsub import LayerObserver
+
+if TYPE_CHECKING:
+    from modularnet.modularobserver.layerobserver_pubsub import LayerObserver
 
 
 class ModularObserver:
@@ -19,7 +21,7 @@ class ModularObserver:
         self.observers = []
 
        
-    def mos_id(self, mo:LayerObserver):
+    def mos_id(self, mo: 'LayerObserver'):
         for i, m in enumerate(self.observers):
             if m == mo: return str(i)
         return str(-1)

@@ -5,8 +5,8 @@ from queue import Empty, Queue
 import threading
 
 import tqdm
-from modularnet.metamodel.metamodel import MetaModelConfig
-from modularnet.modularspace.modularloss import SpaceLoss
+from modularnet.config.trial_config import TrialConfig
+from modularnet.spaceloss.spaceloss import SpaceLoss
 
 import pandas as pd
 import torch
@@ -22,13 +22,12 @@ import numpy as np
 from scipy.stats import entropy
 
 
-from modularnet.modularspace.modularobserver import ModularObserver
-
+from modularnet.modularobserver.modularobserver import ModularObserver
 
 
 
 class ModularSpace():
-    def __init__(self, config: MetaModelConfig, name:str, module: nn.Module, space_size:int, lr:float=0.1, history:bool=True, debug=False, useLayers=True, useActivations=True, device=None, base_path=None, num_workers=None, autostart=True, modularizer=None):
+    def __init__(self, config: TrialConfig, name:str, module: nn.Module, space_size:int, lr:float=0.1, history:bool=True, debug=False, useLayers=True, useActivations=True, device=None, base_path=None, num_workers=None, autostart=True, modularizer=None):
         self.name = name
         self.config = config
         

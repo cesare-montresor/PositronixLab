@@ -1,6 +1,7 @@
 if True==False: from modularnet.modularspace.modularspace import ModularSpace
 
 from calendar import c
+from typing import TYPE_CHECKING
 
 import torch
 from torch import nn
@@ -8,7 +9,9 @@ from torch import nn
 from modularnet.config.trial_config import TrialConfig
 
 from modularnet.common.utils import  is_activation, is_conv, is_linear, is_layer
-from modularnet.modularobserver.modularobserver import ModularObserver
+
+if TYPE_CHECKING:
+    from modularnet.modularobserver.modularobserver import ModularObserver
 
 class BaseLayerObserver:
     OBSERVABLE_LAYERS = {
