@@ -230,10 +230,10 @@ class PluginEnv(PluginBase):
                 except Exception:
                     pass  # timeout or empty
 
-    def run_main(self, options: dict = {}, **kwargs):
+    def _run_main(self, options: dict = {}, **kwargs):
         self._bind_env_queues()
         self._start_env_receiver()
-        super().run_main(options, **kwargs)
+        super()._run_main(options, **kwargs)
 
 
 # ---------------------------------------------------------------------------

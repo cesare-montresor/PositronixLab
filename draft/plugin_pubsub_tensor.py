@@ -351,9 +351,9 @@ class PluginPubSubTensor(PluginPubSub):
             if channel is not None:
                 self._tensor_channels[topic_name] = channel
 
-    def run_main(self, options: dict = {}, **kwargs):
+    def _run_main(self, options: dict = {}, **kwargs):
         self._bind_tensor_channels()
-        super().run_main(options, **kwargs)
+        super()._run_main(options, **kwargs)
 
     def _receive_messages(self):
         """

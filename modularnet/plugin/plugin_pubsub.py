@@ -165,7 +165,7 @@ class PluginPubSub(PluginBase):
             return channel
         return None
 
-    def run_main(self, options: dict = {}, **kwargs):
+    def _run_main(self, options: dict = {}, **kwargs):
         """Override to set up receiver thread in the plugin process."""
         self.options = options
         if 'fatal_errors' in kwargs:

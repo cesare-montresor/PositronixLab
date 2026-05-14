@@ -51,10 +51,10 @@ class DeeplearningSetupPlugin(Plugin):
                 num_workers=self.num_workers_data
             )
             
-            # Set environment variables for other plugins
+            
             self.env_set("model", model)
             self.env_set("dataprovider", dataset)
-            
+
             self.logger.info(f"Setup complete. Model and dataprovider initialized.")
             
         except Exception as e:
@@ -100,10 +100,19 @@ class DeeplearningTrainPlugin(Plugin):
     def onStart(self):
         """Declare the environment variables we depend on."""
         # Declare that we watch for model and dataprovider changes
-        self.env_declare("model", watch=True, on_change=self.on_model_changed)
-        self.env_declare("dataprovider", watch=True, on_change=self.on_dataprovider_changed)
+
+
+        self.model = self.env_get("model")
+        self.dataprovider = self.env_get("dataprovider")
+        self.space = self.env_get("space")  # Space is optional
+
+        self.env_watch("model", on_change=self.on_model_changed)
+        self.env_watch("dataprovider", on_change=self.on_dataprovider_changed)
         # Space is optional - can be set by setup plugin or external
-        self.env_declare("space", watch=True, on_change=self.on_space_changed, default=None)
+        self.env_watch("space", on_change=self.on_space_changed)
+
+
+
         
         self.logger.info("Training plugin started, waiting for model and dataprovider...")
 

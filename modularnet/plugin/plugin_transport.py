@@ -16,7 +16,7 @@ import torch
 import torch.nn as nn
 from torch import multiprocessing as mp
 
-from modularnet.plugin.plugin import PluginManagerPubSub
+
 
 
 # ---------------------------------------------------------------------------

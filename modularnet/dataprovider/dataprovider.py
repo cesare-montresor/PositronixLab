@@ -1,8 +1,11 @@
 
+from modularnet.config.trial_config import TrialConfig
+
+
 class DataProvider:
 
     @staticmethod
-    def from_config(config:MetaModelConfig, device=None, split=None, num_workers=None):
+    def from_config(config: TrialConfig, device=None, split=None, num_workers=None):
         name = config.dataset_name
         bs = config.batch_size
         flatten = config.model_type == 'fc'

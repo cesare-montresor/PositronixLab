@@ -11,7 +11,7 @@ from modularnet.common.utils import set_best
 from modularnet.config.trial_config import TrialConfig
 from modularnet.dataprovider.dataprovider import DataProvider
 from modularnet.metamodel.metamodel import MetaModel
-
+from modularnet.modularspace.modularspace import ModularSpace
 
 from typing_extensions import override
 import torch
