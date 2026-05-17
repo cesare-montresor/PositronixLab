@@ -3,8 +3,8 @@ import time
 from typing import Callable, Dict
 
 
-from modularnet.plugin.plugin_base import PluginBase
-from modularnet.plugin.plugin_manager import PluginManagerBase
+from modularnet.plugin_old.plugin_base import PluginBase
+from modularnet.plugin_old.plugin_manager import PluginManagerBase
 from modularnet.task.task import Task
 
 class PluginTopic:

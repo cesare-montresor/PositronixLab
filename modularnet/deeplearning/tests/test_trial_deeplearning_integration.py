@@ -17,7 +17,7 @@ the full integration of setup + training pipeline.
 import pytest
 import torch
 
-from modularnet.config.trial_config import TrialConfig
+from modularnet.trial.trial_config import TrialConfig
 from modularnet.trial.trail import TrialDeepLearningCore
 from modularnet.trial.trial_manager import TrialManager
 

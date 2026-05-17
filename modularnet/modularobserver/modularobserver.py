@@ -6,7 +6,7 @@ import torch
 from torch import nn
 
 from modularnet.common.utils import is_activation, is_conv, is_layer
-from modularnet.config.trial_config import TrialConfig
+from modularnet.trial.trial_config import TrialConfig
 
 if TYPE_CHECKING:
     from modularnet.modularobserver.layerobserver_pubsub import LayerObserver
