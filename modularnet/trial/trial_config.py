@@ -1,11 +1,17 @@
 
+import yaml
+
+from modularnet.common.utils import signature_settings
+
+
 class TrialConfig:
     """
     A class to hold options for the MetaModel.
     This class can be extended to include various configuration parameters.
     """
-    def __init__(self, options):
-        self.options = options
+    def __init__(self, options=None):
+        if options is None: options = {}
+        self.options = options 
 
         self.exp_metric_modularity = options.get('exp_metric_modularity', True)
         self.exp_modularizer = options.get('exp_modularizer', True)

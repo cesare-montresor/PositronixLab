@@ -1,10 +1,10 @@
 
 
-from modularnet.config.template_base import TemplateBase
-from modularnet.config.template_fmnist import TemplateFMnistCNN, TemplateFMnistFC
-from modularnet.config.template_mnist import TemplateMnistCNN, TemplateMnistFC
-from modularnet.config.template_covertype import TemplateCovertype
-from modularnet.config.template_higgs import TemplateHiggs
+from modularnet.template.template_base import TemplateBase
+from modularnet.template.template_fmnist import TemplateFMnistCNN, TemplateFMnistFC
+from modularnet.template.template_mnist import TemplateMnistCNN, TemplateMnistFC
+from modularnet.template.template_covertype import TemplateCovertype
+from modularnet.template.template_higgs import TemplateHiggs
 
 
 class Template:

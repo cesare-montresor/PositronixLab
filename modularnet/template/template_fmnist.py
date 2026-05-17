@@ -1,7 +1,7 @@
      
 
 
-from modularnet.config.template_base import TemplateFC, TemplateCNN
+from modularnet.template.template_base import TemplateFC, TemplateCNN
 
 
 class TemplateFMnistFC(TemplateFC):

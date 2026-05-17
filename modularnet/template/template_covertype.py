@@ -1,6 +1,6 @@
 
 
-from modularnet.config.template_base import TemplateFC
+from modularnet.template.template_base import TemplateFC
 
 
 class TemplateCovertype(TemplateFC):
