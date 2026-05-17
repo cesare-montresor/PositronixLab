@@ -13,7 +13,12 @@ import torch
 from torch import nn
 import torch.multiprocessing as mp
 from torchgen.context import F
-mp.set_start_method('spawn', force=True)
+
+# Set spawn method for CUDA compatibility (if not already set)
+try:
+    mp.set_start_method('spawn', force=True)
+except RuntimeError:
+    pass  # Already set by pipeline or other module
 
 from collections import OrderedDict
 from typing import *

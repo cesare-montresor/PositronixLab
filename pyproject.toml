@@ -30,7 +30,8 @@ dependencies = [
     "tabulate",
     "faiss-cpu",
     #"faiss-gpu-cu12",
-    "ax-platform"
+    "ax-platform",
+    "ray"
 ]
 
 

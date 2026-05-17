@@ -1,159 +1,268 @@
+"""
+Base Plugin Interface: Abstract base class for all plugins.
 
-from __future__ import annotations
+Defines the lifecycle, subscription, and service interfaces that all
+plugins must implement or can override.
+"""
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Callable
 from enum import Enum
-from multiprocessing import shared_memory
-
-from modularnet.logger import Logger
-import time
-from typing import Dict, List
-
-from torch import multiprocessing as mp
-
-from modularnet.task.task import Task
 
 
-class PluginStatus(Enum):
-    INIT = 0
-    SETUP = 1
-    RUNNING = 2
-    COMPLETE = 4
-    ERROR = -1
+class PluginState(Enum):
+    """Plugin lifecycle events."""
+    STARTED = "started"
+    UPDATED = "updated"
+    STOPPED = "stopped"
+    ERROR = "error"
 
 
+@dataclass
+class Subscription:
+    """Describes a subscription: pub/sub topic or environment variable."""
+    name: str  # Topic name (pub/sub) or env var key
+    callback: str  # Method name on plugin
+    publish_to: Optional[str] = None  # Optional: republish results (pub/sub only)
 
-class PluginBase:
 
-    def __init__(self, options: dict={}, name: str = None, fatal_errors: bool = False, logging=None):
-        self.name = name if name is not None else self.__class__.__name__
-        self.fatal_errors = fatal_errors
-        self.options = options
-        self.version = "0.1"
-        self.task_main = None
-        self.logger = logging if logging is not None else Logger.capture(name=self.name)
+class BasePlugin(ABC):
+    """
+    Abstract base class for all ModularNet plugins.
+    
+    Plugins run in isolated Ray actors and communicate via:
+    1. Control channel: Load/unload/configure commands from manager
+    2. Data plane: Pub/sub topics for high-bandwidth data exchange (via pub/sub callbacks)
+    3. State plane: Shared environment variables with change notifications
+    4. Services: Sync request/response calls
+    
+    Plugins can actively communicate with each other:
+    - self.publish(topic, data)  # Publish messages to other plugins
+    - self.set_env_variable(key, value)  # Set shared environment variables
+    - self.get_env_variable(key)  # Get environment variable value
+    - self.invoke_service(plugin_id, method, *args)  # Call other plugins
+    
+    Subclasses must implement:
+    - on_start: Initialize plugin resources
+    - on_stop: Clean up resources
+    
+    Optional overrides:
+    - on_update: Handle configuration updates
+    - on_error: Handle errors
+    - get_subscriptions: Define pub/sub subscriptions
+    - get_env_subscriptions: Define env var change subscriptions
+    - get_services: Define RPC methods
+    """
+    
+    def __init__(self, plugin_id: str, config: Optional[Dict[str, Any]] = None, orchestrator_handle: Optional[Any] = None):
+        """
+        Initialize plugin.
         
-        self.start_event = mp.Event()
-        self.stop_event = mp.Event()
-
-
-        self.manager = None
-
-        self.status = mp.Value('i', PluginStatus.INIT)  # Shared value for status across processes
-
-    def set_manager(self, manager: PluginManagerBase):
-        self.manager = manager
-
-    def manifest(self):
-        return {
-            "name": self.name,
-            "version": self.version
-        } 
+        Args:
+            plugin_id: Unique identifier for this plugin instance
+            config: Configuration options dictionary
+            orchestrator_handle: Optional Ray handle to orchestrator for inter-plugin communication
+        """
+        self.plugin_id = plugin_id
+        self.config = config or {}
+        self._is_running = False
+        self._orchestrator = orchestrator_handle  # Internal: Ray handle for communication
+    
+    @abstractmethod
+    def on_start(self) -> None:
+        """
+        Called when plugin is started.
         
+        Initialize resources, open connections, start background tasks, etc.
+        Raise exception on failure.
+        """
+        pass
+    
+    @abstractmethod
+    def on_stop(self) -> None:
+        """
+        Called when plugin is stopped.
         
-    def start(self, wait: bool = False):
-        self.start_event.clear()
-        self.stop_event.clear()
-        kwargs = {
-            "status": self.status,
-            "options": self.options,
-            "fatal_errors": self.fatal_errors    
-        }
-        self.task_main = Task.create(target=self._run_main, mode="process", kwargs=kwargs)
-        self.task_main.start()
-        self.start_event.set()
-           
-
-
-    def stop(self, wait: bool = True):
-        self.stop_event.set()
-        if wait: 
-            self.task_main.join()
+        Clean up resources, close connections, stop background tasks, etc.
+        """
+        pass
+    
+    def on_update(self, config: Dict[str, Any]) -> None:
+        """
+        Called when plugin configuration is updated.
         
-
+        Override to handle dynamic config changes. Default does nothing.
+        
+        Args:
+            config: Updated configuration dictionary
+        """
+        self.config = config
     
-    def _run_main(self, options: dict={}, **kwargs):
-        if 'status' not in kwargs:
-            raise ValueError("Plugin run_main requires 'status' in kwargs")
-        self.status = kwargs['status'] # mp.Value
-        if not isinstance(self.status, mp.Value):
-            raise ValueError("Plugin run_main requires 'status' to be a multiprocessing Value")
-
-        self.status.value = PluginStatus.SETUP
-        self.onStart()
-        self.options = options
-        if 'fatal_errors' in kwargs:
-            self.fatal_errors = kwargs['fatal_errors']
-
-        while not self.stop_event.is_set():
-            self.status.value = PluginStatus.RUNNING
-            try:
-                self.onUpdate()
-            except Exception as e:
-                print(f"{self.__class__.__name__} encountered an error: {e}")
-                import traceback
-                traceback.print_exc()
-                if self.fatal_errors:
-                    self.status.value = PluginStatus.ERROR
-                    self.stop_event.set()
-                    self.onStop()
-                    raise e
-            time.sleep(0.001)  # Prevent busy waiting
-        self.status.value = PluginStatus.FINISH
-        self.onStop()
-    # to override
-    def onStart(self): pass
-    def onUpdate(self): pass
-    def onStop(self): pass
-
-
-
-
-
-
-class PluginManagerBase:
-    """Base manager for registering and controlling plugins."""
-    def __init__(self):
-        self.plugins: Dict[str, PluginBase] = {}
+    def on_error(self, error: Exception, context: str = "") -> None:
+        """
+        Called when an error occurs in the plugin.
+        
+        Override for custom error handling. Default does nothing.
+        
+        Args:
+            error: The exception that occurred
+            context: Context about where/when error occurred
+        """
+        pass
     
-    def register_plugin(self, plugin: PluginBase, name: str = None):
-        """Register a plugin with the manager."""
-        if name is None:
-            name = plugin.name
-        self.plugins[name] = plugin
-        plugin.set_manager(self)
+    def get_subscriptions(self) -> List[Subscription]:
+        """
+        Define pub/sub topic subscriptions.
+        
+        Return list of topics this plugin wants to subscribe to.
+        When messages arrive, the specified callback method is called.
+        
+        Returns:
+            List of subscriptions
+        """
+        return []
     
-    def unregister_plugin(self, plugin: PluginBase, name: str = None):
-        """Unregister a plugin with the manager."""
-        if name is None:
-            name = plugin.name
-        if name in self.plugins:
-            del self.plugins[name]
-        plugin.set_manager(None)
+    def get_env_subscriptions(self) -> List[Subscription]:
+        """
+        Define environment variable subscriptions.
+        
+        Return list of env vars this plugin wants to watch for changes.
+        When a var changes, the specified callback method is called.
+        
+        Returns:
+            List of subscriptions
+        """
+        return []
     
-    def start_plugin(self, name: str):
-        """Start a registered plugin."""
-        if name in self.plugins:
-            self.plugins[name].start()
+    def get_services(self) -> List[str]:
+        """
+        Define service methods available for RPC calls.
+        
+        Return list of method names that can be called via services.
+        These methods should be sync and return serializable results.
+        
+        Returns:
+            List of method names
+        """
+        return []
     
-    def stop_plugin(self, name: str):
-        """Stop a registered plugin."""
-        if name in self.plugins:
-            self.plugins[name].stop()
+    @property
+    def is_running(self) -> bool:
+        """Whether plugin is currently running."""
+        return self._is_running
     
-    def start_all_plugins(self):
-        """Start all registered plugins."""
-        for plugin in self.plugins.values():
-            plugin.start()
+    # ========================================================================
+    # Inter-Plugin Communication Methods
+    # ========================================================================
     
-    def stop_all_plugins(self):
-        """Stop all registered plugins."""
-        for plugin in self.plugins.values():
-            plugin.stop()
+    def publish(self, topic: str, data: Any) -> int:
+        """
+        Publish data to a topic (plugin → other plugins).
+        
+        Args:
+            topic: Topic name
+            data: Data to publish
+            
+        Returns:
+            Number of subscribers that received the message
+        """
+        if not self._orchestrator:
+            raise RuntimeError("Plugin communication not available (orchestrator not initialized)")
+        try:
+            import ray
+            return ray.get(self._orchestrator.publish.remote(topic, data))
+        except Exception as e:
+            raise RuntimeError(f"Failed to publish to topic '{topic}': {e}")
     
-    def get_plugin(self, name: str) -> PluginBase:
-        """Get a plugin by name."""
-        return self.plugins.get(name)
+    def publish_object_ref(self, topic: str, data: Any) -> int:
+        """
+        Publish large data via ObjectRef (zero-copy).
+        
+        Args:
+            topic: Topic name
+            data: Data to publish (numpy array, tensor, etc.)
+            
+        Returns:
+            Number of subscribers
+        """
+        if not self._orchestrator:
+            raise RuntimeError("Plugin communication not available (orchestrator not initialized)")
+        try:
+            import ray
+            data_ref = ray.put(data)
+            return ray.get(self._orchestrator.publish.remote(
+                topic,
+                {"data_ref": data_ref}
+            ))
+        except Exception as e:
+            raise RuntimeError(f"Failed to publish object ref to '{topic}': {e}")
     
-    def list_plugins(self) -> List[str]:
-        """List all registered plugin names."""
-        return list(self.plugins.keys())
+    def set_env_variable(self, key: str, value: Any) -> None:
+        """
+        Set environment variable (broadcast to all subscribers).
+        
+        Args:
+            key: Variable name
+            value: New value
+        """
+        if not self._orchestrator:
+            raise RuntimeError("Plugin communication not available (orchestrator not initialized)")
+        try:
+            import ray
+            ray.get(self._orchestrator.set_env_variable.remote(key, value))
+        except Exception as e:
+            raise RuntimeError(f"Failed to set env variable '{key}': {e}")
     
+    def get_env_variable(self, key: str, default: Any = None) -> Any:
+        """
+        Get environment variable value.
+        
+        Args:
+            key: Variable name
+            default: Default value if not found
+            
+        Returns:
+            Variable value or default
+        """
+        if not self._orchestrator:
+            raise RuntimeError("Plugin communication not available (orchestrator not initialized)")
+        try:
+            import ray
+            return ray.get(self._orchestrator.get_env_variable.remote(key, default))
+        except Exception as e:
+            raise RuntimeError(f"Failed to get env variable '{key}': {e}")
+    
+    def invoke_service(
+        self,
+        plugin_id: str,
+        method_name: str,
+        *args,
+        **kwargs
+    ) -> Any:
+        """
+        Invoke a service method on another plugin.
+        
+        Args:
+            plugin_id: Target plugin identifier
+            method_name: Method name to invoke
+            *args: Positional arguments
+            **kwargs: Keyword arguments
+            
+        Returns:
+            Method return value
+        """
+        if not self._orchestrator:
+            raise RuntimeError("Plugin communication not available (orchestrator not initialized)")
+        try:
+            import ray
+            return ray.get(self._orchestrator.invoke_service.remote(
+                plugin_id,
+                method_name,
+                args,
+                kwargs
+            ))
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to invoke service '{method_name}' on plugin '{plugin_id}': {e}"
+            )

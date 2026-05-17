@@ -3,13 +3,15 @@ import multiprocessing
 from abc import ABC, abstractmethod
 from typing import Callable, Any
 
+# Set multiprocessing start method to fork for compatibility with Events
+try:
+    multiprocessing.set_start_method('fork', force=True)
+except RuntimeError:
+    pass  # Already set or not available
+
+
 class BaseTask(ABC):
     """Abstract base class for parallel tasks."""
-    
-    @abstractmethod
-    def run(self) -> Any:
-        """Execute the task logic."""
-        pass
     
     @abstractmethod
     def start(self) -> None:
@@ -35,11 +37,7 @@ class ThreadTask(BaseTask):
         self.target = target
         self.args = args
         self.kwargs = kwargs or {}
-        self.thread = threading.Thread(target=self.run)
-    
-    def run(self) -> Any:
-        """Execute the target function."""
-        return self.target(*self.args, **self.kwargs)
+        self.thread = threading.Thread(target=target, args=self.args, kwargs=self.kwargs)
     
     def start(self) -> None:
         """Start the thread."""
@@ -61,11 +59,7 @@ class ProcessTask(BaseTask):
         self.target = target
         self.args = args
         self.kwargs = kwargs or {}
-        self.process = multiprocessing.Process(target=self.run)
-    
-    def run(self) -> Any:
-        """Execute the target function."""
-        return self.target(*self.args, **self.kwargs)
+        self.process = multiprocessing.Process(target=target, args=self.args, kwargs=self.kwargs)
     
     def start(self) -> None:
         """Start the process."""

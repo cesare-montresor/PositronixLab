@@ -2,7 +2,7 @@
 import os
 import time
 
-from modularnet.config.trial_config import TrialConfig
+from modularnet.trial.trial_config import TrialConfig
 import torch
 from torchvision import transforms
 
