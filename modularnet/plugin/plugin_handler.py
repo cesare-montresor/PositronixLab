@@ -1,46 +1,67 @@
 """
-Plugin Handler: Ray actor that manages individual plugins.
+Plugin Handler (torch.multiprocessing backend): Manages individual plugins in separate processes.
 
-Each plugin runs in isolation. The handler manages:
+Each plugin runs in isolation in its own process. The handler manages:
 1. Plugin lifecycle (start, stop, update)
 2. Pub/sub message dispatch
 3. Environment variable subscriptions
 4. Service method calls
+5. Command processing
 """
 
-import asyncio
 import logging
-from typing import Any, Dict, List, Optional, Callable
-from pathlib import Path
-import importlib
-import sys
 import traceback
-import ray
+import importlib
+from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
 
-from .plugin_base import BasePlugin, Subscription
-from .environment_manager import EnvironmentManager, EnvUpdate
+import torch.multiprocessing as mp
+
+
+from modularnet.plugin.plugin_base import BasePlugin
+from modularnet.plugin.environment_manager import EnvUpdate
 
 logger = logging.getLogger(__name__)
 
 
-@ray.remote
+@dataclass
+class CommandMessage:
+    """Message sent to plugin process."""
+    cmd_id: str
+    command: str
+    args: tuple = ()
+    kwargs: dict = None
+    
+    def __post_init__(self):
+        if self.kwargs is None:
+            self.kwargs = {}
+
+
+@dataclass
+class ResponseMessage:
+    """Message sent back from plugin process."""
+    cmd_id: str
+    result: Any = None
+    error: Optional[str] = None
+
+
 class PluginHandler:
     """
-    Manages a single plugin instance in isolation.
+    Manages a single plugin instance in isolation (runs in subprocess).
     
     Handles plugin lifecycle, message dispatch, environment variables, and services.
     """
     
-    def __init__(self, plugin_id: str, orchestrator_handle: Any):
+    def __init__(self, plugin_id: str, orchestrator=None):
         """
         Initialize handler.
         
         Args:
             plugin_id: Unique plugin identifier
-            orchestrator_handle: Ray handle to orchestrator
+            orchestrator: Reference to orchestrator (can be None in subprocess)
         """
         self.plugin_id = plugin_id
-        self.orchestrator = orchestrator_handle
+        self.orchestrator = orchestrator
         self.plugin: Optional[BasePlugin] = None
         self.status = "INITIALIZED"
         self._subscriptions: List[Dict[str, Any]] = []
@@ -69,7 +90,7 @@ class PluginHandler:
             
             # Instantiate plugin with orchestrator handle for communication
             merged_config = {**descriptor_dict.get("options", {}), **config}
-            self.plugin = plugin_class(self.plugin_id, merged_config, orchestrator_handle=self.orchestrator)
+            self.plugin = plugin_class(self.plugin_id, merged_config, orchestrator_handle=None)
             
             # Set up subscriptions
             for sub_desc in self.plugin.get_subscriptions():
@@ -81,7 +102,7 @@ class PluginHandler:
                     "name": name,
                     "callback": callback_name,
                     "publish_to": publish_to,
-                    "queue": None  # Will be set by orchestrator
+                    "queue": None  # Will be set on start
                 })
             
             # Set up env subscriptions
@@ -122,15 +143,6 @@ class PluginHandler:
             self.plugin.on_start()
             self.plugin._is_running = True
             self.status = "RUNNING"
-            
-            # Register subscriptions with orchestrator
-            for sub in self._subscriptions:
-                q_ref = ray.get(self.orchestrator.subscribe.remote(sub["name"]))
-                sub["queue"] = q_ref
-            
-            # Register env subscriptions with orchestrator
-            for env_sub in self._env_subscriptions:
-                self.orchestrator.subscribe_env.remote(env_sub["name"], self.plugin_id)
             
             logger.info(f"Plugin {self.plugin_id} started")
             return True
@@ -280,20 +292,16 @@ class PluginHandler:
                 try:
                     msg = q.get(block=False)
                     
-                    # Resolve ObjectRef if present
-                    if isinstance(msg, dict) and "data_ref" in msg:
-                        data = ray.get(msg["data_ref"])
-                    else:
-                        data = msg
-                    
                     # Call plugin's callback
                     if hasattr(self.plugin, callback_name):
                         callback = getattr(self.plugin, callback_name)
-                        result = callback(data, self._local_env)
+                        result = callback(msg, self._local_env)
                         
-                        # Republish if configured
+                        # Republish if configured (would go to orchestrator)
                         if result is not None and publish_to:
-                            self.orchestrator.publish.remote(publish_to, result)
+                            # In multiprocessing version, we skip republishing
+                            # (would need to send back to orchestrator)
+                            pass
                     
                     messages_processed += 1
                     
@@ -327,3 +335,124 @@ class PluginHandler:
     def clear_errors(self) -> None:
         """Clear error log."""
         self.error_log.clear()
+    
+    @staticmethod
+    def run(plugin_id: str, descriptor_dict: Dict[str, Any], config: Dict[str, Any], 
+            cmd_queue: mp.Queue, resp_queue: mp.Queue) -> None:
+        """
+        Main entry point for plugin subprocess.
+        
+        This runs in the plugin process and handles command dispatch.
+        
+        Args:
+            plugin_id: Unique plugin identifier
+            descriptor_dict: Plugin descriptor dictionary
+            config: Configuration options
+            cmd_queue: Queue for receiving commands
+            resp_queue: Queue for sending responses
+        """
+        # Set up logging in subprocess
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        
+        handler = PluginHandler(plugin_id)
+        
+        # Load plugin
+        if not handler.load_plugin(descriptor_dict, config):
+            return
+        
+        # Main command loop
+        running = True
+        while running:
+            try:
+                # Try to get a command (non-blocking)
+                try:
+                    cmd = cmd_queue.get(timeout=0.1)
+                except:
+                    # No command available
+                    if handler.status == "RUNNING":
+                        handler.process_messages(max_messages=5)
+                    continue
+                
+                # Dispatch command
+                if cmd.command == "get_subscriptions":
+                    # Return list of subscription topic names
+                    sub_names = [sub["name"] for sub in handler._subscriptions]
+                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=sub_names)
+                    resp_queue.put(resp)
+                
+                elif cmd.command == "get_env_subscriptions":
+                    # Return list of env subscription keys
+                    env_names = [sub["name"] for sub in handler._env_subscriptions]
+                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=env_names)
+                    resp_queue.put(resp)
+                
+                elif cmd.command == "register_subscription":
+                    topic = cmd.args[0] if len(cmd.args) > 0 else ""
+                    queue = cmd.args[1] if len(cmd.args) > 1 else None
+                    if queue:
+                        # Find this subscription and set its queue
+                        for sub in handler._subscriptions:
+                            if sub["name"] == topic:
+                                sub["queue"] = queue
+                                logger.debug(f"Registered queue for subscription '{topic}'")
+                                break
+                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=True)
+                    resp_queue.put(resp)
+                
+                elif cmd.command == "start":
+                    success = handler.start()
+                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=success)
+                    resp_queue.put(resp)
+                
+                elif cmd.command == "stop":
+                    success = handler.stop()
+                    running = False
+                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=success)
+                    resp_queue.put(resp)
+                
+                elif cmd.command == "update_config":
+                    config = cmd.args[0] if cmd.args else {}
+                    success = handler.update_config(config)
+                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=success)
+                    resp_queue.put(resp)
+                
+                elif cmd.command == "receive_env_update":
+                    update = cmd.args[0] if cmd.args else None
+                    if update:
+                        handler.receive_env_update(update)
+                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=True)
+                    resp_queue.put(resp)
+                
+                elif cmd.command == "execute_service":
+                    method_name = cmd.args[0] if cmd.args else ""
+                    service_args = cmd.args[1:] if len(cmd.args) > 1 else ()
+                    try:
+                        result = handler.execute_service(method_name, *service_args, **cmd.kwargs)
+                        resp = ResponseMessage(cmd_id=cmd.cmd_id, result=result)
+                    except Exception as e:
+                        resp = ResponseMessage(cmd_id=cmd.cmd_id, error=str(e))
+                    resp_queue.put(resp)
+                
+                elif cmd.command == "get_status":
+                    status = handler.get_status()
+                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=status)
+                    resp_queue.put(resp)
+                
+                elif cmd.command == "get_errors":
+                    errors = handler.get_errors()
+                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=errors)
+                    resp_queue.put(resp)
+                
+                else:
+                    logger.warning(f"Unknown command: {cmd.command}")
+                    resp = ResponseMessage(cmd_id=cmd.cmd_id, error=f"Unknown command: {cmd.command}")
+                    resp_queue.put(resp)
+                    
+            except KeyboardInterrupt:
+                running = False
+            except Exception as e:
+                logger.error(f"Error in plugin process: {e}\n{traceback.format_exc()}")
+                running = False

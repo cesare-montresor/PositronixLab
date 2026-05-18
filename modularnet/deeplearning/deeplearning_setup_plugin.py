@@ -1,63 +1,94 @@
 
+"""
+DeepLearning Setup Plugin: Initializes model and data provider.
 
+This plugin creates a MetaModel and DataProvider based on TrialConfig,
+then sets them in the environment for other plugins to use.
+"""
 
+import logging
+from typing import Any, Dict, Optional, List
+import torch
 
 from modularnet.trial.trial_config import TrialConfig
 from modularnet.dataprovider.dataprovider import DataProvider
 from modularnet.metamodel.metamodel import MetaModel
 from modularnet.deeplearning.deeplearning_common import DeeplearningCommon
+from modularnet.plugin import BasePlugin, PluginDescriptor, Subscription
 
-import torch
-from typing import Optional
-
-from modularnet.plugin_old.plugin import Plugin
-from modularnet.plugin_old.plugin_package import PluginDescriptor
-
-
+logger = logging.getLogger(__name__)
 
 
 
 class DeeplearningSetupPluginDescriptor(PluginDescriptor):
     """
-    Descriptor for the DeeplearningSetupPlugin, which sets up the model and dataprovider in the environment,
-    then runs the training process.
+    Descriptor for the DeeplearningSetupPlugin.
+    
+    Provides metadata for plugin registration and instantiation.
     """
-    def __init__(self, name: str, options: dict, version: str = "1.0", metadata: Optional[dict] = None):
+    def __init__(
+        self,
+        name: str = "deeplearning-setup",
+        config: Optional[Dict[str, Any]] = None,
+        version: str = "1.0",
+        metadata: Optional[Dict[str, Any]] = None
+    ):
         super().__init__(
-            plugin_class=DeeplearningSetupPlugin,
+            package="modularnet.deeplearning.deeplearning_setup_plugin",
+            class_name="DeeplearningSetupPlugin",
             name=name,
-            options={"options": options},
+            options=config or {},
             version=version,
             metadata=metadata or {}
         )
 
 
-class DeeplearningSetupPlugin(Plugin):
+class DeeplearningSetupPlugin(BasePlugin):
     """
-    Plugin that creates and registers the model and dataprovider in the environment.
-    Runs once during setup, then exits.
+    Plugin that creates and sets up the model and data provider.
+    
+    This plugin:
+    1. Creates a MetaModel based on TrialConfig
+    2. Creates a DataProvider
+    3. Sets both in the environment for other plugins
+    4. Exits after setup is complete
     """
    
     def __init__(
         self,
-        name: str,
-        config: TrialConfig,
-        device: Optional[torch.device] = None,
-        num_workers_data: int = 0,
-        debug: bool = False,
-        fatal_errors: bool = False,
+        plugin_id: str,
+        config: Dict[str, Any],
+        orchestrator_handle: Optional[Any] = None,
     ):
-        super().__init__(name=name, fatal_errors=fatal_errors)
-        self.config = config
-        self.device = device
-        self.num_workers_data = num_workers_data
-        self.debug = debug
+        """
+        Initialize the setup plugin.
+        
+        Args:
+            plugin_id: Unique plugin identifier
+            config: Configuration containing:
+                - trial_config: TrialConfig instance
+                - device: Optional torch device
+                - num_workers_data: Number of data workers
+                - debug: Enable debug logging
+            orchestrator_handle: Ray handle to orchestrator
+        """
+        super().__init__(plugin_id, config, orchestrator_handle)
+        
+        self.trial_config: Optional[TrialConfig] = config.get("trial_config")
+        self.device = config.get("device")
+        self.num_workers_data = config.get("num_workers_data", 0)
+        self.debug = config.get("debug", False)
 
-    def onStart(self):
-        """Create model and dataprovider, set them in environment, then stop."""
+    def on_start(self) -> None:
+        """Create model and dataprovider, then set them in environment."""
         try:
+            logger.info(f"[{self.plugin_id}] Starting deeplearning setup...")
+            
+            if not self.trial_config:
+                raise ValueError("trial_config not provided in config")
+            
             # Create model first to determine device
-            model = MetaModel(self.name, self.config, device=self.device)
+            model = MetaModel(self.plugin_id, self.trial_config, device=self.device)
             if self.debug:
                 model.print()
 
@@ -65,26 +96,44 @@ class DeeplearningSetupPlugin(Plugin):
             
             # Pass model device to dataset
             dataset = DataProvider.from_config(
-                self.config, 
+                self.trial_config, 
                 device=device, 
                 num_workers=self.num_workers_data
             )
             
+            # Set in environment using orchestrator
+            if self._orchestrator:
+                self._orchestrator.set_env_variable.remote("model", model)
+                self._orchestrator.set_env_variable.remote("dataprovider", dataset)
+                logger.info(f"[{self.plugin_id}] Model and dataprovider set in environment")
+            else:
+                logger.warning(f"[{self.plugin_id}] No orchestrator available, cannot set env variables")
             
-            self.env_set("model", model)
-            self.env_set("dataprovider", dataset)
-
-            self.logger.info(f"Setup complete. Model and dataprovider initialized.")
+            logger.info(f"[{self.plugin_id}] Setup complete")
             
         except Exception as e:
-            self.logger.error(f"Setup failed: {e}")
-            if self.fatal_errors:
-                raise
+            logger.error(f"[{self.plugin_id}] Setup failed: {e}")
+            self.on_error(e, "setup")
+            raise
 
-    def onUpdate(self):
-        """Stop the plugin after setup."""
-        self.stop()
-
-    def onStop(self):
+    def on_stop(self) -> None:
         """Cleanup."""
-        pass
+        logger.info(f"[{self.plugin_id}] Setup plugin stopped")
+
+    def on_update(self, config: Dict[str, Any]) -> None:
+        """Handle configuration updates."""
+        super().on_update(config)
+        # After setup, additional updates are not expected
+        logger.debug(f"[{self.plugin_id}] Config updated: {config}")
+
+    def get_subscriptions(self) -> List[Subscription]:
+        """Setup plugin doesn't subscribe to any topics."""
+        return []
+
+    def get_env_subscriptions(self) -> List[Subscription]:
+        """Setup plugin doesn't watch environment variables."""
+        return []
+
+    def get_services(self) -> List[str]:
+        """Setup plugin provides no services."""
+        return []

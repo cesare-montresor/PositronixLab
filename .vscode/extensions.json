@@ -1,0 +1,8 @@
+{
+	// For more information, visit: https://go.microsoft.com/fwlink/?linkid=852794
+	"recommendations": [
+        "littlefoxteam.vscode-python-test-adapter",
+        "ms-python.python",
+    ],
+	"unwantedRecommendations": []
+}

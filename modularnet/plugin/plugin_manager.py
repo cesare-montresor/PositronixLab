@@ -1,5 +1,5 @@
 """
-Plugin Manager: Central orchestration for the Ray-based plugin system.
+Plugin Manager (torch.multiprocessing backend): Central orchestration for the multiprocessing-based plugin system.
 
 Responsibilities:
 1. Plugin lifecycle management (load, start, stop, unload)
@@ -7,6 +7,8 @@ Responsibilities:
 3. Environment variable management and broadcasting
 4. Service request/response dispatch
 5. Plugin status monitoring
+
+Uses torch.multiprocessing instead of Ray for simpler, lighter-weight process management.
 """
 
 import logging
@@ -14,25 +16,29 @@ import os
 from typing import Any, Dict, List, Optional, Tuple
 from threading import Thread, Event
 import time
+import uuid
 
-# Disable Ray dashboard BEFORE importing Ray
-os.environ["RAY_DISABLE_DASHBOARD"] = "1"
+try:
+    import torch.multiprocessing as mp
+except ImportError:
+    import multiprocessing as mp
 
+# Set fork mode for queue sharing between processes
+try:
+    mp.set_start_method('fork', force=True)
+except RuntimeError:
+    pass  # Already set
 
-import ray
-from ray.util.queue import Queue
-
-from .plugin_descriptor import PluginDescriptor
-from .plugin_handler import PluginHandler
-from .environment_manager import EnvironmentManager, EnvUpdate
+from modularnet.plugin.plugin_descriptor import PluginDescriptor
+from modularnet.plugin.plugin_handler import PluginHandler, CommandMessage, ResponseMessage
+from modularnet.plugin.environment_manager import EnvironmentManager, EnvUpdate
 
 logger = logging.getLogger(__name__)
 
 
-@ray.remote
 class PluginOrchestrator:
     """
-    Ray actor that orchestrates all plugin management.
+    Manages all plugin orchestration using multiprocessing.
     
     Provides:
     - Plugin loading, starting, stopping
@@ -44,18 +50,20 @@ class PluginOrchestrator:
     
     def __init__(self):
         """Initialize plugin orchestrator."""
-        self._plugins: Dict[str, ray.actor.ActorHandle] = {}
-        self._topics: Dict[str, List[Queue]] = {}
+        self._plugins: Dict[str, Dict[str, Any]] = {}  # plugin_id -> {process, queues, etc}
+        self._topics: Dict[str, List[mp.Queue]] = {}
         self._env_subscriptions: Dict[str, List[str]] = {}  # key -> [plugin_ids]
         self.env_manager = EnvironmentManager()
     
-    def register_plugin(self, plugin_id: str, handle: ray.actor.ActorHandle) -> bool:
+    def register_plugin(self, plugin_id: str, process: mp.Process, cmd_queue: mp.Queue, resp_queue: mp.Queue) -> bool:
         """
-        Register a plugin actor.
+        Register a plugin process.
         
         Args:
             plugin_id: Unique plugin identifier
-            handle: Ray actor handle
+            process: Multiprocessing Process object
+            cmd_queue: Queue for sending commands to plugin
+            resp_queue: Queue for receiving responses from plugin
             
         Returns:
             True if successful
@@ -63,13 +71,18 @@ class PluginOrchestrator:
         if plugin_id in self._plugins:
             logger.warning(f"Plugin {plugin_id} already registered, overwriting")
         
-        self._plugins[plugin_id] = handle
+        self._plugins[plugin_id] = {
+            "process": process,
+            "cmd_queue": cmd_queue,
+            "resp_queue": resp_queue,
+            "status": "REGISTERED"
+        }
         logger.info(f"Plugin {plugin_id} registered")
         return True
     
     def unregister_plugin(self, plugin_id: str) -> bool:
         """
-        Unregister a plugin actor.
+        Unregister a plugin process.
         
         Args:
             plugin_id: Plugin identifier
@@ -80,6 +93,16 @@ class PluginOrchestrator:
         if plugin_id not in self._plugins:
             logger.warning(f"Plugin {plugin_id} not found")
             return False
+        
+        plugin_info = self._plugins[plugin_id]
+        process = plugin_info["process"]
+        
+        # Terminate process if still running
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=2.0)
+            if process.is_alive():
+                process.kill()
         
         del self._plugins[plugin_id]
         
@@ -93,7 +116,7 @@ class PluginOrchestrator:
     
     # --- Pub/Sub Topic Management ---
     
-    def subscribe(self, topic: str, max_backlog: int = 100) -> Queue:
+    def subscribe(self, topic: str, max_backlog: int = 100) -> mp.Queue:
         """
         Create a subscription to a pub/sub topic.
         
@@ -107,7 +130,7 @@ class PluginOrchestrator:
         if topic not in self._topics:
             self._topics[topic] = []
         
-        sub_queue = Queue(maxsize=max_backlog)
+        sub_queue = mp.Queue(maxsize=max_backlog)
         self._topics[topic].append(sub_queue)
         
         logger.debug(f"New subscription to topic '{topic}'")
@@ -119,18 +142,20 @@ class PluginOrchestrator:
         
         Args:
             topic: Topic name
-            msg: Message (can include ObjectRef for high-bandwidth data)
+            msg: Message object
             
         Returns:
             Number of subscribers that received the message
         """
-        if topic not in self._topics:
-            return 0
-        
         delivered = 0
         failed = 0
         
-        for q in self._topics[topic]:
+        # Get queues from both old _topics dict and new registry
+        queues_to_deliver = []
+        if topic in self._topics:
+            queues_to_deliver.extend(self._topics[topic])
+        
+        for q in queues_to_deliver:
             try:
                 q.put(msg, block=False)
                 delivered += 1
@@ -176,12 +201,21 @@ class PluginOrchestrator:
         old_value = self.env_manager.get(key)
         self.env_manager.set(key, value)
         
-        # Notify subscribed plugins
+        # Notify subscribed plugins via command queue
         if key in self._env_subscriptions:
             update = EnvUpdate(key=key, value=value, old_value=old_value)
             for plugin_id in self._env_subscriptions[key]:
                 if plugin_id in self._plugins:
-                    self._plugins[plugin_id].receive_env_update.remote(update)
+                    cmd = CommandMessage(
+                        cmd_id=str(uuid.uuid4()),
+                        command="receive_env_update",
+                        args=(update,),
+                        kwargs={}
+                    )
+                    try:
+                        self._plugins[plugin_id]["cmd_queue"].put(cmd, block=False)
+                    except Exception as e:
+                        logger.error(f"Failed to send env update to {plugin_id}: {e}")
     
     def get_env_variable(self, key: str, default: Any = None) -> Any:
         """Get environment variable value."""
@@ -216,9 +250,43 @@ class PluginOrchestrator:
             raise ValueError(f"Plugin {plugin_id} not found")
         
         kwargs = kwargs or {}
-        handle = self._plugins[plugin_id]
-        result = ray.get(handle.execute_service.remote(method_name, *args, **kwargs))
-        return result
+        plugin_info = self._plugins[plugin_id]
+        cmd_queue = plugin_info["cmd_queue"]
+        resp_queue = plugin_info["resp_queue"]
+        
+        # Send command
+        cmd_id = str(uuid.uuid4())
+        cmd = CommandMessage(
+            cmd_id=cmd_id,
+            command="execute_service",
+            args=(method_name, *args),
+            kwargs=kwargs
+        )
+        
+        try:
+            cmd_queue.put(cmd, block=False)
+        except Exception as e:
+            raise RuntimeError(f"Failed to send service command to {plugin_id}: {e}")
+        
+        # Wait for response with timeout
+        timeout = 30.0
+        start = time.time()
+        while time.time() - start < timeout:
+            try:
+                resp = resp_queue.get(block=False)
+                if resp.cmd_id == cmd_id:
+                    if resp.error:
+                        raise Exception(resp.error)
+                    return resp.result
+                else:
+                    # Put it back if it's for a different command
+                    resp_queue.put(resp)
+            except:
+                pass
+            
+            time.sleep(0.01)
+        
+        raise TimeoutError(f"Service call to {plugin_id}.{method_name} timed out after {timeout}s")
     
     # --- Status and Monitoring ---
     
@@ -227,29 +295,24 @@ class PluginOrchestrator:
         if plugin_id not in self._plugins:
             return None
         
-        handle = self._plugins[plugin_id]
-        return ray.get(handle.get_status.remote())
+        plugin_info = self._plugins[plugin_id]
+        process = plugin_info["process"]
+        
+        return {
+            "plugin_id": plugin_id,
+            "alive": process.is_alive(),
+            "pid": process.pid if process else None,
+        }
     
     def get_all_plugin_status(self) -> Dict[str, Dict[str, Any]]:
         """Get status of all plugins."""
         statuses = {}
-        for plugin_id, handle in self._plugins.items():
-            try:
-                status = ray.get(handle.get_status.remote())
+        for plugin_id in self._plugins.keys():
+            status = self.get_plugin_status(plugin_id)
+            if status:
                 statuses[plugin_id] = status
-            except Exception as e:
-                logger.error(f"Error getting status for {plugin_id}: {e}")
-                statuses[plugin_id] = {"status": "ERROR", "error": str(e)}
         
         return statuses
-    
-    def get_plugin_errors(self, plugin_id: str) -> List[str]:
-        """Get recent errors from a plugin."""
-        if plugin_id not in self._plugins:
-            return []
-        
-        handle = self._plugins[plugin_id]
-        return ray.get(handle.get_errors.remote())
     
     def list_plugins(self) -> List[str]:
         """List all registered plugin IDs."""
@@ -258,7 +321,7 @@ class PluginOrchestrator:
 
 class PluginManager:
     """
-    High-level plugin manager interface.
+    High-level plugin manager interface for multiprocessing backend.
     
     Provides user-friendly methods for managing plugins:
     - Load/start/stop/unload plugins
@@ -268,33 +331,18 @@ class PluginManager:
     - Monitor plugin status
     """
     
-    def __init__(self, auto_start_ray: bool = True):
-        """
-        Initialize plugin manager.
-        
-        Args:
-            auto_start_ray: Automatically initialize Ray if not already initialized
-        """
-        if auto_start_ray and not ray.is_initialized():
-            try:
-                # Suppress Ray logging to reduce noise
-                logging.getLogger("ray").setLevel(logging.WARNING)
-                
-                # Initialize Ray with minimal config
-                # Note: Ray dashboard has pydantic v1 issues on Python 3.14,
-                # so we disable it
-                ray.init(
-                    ignore_reinit_error=True,
-                    include_dashboard=False
-                )
-            except Exception as e:
-                logger.error(f"Failed to initialize Ray: {e}")
-                raise
-        
-        self.orchestrator = PluginOrchestrator.remote()
-        self._plugin_wrappers: Dict[str, ray.actor.ActorHandle] = {}
+    def __init__(self):
+        """Initialize plugin manager."""
+        self.orchestrator = PluginOrchestrator()
+        self._plugin_handlers: Dict[str, Dict[str, Any]] = {}
         self._processing_thread: Optional[Thread] = None
         self._stop_event = Event()
+        self._subscription_queues: Dict[str, Dict[str, Any]] = {}  # plugin_id -> {topic -> queue}
+        # Store subscription queues per plugin - use Manager to create shareable queues
+        self._plugin_subscription_queues: Dict[str, Dict[str, Any]] = {}  # plugin_id -> {topic -> queue}
+        # Create a manager for cross-process sharing of queues (Manager.Queue can be pickled)
+        self._manager = mp.Manager()
+        self._manager_queues: Dict[str, Dict[str, Any]] = {}  # plugin_id -> {topic -> queue}
     
     def load_plugin(
         self,
@@ -315,26 +363,40 @@ class PluginManager:
         config = config or {}
         
         try:
-            # Create wrapper actor
-            wrapper = PluginHandler.remote(plugin_id, self.orchestrator)
+            # Create queues for communication with plugin process
+            cmd_queue = mp.Queue()
+            resp_queue = mp.Queue()
+            
+            # Create and start plugin process
+            handler_args = (plugin_id, descriptor.to_dict(), config, cmd_queue, resp_queue)
+            process = mp.Process(
+                target=PluginHandler.run,
+                args=handler_args,
+                name=f"plugin-{plugin_id}"
+            )
+            process.start()
             
             # Register with orchestrator
-            ray.get(self.orchestrator.register_plugin.remote(plugin_id, wrapper))
+            self.orchestrator.register_plugin(plugin_id, process, cmd_queue, resp_queue)
             
-            # Load plugin into wrapper
-            success = ray.get(wrapper.load_plugin.remote(descriptor.to_dict(), config))
+            # Store handler info
+            self._plugin_handlers[plugin_id] = {
+                "process": process,
+                "cmd_queue": cmd_queue,
+                "resp_queue": resp_queue,
+                "descriptor": descriptor
+            }
             
-            if success:
-                self._plugin_wrappers[plugin_id] = wrapper
-                logger.info(f"Plugin {descriptor} loaded successfully")
-                return True
-            else:
-                logger.error(f"Failed to load plugin {descriptor}")
-                ray.get(self.orchestrator.unregister_plugin.remote(plugin_id))
-                return False
-                
+            # Initialize subscription queue tracking for this plugin
+            self._plugin_subscription_queues[plugin_id] = {}
+            
+            logger.info(f"Plugin {descriptor} loaded successfully")
+            return True
+            
         except Exception as e:
             logger.error(f"Error loading plugin {descriptor}: {e}")
+            if plugin_id in self.orchestrator._plugins:
+                self.orchestrator.unregister_plugin(plugin_id)
             return False
     
     def unload_plugin(self, plugin_id: str) -> bool:
@@ -349,15 +411,13 @@ class PluginManager:
         """
         try:
             # Stop if running
-            if plugin_id in self._plugin_wrappers:
-                wrapper = self._plugin_wrappers[plugin_id]
-                ray.get(wrapper.stop.remote())
+            self.stop_plugin(plugin_id)
             
             # Unregister from orchestrator
-            ray.get(self.orchestrator.unregister_plugin.remote(plugin_id))
+            self.orchestrator.unregister_plugin(plugin_id)
             
-            if plugin_id in self._plugin_wrappers:
-                del self._plugin_wrappers[plugin_id]
+            if plugin_id in self._plugin_handlers:
+                del self._plugin_handlers[plugin_id]
             
             logger.info(f"Plugin {plugin_id} unloaded")
             return True
@@ -376,18 +436,141 @@ class PluginManager:
         Returns:
             True if successful
         """
-        if plugin_id not in self._plugin_wrappers:
+        if plugin_id not in self._plugin_handlers:
             logger.error(f"Plugin {plugin_id} not loaded")
             return False
         
         try:
-            wrapper = self._plugin_wrappers[plugin_id]
-            success = ray.get(wrapper.start.remote())
-            if success:
-                logger.info(f"Plugin {plugin_id} started")
-            return success
+            plugin_info = self._plugin_handlers[plugin_id]
+            cmd_queue = plugin_info["cmd_queue"]
+            resp_queue = plugin_info["resp_queue"]
+            
+            # Wait briefly for plugin to load
+            time.sleep(0.1)
+            
+            # Get subscription info from plugin
+            sub_cmd_id = str(uuid.uuid4())
+            cmd = CommandMessage(
+                cmd_id=sub_cmd_id,
+                command="get_subscriptions",
+                args=(),
+                kwargs={}
+            )
+            cmd_queue.put(cmd, block=False)
+            
+            subscriptions = []
+            env_subscriptions = []
+            
+            # Wait for subscription response with cmd_id matching
+            timeout = time.time() + 0.5
+            while time.time() < timeout:
+                try:
+                    response = resp_queue.get(block=False)
+                    if response.cmd_id == sub_cmd_id:
+                        subscriptions = response.result if response.result else []
+                        break
+                    else:
+                        # Put it back if it's for a different command
+                        resp_queue.put(response)
+                except:
+                    time.sleep(0.01)
+            
+            # Get env subscriptions
+            env_cmd_id = str(uuid.uuid4())
+            cmd = CommandMessage(
+                cmd_id=env_cmd_id,
+                command="get_env_subscriptions",
+                args=(),
+                kwargs={}
+            )
+            cmd_queue.put(cmd, block=False)
+            
+            # Wait for env subscription response with cmd_id matching
+            timeout = time.time() + 0.5
+            while time.time() < timeout:
+                try:
+                    response = resp_queue.get(block=False)
+                    if response.cmd_id == env_cmd_id:
+                        env_subscriptions = response.result if response.result else []
+                        break
+                    else:
+                        # Put it back if it's for a different command
+                        resp_queue.put(response)
+                except:
+                    time.sleep(0.01)
+            
+            # Create queues for each subscription and send to plugin
+            for sub_name in subscriptions:
+                # Use Manager.Queue so it can be pickled and sent through cmd_queue
+                sub_queue = self._manager.Queue(maxsize=100)
+                
+                # Store locally
+                self._plugin_subscription_queues[plugin_id][sub_name] = sub_queue
+                
+                # Add to orchestrator's topics
+                if sub_name not in self.orchestrator._topics:
+                    self.orchestrator._topics[sub_name] = []
+                self.orchestrator._topics[sub_name].append(sub_queue)
+                
+                # Send subscription queue to plugin via command
+                link_cmd_id = str(uuid.uuid4())
+                cmd = CommandMessage(
+                    cmd_id=link_cmd_id,
+                    command="register_subscription",
+                    args=(sub_name, sub_queue),
+                    kwargs={}
+                )
+                cmd_queue.put(cmd, block=False)
+                
+                # Wait for registration response
+                timeout = time.time() + 0.3
+                while time.time() < timeout:
+                    try:
+                        response = resp_queue.get(block=False)
+                        if response.cmd_id == link_cmd_id:
+                            break
+                        else:
+                            resp_queue.put(response)
+                    except:
+                        time.sleep(0.01)
+                
+                logger.debug(f"Plugin {plugin_id} subscription created for topic '{sub_name}'")
+            
+            # Register env subscriptions
+            for env_key in env_subscriptions:
+                self.orchestrator.subscribe_env(env_key, plugin_id)
+                logger.debug(f"Plugin {plugin_id} subscribed to env key '{env_key}'")
+            
+            # Send start command
+            start_cmd_id = str(uuid.uuid4())
+            cmd = CommandMessage(
+                cmd_id=start_cmd_id,
+                command="start",
+                args=(),
+                kwargs={}
+            )
+            cmd_queue.put(cmd, block=False)
+            
+            # Wait for start response
+            timeout = time.time() + 0.5
+            while time.time() < timeout:
+                try:
+                    response = resp_queue.get(block=False)
+                    if response.cmd_id == start_cmd_id:
+                        logger.info(f"Plugin {plugin_id} started")
+                        return response.result if response.result else True
+                    else:
+                        # Put it back if it's for a different command
+                        resp_queue.put(response)
+                except:
+                    time.sleep(0.01)
+            
+            logger.warning(f"Plugin {plugin_id} start timed out, assuming success")
+            return True
         except Exception as e:
             logger.error(f"Error starting plugin {plugin_id}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
     
     def stop_plugin(self, plugin_id: str) -> bool:
@@ -400,15 +583,24 @@ class PluginManager:
         Returns:
             True if successful
         """
-        if plugin_id not in self._plugin_wrappers:
+        if plugin_id not in self._plugin_handlers:
             return False
         
         try:
-            wrapper = self._plugin_wrappers[plugin_id]
-            success = ray.get(wrapper.stop.remote())
-            if success:
-                logger.info(f"Plugin {plugin_id} stopped")
-            return success
+            plugin_info = self._plugin_handlers[plugin_id]
+            cmd_queue = plugin_info["cmd_queue"]
+            
+            # Send stop command
+            cmd = CommandMessage(
+                cmd_id=str(uuid.uuid4()),
+                command="stop",
+                args=(),
+                kwargs={}
+            )
+            cmd_queue.put(cmd, block=False)
+            
+            logger.info(f"Plugin {plugin_id} stopped")
+            return True
         except Exception as e:
             logger.error(f"Error stopping plugin {plugin_id}: {e}")
             return False
@@ -424,18 +616,37 @@ class PluginManager:
         Returns:
             True if successful
         """
-        if plugin_id not in self._plugin_wrappers:
+        if plugin_id not in self._plugin_handlers:
             return False
         
         try:
-            wrapper = self._plugin_wrappers[plugin_id]
-            success = ray.get(wrapper.update_config.remote(config))
-            if success:
-                logger.info(f"Plugin {plugin_id} configuration updated")
-            return success
+            plugin_info = self._plugin_handlers[plugin_id]
+            cmd_queue = plugin_info["cmd_queue"]
+            
+            # Send update_config command
+            cmd = CommandMessage(
+                cmd_id=str(uuid.uuid4()),
+                command="update_config",
+                args=(config,),
+                kwargs={}
+            )
+            cmd_queue.put(cmd, block=False)
+            
+            logger.info(f"Plugin {plugin_id} configuration updated")
+            return True
         except Exception as e:
             logger.error(f"Error updating config for {plugin_id}: {e}")
             return False
+    
+    def start_all_plugins(self) -> None:
+        """Start all loaded plugins."""
+        for plugin_id in self._plugin_handlers.keys():
+            self.start_plugin(plugin_id)
+
+    def stop_all_plugins(self) -> None:
+        """Stop all running plugins."""
+        for plugin_id in self._plugin_handlers.keys():
+            self.stop_plugin(plugin_id)
     
     # --- Pub/Sub ---
     
@@ -445,29 +656,12 @@ class PluginManager:
         
         Args:
             topic: Topic name
-            data: Data to publish (for large data, use ObjectRef)
+            data: Data to publish
             
         Returns:
             Number of subscribers that received the message
         """
-        return ray.get(self.orchestrator.publish.remote(topic, data))
-    
-    def publish_object_ref(self, topic: str, data: Any) -> int:
-        """
-        Publish large data via ObjectRef (zero-copy).
-        
-        Args:
-            topic: Topic name
-            data: Data to publish (numpy array, tensor, etc.)
-            
-        Returns:
-            Number of subscribers
-        """
-        data_ref = ray.put(data)
-        return ray.get(self.orchestrator.publish.remote(
-            topic, 
-            {"data_ref": data_ref}
-        ))
+        return self.orchestrator.publish(topic, data)
     
     # --- Environment Variables ---
     
@@ -479,15 +673,15 @@ class PluginManager:
             key: Variable name
             value: Value
         """
-        ray.get(self.orchestrator.set_env_variable.remote(key, value))
+        self.orchestrator.set_env_variable(key, value)
     
     def get_env_variable(self, key: str, default: Any = None) -> Any:
         """Get an environment variable."""
-        return ray.get(self.orchestrator.get_env_variable.remote(key, default))
+        return self.orchestrator.get_env_variable(key, default)
     
     def get_all_env_variables(self) -> Dict[str, Any]:
         """Get all environment variables."""
-        return ray.get(self.orchestrator.get_all_env_variables.remote())
+        return self.orchestrator.get_all_env_variables()
     
     # --- Services ---
     
@@ -510,30 +704,26 @@ class PluginManager:
         Returns:
             Method result
         """
-        return ray.get(self.orchestrator.invoke_service.remote(
+        return self.orchestrator.invoke_service(
             plugin_id, 
             method_name, 
             args, 
             kwargs
-        ))
+        )
     
     # --- Monitoring ---
     
     def get_plugin_status(self, plugin_id: str) -> Optional[Dict[str, Any]]:
         """Get status of a plugin."""
-        return ray.get(self.orchestrator.get_plugin_status.remote(plugin_id))
+        return self.orchestrator.get_plugin_status(plugin_id)
     
     def get_all_plugin_status(self) -> Dict[str, Dict[str, Any]]:
         """Get status of all plugins."""
-        return ray.get(self.orchestrator.get_all_plugin_status.remote())
-    
-    def get_plugin_errors(self, plugin_id: str) -> List[str]:
-        """Get recent errors from a plugin."""
-        return ray.get(self.orchestrator.get_plugin_errors.remote(plugin_id))
+        return self.orchestrator.get_all_plugin_status()
     
     def list_plugins(self) -> List[str]:
         """List all loaded plugin IDs."""
-        return ray.get(self.orchestrator.list_plugins.remote())
+        return self.orchestrator.list_plugins()
     
     # --- Processing Loop ---
     
@@ -571,11 +761,12 @@ class PluginManager:
         """Background loop that processes messages for all plugins."""
         while not self._stop_event.is_set():
             try:
-                for plugin_id, wrapper in self._plugin_wrappers.items():
-                    try:
-                        ray.get(wrapper.process_messages.remote(max_messages=10))
-                    except Exception as e:
-                        logger.error(f"Error processing messages for {plugin_id}: {e}")
+                # Check that all plugin processes are alive
+                for plugin_id in list(self._plugin_handlers.keys()):
+                    handler_info = self._plugin_handlers[plugin_id]
+                    process = handler_info["process"]
+                    if not process.is_alive():
+                        logger.warning(f"Plugin {plugin_id} process died unexpectedly")
                 
                 time.sleep(interval)
                 
@@ -586,9 +777,8 @@ class PluginManager:
     def shutdown(self) -> None:
         """Shutdown the plugin manager."""
         self.stop_processing_loop()
+        self.stop_all_plugins()
         
-        # Stop all plugins
-        for plugin_id in list(self._plugin_wrappers.keys()):
+        # Terminate all processes
+        for plugin_id in list(self._plugin_handlers.keys()):
             self.unload_plugin(plugin_id)
-        
-        logger.info("Plugin manager shutdown complete")

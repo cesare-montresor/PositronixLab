@@ -10,10 +10,10 @@ import torch
 from typing import Literal, Optional
 
 from modularnet.modularcluster.modularcluster_kmeans import ModularClusterKmeans
-from modularnet.plugin.plugin import Plugin
+from modularnet.plugin import BasePlugin
 
 
-class PluginModularCluster(Plugin):
+class PluginModularCluster(BasePlugin):
     """
     Pub/Sub-based clustering plugin.
     

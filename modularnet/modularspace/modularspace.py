@@ -5,7 +5,7 @@ from queue import Empty, Queue
 import threading
 
 import tqdm
-from modularnet.config.trial_config import TrialConfig
+from modularnet..trial_config import TrialConfig
 from modularnet.spaceloss.spaceloss import SpaceLoss
 
 import pandas as pd

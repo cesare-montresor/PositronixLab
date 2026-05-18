@@ -1,19 +1,7 @@
 
 
-import multiprocessing
-import sys
-
-# Set fork method before any other multiprocessing operations
-# This must be done at module level, not inside if __name__ == "__main__"
-# to prevent debugger/spawn issues with semaphores
-
-try:
-    multiprocessing.set_start_method('fork', force=True)
-except RuntimeError:
-    # Already set in this process
-    pass
-
-from modularnet.deeplearning import DeeplearningTrainPlugin, DeeplearningSetupPlugin
+from modularnet.deeplearning.deeplearning_train_plugin import DeeplearningTrainPluginDescriptor
+from modularnet.deeplearning.deeplearning_setup_plugin import DeeplearningSetupPluginDescriptor
 from modularnet.trial import Trial, TrialConfig, TrialManager
 
 
@@ -24,11 +12,14 @@ class PipelineTrain:
         self.trial = Trial(self.config, self.trial_manager)
         
 
-        dl_setup = DeeplearningSetupPlugin(name="deeplearning_setup", config=self.config)
-        dl_train = DeeplearningTrainPlugin(name="deeplearning_train", config=self.config)
+        dl_setup = DeeplearningSetupPluginDescriptor(config=self.config)
+        dl_train = DeeplearningTrainPluginDescriptor(config=self.config)
 
         self.trial.load_plugin(dl_setup)
         self.trial.load_plugin(dl_train)
+
+
+        self.trial.run()
     
     
 

@@ -31,17 +31,11 @@ class BasePlugin(ABC):
     """
     Abstract base class for all ModularNet plugins.
     
-    Plugins run in isolated Ray actors and communicate via:
+    Plugins run in isolated processes and communicate via:
     1. Control channel: Load/unload/configure commands from manager
     2. Data plane: Pub/sub topics for high-bandwidth data exchange (via pub/sub callbacks)
     3. State plane: Shared environment variables with change notifications
     4. Services: Sync request/response calls
-    
-    Plugins can actively communicate with each other:
-    - self.publish(topic, data)  # Publish messages to other plugins
-    - self.set_env_variable(key, value)  # Set shared environment variables
-    - self.get_env_variable(key)  # Get environment variable value
-    - self.invoke_service(plugin_id, method, *args)  # Call other plugins
     
     Subclasses must implement:
     - on_start: Initialize plugin resources
@@ -62,12 +56,12 @@ class BasePlugin(ABC):
         Args:
             plugin_id: Unique identifier for this plugin instance
             config: Configuration options dictionary
-            orchestrator_handle: Optional Ray handle to orchestrator for inter-plugin communication
+            orchestrator_handle: Optional orchestrator handle for communication (backend-specific)
         """
         self.plugin_id = plugin_id
         self.config = config or {}
         self._is_running = False
-        self._orchestrator = orchestrator_handle  # Internal: Ray handle for communication
+        self._orchestrator = orchestrator_handle  # Internal: orchestrator handle for communication
     
     @abstractmethod
     def on_start(self) -> None:
@@ -151,118 +145,3 @@ class BasePlugin(ABC):
     def is_running(self) -> bool:
         """Whether plugin is currently running."""
         return self._is_running
-    
-    # ========================================================================
-    # Inter-Plugin Communication Methods
-    # ========================================================================
-    
-    def publish(self, topic: str, data: Any) -> int:
-        """
-        Publish data to a topic (plugin → other plugins).
-        
-        Args:
-            topic: Topic name
-            data: Data to publish
-            
-        Returns:
-            Number of subscribers that received the message
-        """
-        if not self._orchestrator:
-            raise RuntimeError("Plugin communication not available (orchestrator not initialized)")
-        try:
-            import ray
-            return ray.get(self._orchestrator.publish.remote(topic, data))
-        except Exception as e:
-            raise RuntimeError(f"Failed to publish to topic '{topic}': {e}")
-    
-    def publish_object_ref(self, topic: str, data: Any) -> int:
-        """
-        Publish large data via ObjectRef (zero-copy).
-        
-        Args:
-            topic: Topic name
-            data: Data to publish (numpy array, tensor, etc.)
-            
-        Returns:
-            Number of subscribers
-        """
-        if not self._orchestrator:
-            raise RuntimeError("Plugin communication not available (orchestrator not initialized)")
-        try:
-            import ray
-            data_ref = ray.put(data)
-            return ray.get(self._orchestrator.publish.remote(
-                topic,
-                {"data_ref": data_ref}
-            ))
-        except Exception as e:
-            raise RuntimeError(f"Failed to publish object ref to '{topic}': {e}")
-    
-    def set_env_variable(self, key: str, value: Any) -> None:
-        """
-        Set environment variable (broadcast to all subscribers).
-        
-        Args:
-            key: Variable name
-            value: New value
-        """
-        if not self._orchestrator:
-            raise RuntimeError("Plugin communication not available (orchestrator not initialized)")
-        try:
-            import ray
-            ray.get(self._orchestrator.set_env_variable.remote(key, value))
-        except Exception as e:
-            raise RuntimeError(f"Failed to set env variable '{key}': {e}")
-    
-    def get_env_variable(self, key: str, default: Any = None) -> Any:
-        """
-        Get environment variable value.
-        
-        Args:
-            key: Variable name
-            default: Default value if not found
-            
-        Returns:
-            Variable value or default
-        """
-        if not self._orchestrator:
-            raise RuntimeError("Plugin communication not available (orchestrator not initialized)")
-        try:
-            import ray
-            return ray.get(self._orchestrator.get_env_variable.remote(key, default))
-        except Exception as e:
-            raise RuntimeError(f"Failed to get env variable '{key}': {e}")
-    
-    def invoke_service(
-        self,
-        plugin_id: str,
-        method_name: str,
-        *args,
-        **kwargs
-    ) -> Any:
-        """
-        Invoke a service method on another plugin.
-        
-        Args:
-            plugin_id: Target plugin identifier
-            method_name: Method name to invoke
-            *args: Positional arguments
-            **kwargs: Keyword arguments
-            
-        Returns:
-            Method return value
-        """
-        if not self._orchestrator:
-            raise RuntimeError("Plugin communication not available (orchestrator not initialized)")
-        try:
-            import ray
-            return ray.get(self._orchestrator.invoke_service.remote(
-                plugin_id,
-                method_name,
-                args,
-                kwargs
-            ))
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to invoke service '{method_name}' on plugin '{plugin_id}': {e}"
-            )

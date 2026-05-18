@@ -10,7 +10,7 @@ import pytest
 from typing import Optional
 
 from modularnet.modularcluster.modularcluster_plugin import PluginModularCluster
-from modularnet.plugin.plugin import PluginManager
+from modularnet.plugin import PluginManager
 
 
 class SimplePublisher:

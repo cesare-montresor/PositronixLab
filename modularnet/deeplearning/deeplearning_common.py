@@ -11,21 +11,15 @@ from modularnet.common.utils import set_best
 from modularnet.trial.trial_config import TrialConfig
 from modularnet.dataprovider.dataprovider import DataProvider
 from modularnet.metamodel.metamodel import MetaModel
-from modularnet.modularspace.modularspace import ModularSpace
 
-from typing_extensions import override
+
 import torch
-from typing import Literal, Optional
-
-from modularnet.modularcluster.modularcluster_kmeans import ModularClusterKmeans
-from modularnet.plugin_old.plugin import Plugin
 
 
 class DeeplearningCommon:
-    def __init__(self, config: TrialConfig, model: MetaModel, dp: DataProvider, space: ModularSpace, draft=False):
+    def __init__(self, config: TrialConfig, model: MetaModel, dp: DataProvider, draft=False):
         self.model = model
         self.dp = dp
-        self.space = space
         self.config = config
         self.draft = draft
         self.train_patience = 3
