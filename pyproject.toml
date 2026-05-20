@@ -26,6 +26,7 @@ dependencies = [
     "torchsummary",
     "pytest",
     "pytest-cov",
+    "pytest-xdist",
     "kaleido",
     "tabulate",
     "faiss-cpu",

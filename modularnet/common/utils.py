@@ -1,6 +1,5 @@
 
 import contextlib
-from math import e
 import pickle
 import threading
 import time
@@ -44,6 +43,23 @@ def session_path(name, uid=None, createDirectory = True, force=False):
     last_session_path = path
     if createDirectory: os.makedirs(path, exist_ok=True)
     return path
+
+
+
+def camel_to_kebab(text):
+    # Find transitions from lowercase/number to uppercase
+    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1-\2', text)
+    # Find transitions from lowercase to uppercase/number
+    s2 = re.sub('([a-z0-9])([A-Z])', r'\1-\2', s1)
+    return s2.lower()
+
+def camel_to_snake(text):
+    # Find transitions from lowercase/number to uppercase
+    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', text)
+    # Find transitions from lowercase to uppercase/number
+    s2 = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1)
+    return s2.lower()
+
 
 def get_thread_name():
     thread = threading.current_thread()

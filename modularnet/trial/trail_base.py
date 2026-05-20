@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import logging
 import time
 from typing import Dict, Any, Optional
@@ -9,7 +10,7 @@ from modularnet.plugin import PluginManager, PluginDescriptor
 logger = logging.getLogger(__name__)
 
 
-class Trial:
+class BaseTrial(ABC):
     """Base trial class."""
     
     def __init__(self, config: TrialConfig, trial_manager: TrialManager):
@@ -20,7 +21,7 @@ class Trial:
         self.plugin_manager = PluginManager()
         self.results: Optional[Dict[str, Any]] = None
 
-    def load_plugin(self, descriptor: PluginDescriptor, plugin_config: Dict[str, Any]) -> str:
+    def load_plugin(self, descriptor: PluginDescriptor, plugin_config: Dict[str, Any]={}) -> str:
         """
         Load a plugin from descriptor.
         
@@ -40,8 +41,14 @@ class Trial:
         """Run all loaded plugins."""
         self.plugin_manager.start_all_plugins()
 
+    def is_error(self) -> bool:
+        """Check if any plugin is in error state."""
+        statuses = self.plugin_manager.get_all_plugin_status()
+        return any(status == "error" for status in statuses.values())
+
+    @abstractmethod
     def is_complete(self) -> bool:
-        """Check if all plugins have completed."""
-        # In the new system, we check if plugins are no longer running
-        return True  # Simplified for now
+        """Check if trial is complete."""
+        pass
+
 
