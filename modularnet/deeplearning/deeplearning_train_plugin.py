@@ -10,6 +10,7 @@ This plugin:
 """
 
 import logging
+from time import sleep
 from typing import Any, Dict, Optional, List
 import torch
 
@@ -23,29 +24,6 @@ logger = logging.getLogger(__name__)
 
 
 
-class DeeplearningTrainPluginDescriptor(PluginDescriptor):
-    """
-    Descriptor for the DeeplearningTrainPlugin.
-    
-    Provides metadata for plugin registration and instantiation.
-    """
-    def __init__(
-        self,
-        name: str = "deeplearning-train",
-        config: Optional[Dict[str, Any]] = None,
-        version: str = "1.0",
-        metadata: Optional[Dict[str, Any]] = None
-    ):
-        super().__init__(
-            package="modularnet.deeplearning.deeplearning_train_plugin",
-            class_name="DeeplearningTrainPlugin",
-            name=name,
-            options=config or {},
-            version=version,
-            metadata=metadata or {}
-        )
-
-
 class DeeplearningTrainPlugin(BasePlugin):
     """
     Plugin that runs training after model and dataprovider are available.
@@ -56,6 +34,17 @@ class DeeplearningTrainPlugin(BasePlugin):
     3. Runs training
     4. Stops after training completes
     """
+
+
+    @classmethod
+    def Descriptor(cls, options: Dict[str, Any]=None) -> PluginDescriptor:
+        return super().Descriptor(
+            version="1.0.0",
+            author="ModularNet Team",
+            description="Plugin that runs training after model and dataprovider are available.",
+            options=options,
+        )
+    
    
     def __init__(
         self,
@@ -73,7 +62,7 @@ class DeeplearningTrainPlugin(BasePlugin):
                 - lr: Learning rate (default 0.001)
                 - epochs: Number of epochs (default 20)
                 - autoencoder: Use autoencoder mode (default False)
-            orchestrator_handle: Ray handle to orchestrator
+            orchestrator_handle: Orchestrator reference for multiprocessing backend (not used directly)
         """
         super().__init__(plugin_id, config, orchestrator_handle)
         
@@ -89,31 +78,22 @@ class DeeplearningTrainPlugin(BasePlugin):
 
     def on_start(self) -> None:
         """Initialize env subscriptions and wait for dependencies."""
-        logger.info(f"[{self.plugin_id}] Training plugin started, subscribing to environment variables...")
+        logger.info(f"[{self.plugin_id}] Training plugin started, waiting for environment variables...")
         
-        # Try to get initial values from orchestrator (may not be set yet)
-        if self._orchestrator:
-            try:
-                import ray
-                self.model = ray.get(self._orchestrator.get_env_variable.remote("model"))
-                self.dataprovider = ray.get(self._orchestrator.get_env_variable.remote("dataprovider"))
-                self.space = ray.get(self._orchestrator.get_env_variable.remote("space"))
-            except Exception as e:
-                logger.debug(f"[{self.plugin_id}] Initial env values not yet available: {e}")
-        
+        # Initial values will be set via on_model_changed, on_dataprovider_changed callbacks
+        # No need to query orchestrator directly - just wait for subscribed env updates
         self.check_and_start_training()
+        self.run_training()
 
     def on_model_changed(self, update: EnvUpdate) -> None:
         """Callback when model environment variable is updated."""
         self.model = update.value
         logger.info(f"[{self.plugin_id}] Model received from environment")
-        self.check_and_start_training()
 
     def on_dataprovider_changed(self, update: EnvUpdate) -> None:
         """Callback when dataprovider environment variable is updated."""
         self.dataprovider = update.value
         logger.info(f"[{self.plugin_id}] DataProvider received from environment")
-        self.check_and_start_training()
 
     def on_space_changed(self, update: EnvUpdate) -> None:
         """Callback when space environment variable is updated."""
@@ -122,19 +102,12 @@ class DeeplearningTrainPlugin(BasePlugin):
             logger.info(f"[{self.plugin_id}] ModularSpace received from environment")
         else:
             logger.info(f"[{self.plugin_id}] No ModularSpace provided (optional)")
-        self.check_and_start_training()
 
     def check_and_start_training(self) -> None:
         """Check if both model and dataprovider are available, then start training."""
-        if (self.model is not None and self.dataprovider is not None 
-                and not self.training_started):
-            self.training_started = True
-            logger.info(f"[{self.plugin_id}] Both model and dataprovider available. Starting training...")
-            try:
-                self.run_training()
-            except Exception as e:
-                logger.error(f"[{self.plugin_id}] Training failed: {e}")
-                self.on_error(e, "run_training")
+        logging.debug(f"[{self.plugin_id}] Checking if model and dataprovider are available for training...")
+        while self.model is None or self.dataprovider is None:
+            sleep(0.01)  # Wait for dependencies to be set in environment
 
     def run_training(self) -> None:
         """Run the training process."""

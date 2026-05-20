@@ -5,16 +5,21 @@ Defines the lifecycle, subscription, and service interfaces that all
 plugins must implement or can override.
 """
 
+from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Callable
 from enum import Enum
 
 
+from modularnet.common.utils import camel_to_kebab
+from modularnet.plugin import PluginDescriptor
+
+
 class PluginState(Enum):
-    """Plugin lifecycle events."""
-    STARTED = "started"
-    UPDATED = "updated"
+    """Plugin lifecycle states."""
+    INITIALIZED = "initialized"
+    LOADED = "loaded"
+    RUNNING = "running"
     STOPPED = "stopped"
     ERROR = "error"
 
@@ -48,20 +53,31 @@ class BasePlugin(ABC):
     - get_env_subscriptions: Define env var change subscriptions
     - get_services: Define RPC methods
     """
-    
-    def __init__(self, plugin_id: str, config: Optional[Dict[str, Any]] = None, orchestrator_handle: Optional[Any] = None):
+
+    @classmethod
+    def Descriptor(cls, version:str, author:str, description:str=None, name:str=None, options: Dict[str, Any] = None) -> PluginDescriptor:
+        return PluginDescriptor(
+            version=version,
+            author=author,
+            options=options or {},
+            name=name or camel_to_kebab(cls.__name__),
+            package=f"{cls.__module__}",
+            class_name=cls.__name__,
+            description=description or f"{cls.__doc__}",
+            
+        )
+
+    def __init__(self, plugin_id: str, config: Optional[Dict[str, Any]] = None):
         """
         Initialize plugin.
         
         Args:
             plugin_id: Unique identifier for this plugin instance
             config: Configuration options dictionary
-            orchestrator_handle: Optional orchestrator handle for communication (backend-specific)
         """
         self.plugin_id = plugin_id
         self.config = config or {}
         self._is_running = False
-        self._orchestrator = orchestrator_handle  # Internal: orchestrator handle for communication
     
     @abstractmethod
     def on_start(self) -> None:

@@ -1,7 +1,7 @@
 """
-Plugin Handler (torch.multiprocessing backend): Manages individual plugins in separate processes.
+Plugin Worker (torch.multiprocessing backend): Manages individual plugins in separate processes.
 
-Each plugin runs in isolation in its own process. The handler manages:
+Each plugin runs in isolation in its own process. The worker manages:
 1. Plugin lifecycle (start, stop, update)
 2. Pub/sub message dispatch
 3. Environment variable subscriptions
@@ -12,62 +12,58 @@ Each plugin runs in isolation in its own process. The handler manages:
 import logging
 import traceback
 import importlib
+import uuid
+import time
 from typing import Any, Dict, List, Optional
-from dataclasses import dataclass
 
 import torch.multiprocessing as mp
 
-
-from modularnet.plugin.plugin_base import BasePlugin
+from modularnet.plugin.plugin_base import BasePlugin, PluginState
+from modularnet.plugin.plugin_messages import Responses, Channel, WorkerStatus
 from modularnet.plugin.environment_manager import EnvUpdate
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class CommandMessage:
-    """Message sent to plugin process."""
-    cmd_id: str
-    command: str
-    args: tuple = ()
-    kwargs: dict = None
-    
-    def __post_init__(self):
-        if self.kwargs is None:
-            self.kwargs = {}
-
-
-@dataclass
-class ResponseMessage:
-    """Message sent back from plugin process."""
-    cmd_id: str
-    result: Any = None
-    error: Optional[str] = None
-
-
-class PluginHandler:
+class PluginWorker:
     """
     Manages a single plugin instance in isolation (runs in subprocess).
     
     Handles plugin lifecycle, message dispatch, environment variables, and services.
     """
     
-    def __init__(self, plugin_id: str, orchestrator=None):
+    def __init__(
+        self,
+        plugin_id: str,
+        max_messages_per_cycle: int = 5,
+        cmd_receive_timeout: float = 0.1,
+        process_sleep_interval: float = 0.01
+    ):
         """
-        Initialize handler.
+        Initialize worker.
         
         Args:
             plugin_id: Unique plugin identifier
-            orchestrator: Reference to orchestrator (can be None in subprocess)
+            max_messages_per_cycle: Max messages to process per poll cycle
+            cmd_receive_timeout: Timeout for receiving commands (seconds)
+            process_sleep_interval: Sleep time when no command (seconds)
         """
         self.plugin_id = plugin_id
-        self.orchestrator = orchestrator
         self.plugin: Optional[BasePlugin] = None
-        self.status = "INITIALIZED"
+        self.status = PluginState.INITIALIZED
         self._subscriptions: List[Dict[str, Any]] = []
         self._env_subscriptions: List[Dict[str, Any]] = []
-        self._local_env = {}  # Local cache of env vars for O(1) access
+        self._local_env: Dict[str, Any] = {}  # Local cache of env vars for O(1) access
         self.error_log: List[str] = []
+        
+        # Configuration
+        self.max_messages_per_cycle = max_messages_per_cycle
+        self.cmd_receive_timeout = cmd_receive_timeout
+        self.process_sleep_interval = process_sleep_interval
+    
+    def _safe_arg(self, args: tuple, index: int, default: Any = None) -> Any:
+        """Safely extract argument from args tuple."""
+        return args[index] if len(args) > index else default
     
     def load_plugin(self, descriptor_dict: Dict[str, Any], config: Dict[str, Any]) -> bool:
         """
@@ -88,9 +84,9 @@ class PluginHandler:
             module = importlib.import_module(package)
             plugin_class = getattr(module, class_name)
             
-            # Instantiate plugin with orchestrator handle for communication
+            # Instantiate plugin
             merged_config = {**descriptor_dict.get("options", {}), **config}
-            self.plugin = plugin_class(self.plugin_id, merged_config, orchestrator_handle=None)
+            self.plugin = plugin_class(self.plugin_id, merged_config)
             
             # Set up subscriptions
             for sub_desc in self.plugin.get_subscriptions():
@@ -115,7 +111,7 @@ class PluginHandler:
                     "callback": callback_name
                 })
             
-            self.status = "LOADED"
+            self.status = PluginState.LOADED
             logger.info(f"Plugin {self.plugin_id} loaded successfully")
             return True
             
@@ -123,7 +119,7 @@ class PluginHandler:
             error_msg = f"Failed to load plugin {self.plugin_id}: {str(e)}\n{traceback.format_exc()}"
             logger.error(error_msg)
             self.error_log.append(error_msg)
-            self.status = "ERROR"
+            self.status = PluginState.ERROR
             return False
     
     def start(self) -> bool:
@@ -142,7 +138,7 @@ class PluginHandler:
         try:
             self.plugin.on_start()
             self.plugin._is_running = True
-            self.status = "RUNNING"
+            self.status = PluginState.RUNNING
             
             logger.info(f"Plugin {self.plugin_id} started")
             return True
@@ -152,7 +148,7 @@ class PluginHandler:
             logger.error(error_msg)
             self.error_log.append(error_msg)
             self.plugin._is_running = False
-            self.status = "ERROR"
+            self.status = PluginState.ERROR
             if self.plugin:
                 self.plugin.on_error(Exception(error_msg), "on_start")
             return False
@@ -170,7 +166,7 @@ class PluginHandler:
         try:
             self.plugin.on_stop()
             self.plugin._is_running = False
-            self.status = "STOPPED"
+            self.status = PluginState.STOPPED
             
             # Unregister subscriptions
             self._subscriptions.clear()
@@ -183,7 +179,7 @@ class PluginHandler:
             error_msg = f"Plugin {self.plugin_id} error during stop: {str(e)}\n{traceback.format_exc()}"
             logger.error(error_msg)
             self.error_log.append(error_msg)
-            self.status = "ERROR"
+            self.status = PluginState.ERROR
             if self.plugin:
                 self.plugin.on_error(Exception(error_msg), "on_stop")
             return False
@@ -203,7 +199,7 @@ class PluginHandler:
         
         try:
             self.plugin.on_update(config)
-            self.status = "RUNNING"
+            self.status = PluginState.RUNNING
             logger.info(f"Plugin {self.plugin_id} configuration updated")
             return True
             
@@ -211,7 +207,7 @@ class PluginHandler:
             error_msg = f"Plugin {self.plugin_id} error during config update: {str(e)}"
             logger.error(error_msg)
             self.error_log.append(error_msg)
-            self.status = "ERROR"
+            self.status = PluginState.ERROR
             if self.plugin:
                 self.plugin.on_error(Exception(error_msg), "on_update")
             return False
@@ -265,17 +261,19 @@ class PluginHandler:
                 self.plugin.on_error(e, f"service_{method_name}")
             raise
     
-    def process_messages(self, max_messages: int = 10) -> int:
+    def process_messages(self, max_messages: Optional[int] = None) -> int:
         """
         Process pending messages from all subscribed topics.
         
         Args:
-            max_messages: Maximum messages to process per call
+            max_messages: Maximum messages to process per call (uses default if None)
             
         Returns:
             Number of messages processed
         """
-        if self.status != "RUNNING" or not self.plugin:
+        if max_messages is None:
+            max_messages = self.max_messages_per_cycle
+        if self.status != PluginState.RUNNING or not self.plugin:
             return 0
         
         messages_processed = 0
@@ -312,21 +310,21 @@ class PluginHandler:
         
         return messages_processed
     
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> WorkerStatus:
         """
         Get plugin status information.
         
         Returns:
-            Status dictionary
+            WorkerStatus dataclass with plugin status
         """
-        return {
-            "plugin_id": self.plugin_id,
-            "status": self.status,
-            "is_running": self.plugin._is_running if self.plugin else False,
-            "subscriptions": len(self._subscriptions),
-            "env_subscriptions": len(self._env_subscriptions),
-            "errors": len(self.error_log)
-        }
+        return WorkerStatus(
+            plugin_id=self.plugin_id,
+            status=self.status.value,
+            is_running=self.plugin._is_running if self.plugin else False,
+            subscriptions=len(self._subscriptions),
+            env_subscriptions=len(self._env_subscriptions),
+            errors=len(self.error_log)
+        )
     
     def get_errors(self) -> List[str]:
         """Get recent error messages."""
@@ -357,10 +355,13 @@ class PluginHandler:
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         
-        handler = PluginHandler(plugin_id)
+        # Wrap queues in a duplex channel (worker side: receives from cmd_queue, sends to resp_queue)
+        channel = Channel(resp_queue, cmd_queue)
+        
+        worker = PluginWorker(plugin_id)
         
         # Load plugin
-        if not handler.load_plugin(descriptor_dict, config):
+        if not worker.load_plugin(descriptor_dict, config):
             return
         
         # Main command loop
@@ -368,88 +369,95 @@ class PluginHandler:
         while running:
             try:
                 # Try to get a command (non-blocking)
-                try:
-                    cmd = cmd_queue.get(timeout=0.1)
-                except:
+                cmd = channel.try_receive(timeout=worker.cmd_receive_timeout)
+                
+                if cmd is None:
                     # No command available
-                    if handler.status == "RUNNING":
-                        handler.process_messages(max_messages=5)
+                    if worker.status == PluginState.RUNNING:
+                        worker.process_messages()
+                    else:
+                        time.sleep(worker.process_sleep_interval)
                     continue
                 
                 # Dispatch command
                 if cmd.command == "get_subscriptions":
                     # Return list of subscription topic names
-                    sub_names = [sub["name"] for sub in handler._subscriptions]
-                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=sub_names)
-                    resp_queue.put(resp)
+                    sub_names = [sub["name"] for sub in worker._subscriptions]
+                    resp = Responses.success(cmd.cmd_id, sub_names)
+                    channel.send(resp)
                 
                 elif cmd.command == "get_env_subscriptions":
                     # Return list of env subscription keys
-                    env_names = [sub["name"] for sub in handler._env_subscriptions]
-                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=env_names)
-                    resp_queue.put(resp)
+                    env_names = [sub["name"] for sub in worker._env_subscriptions]
+                    resp = Responses.success(cmd.cmd_id, env_names)
+                    channel.send(resp)
                 
                 elif cmd.command == "register_subscription":
-                    topic = cmd.args[0] if len(cmd.args) > 0 else ""
-                    queue = cmd.args[1] if len(cmd.args) > 1 else None
+                    topic = worker._safe_arg(cmd.args, 0, "")
+                    queue = worker._safe_arg(cmd.args, 1)
                     if queue:
                         # Find this subscription and set its queue
-                        for sub in handler._subscriptions:
+                        for sub in worker._subscriptions:
                             if sub["name"] == topic:
                                 sub["queue"] = queue
                                 logger.debug(f"Registered queue for subscription '{topic}'")
                                 break
-                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=True)
-                    resp_queue.put(resp)
+                    resp = Responses.success(cmd.cmd_id, True)
+                    channel.send(resp)
                 
                 elif cmd.command == "start":
-                    success = handler.start()
-                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=success)
-                    resp_queue.put(resp)
+                    success = worker.start()
+                    resp = Responses.success(cmd.cmd_id, success)
+                    channel.send(resp)
                 
                 elif cmd.command == "stop":
-                    success = handler.stop()
+                    success = worker.stop()
                     running = False
-                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=success)
-                    resp_queue.put(resp)
+                    resp = Responses.success(cmd.cmd_id, success)
+                    channel.send(resp)
                 
                 elif cmd.command == "update_config":
-                    config = cmd.args[0] if cmd.args else {}
-                    success = handler.update_config(config)
-                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=success)
-                    resp_queue.put(resp)
+                    config = worker._safe_arg(cmd.args, 0, {})
+                    success = worker.update_config(config)
+                    resp = Responses.success(cmd.cmd_id, success)
+                    channel.send(resp)
                 
                 elif cmd.command == "receive_env_update":
-                    update = cmd.args[0] if cmd.args else None
+                    update = worker._safe_arg(cmd.args, 0)
                     if update:
-                        handler.receive_env_update(update)
-                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=True)
-                    resp_queue.put(resp)
+                        worker.receive_env_update(update)
+                    resp = Responses.success(cmd.cmd_id, True)
+                    channel.send(resp)
                 
                 elif cmd.command == "execute_service":
-                    method_name = cmd.args[0] if cmd.args else ""
+                    method_name = worker._safe_arg(cmd.args, 0, "")
                     service_args = cmd.args[1:] if len(cmd.args) > 1 else ()
                     try:
-                        result = handler.execute_service(method_name, *service_args, **cmd.kwargs)
-                        resp = ResponseMessage(cmd_id=cmd.cmd_id, result=result)
+                        result = worker.execute_service(method_name, *service_args, **cmd.kwargs)
+                        resp = Responses.success(cmd.cmd_id, result)
                     except Exception as e:
-                        resp = ResponseMessage(cmd_id=cmd.cmd_id, error=str(e))
-                    resp_queue.put(resp)
+                        resp = Responses.error(cmd.cmd_id, str(e))
+                    channel.send(resp)
                 
                 elif cmd.command == "get_status":
-                    status = handler.get_status()
-                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=status)
-                    resp_queue.put(resp)
+                    status = worker.get_status()
+                    resp = Responses.success(cmd.cmd_id, status)
+                    channel.send(resp)
                 
                 elif cmd.command == "get_errors":
-                    errors = handler.get_errors()
-                    resp = ResponseMessage(cmd_id=cmd.cmd_id, result=errors)
-                    resp_queue.put(resp)
+                    errors = worker.get_errors()
+                    resp = Responses.success(cmd.cmd_id, errors)
+                    channel.send(resp)
+                
+                elif cmd.command == "clear_errors":
+                    worker.clear_errors()
+                    resp = Responses.success(cmd.cmd_id, True)
+                    channel.send(resp)
                 
                 else:
                     logger.warning(f"Unknown command: {cmd.command}")
-                    resp = ResponseMessage(cmd_id=cmd.cmd_id, error=f"Unknown command: {cmd.command}")
-                    resp_queue.put(resp)
+                    resp = Responses.error(cmd.cmd_id, f"Unknown command: {cmd.command}")
+                    channel.send(resp)
                     
             except KeyboardInterrupt:
                 running = False

@@ -15,37 +15,38 @@ the full integration of setup + training pipeline.
 """
 
 import pytest
-import torch
 
 from modularnet.trial.trial_config import TrialConfig
 from modularnet.trial.trial_manager import TrialManager
 
 
 
-from modularnet.deeplearning.deeplearning_train_plugin import DeeplearningTrainPluginDescriptor
-from modularnet.deeplearning.deeplearning_setup_plugin import DeeplearningSetupPluginDescriptor
-from modularnet.trial import Trial, TrialConfig, TrialManager
+from modularnet.deeplearning.deeplearning_train_plugin import DeeplearningTrainPlugin
+from modularnet.deeplearning.deeplearning_setup_plugin import DeeplearningSetupPlugin
+from modularnet.trial import BaseTrial, TrialConfig, TrialManager
 
 
 class TestTrialDeepLearningIntegration:
     def test_base_integration(self):
         self.config = TrialConfig()
         self.trial_manager = TrialManager()
-        self.trial = Trial(self.config, self.trial_manager)
+        self.trial = BaseTrial(self.config, self.trial_manager)
         
 
-        dl_setup = DeeplearningSetupPluginDescriptor(config=self.config)
-        dl_train = DeeplearningTrainPluginDescriptor(config=self.config)
+        dl_setup = DeeplearningSetupPlugin.Descriptor(options={"trial_config": self.config})
+        dl_train = DeeplearningTrainPlugin.Descriptor(options={"trial_config": self.config})
 
         self.trial.load_plugin(dl_setup)
         self.trial.load_plugin(dl_train)
 
 
         self.trial.run()
+        while not self.trial.is_complete():
+            pass  # In a real test, we would have better synchronization here
     
     
 
 
 
 if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+    pytest.main([__file__, '-v', '-W','error::UserWarning'])

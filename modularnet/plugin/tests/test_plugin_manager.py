@@ -24,8 +24,8 @@ from modularnet.plugin.environment_manager import EnvUpdate
 class DummyBasicPlugin(BasePlugin):
     """Minimal plugin for testing lifecycle."""
     
-    def __init__(self, plugin_id: str, config: Dict[str, Any] = None, orchestrator_handle=None):
-        super().__init__(plugin_id, config, orchestrator_handle)
+    def __init__(self, plugin_id: str, config: Dict[str, Any] = None):
+        super().__init__(plugin_id, config)
         self.on_start_called = False
         self.on_stop_called = False
         self.on_update_called = False
@@ -57,8 +57,8 @@ class DummyBasicPlugin(BasePlugin):
 class DummyPubSubPlugin(BasePlugin):
     """Plugin for testing pub/sub messaging."""
     
-    def __init__(self, plugin_id: str, config: Dict[str, Any] = None, orchestrator_handle=None):
-        super().__init__(plugin_id, config, orchestrator_handle)
+    def __init__(self, plugin_id: str, config: Dict[str, Any] = None):
+        super().__init__(plugin_id, config)
         self.received_messages: List[Any] = []
         self.output_count = 0
     
@@ -99,8 +99,8 @@ class DummyPubSubPlugin(BasePlugin):
 class DummyEnvPlugin(BasePlugin):
     """Plugin for testing environment variable subscriptions."""
     
-    def __init__(self, plugin_id: str, config: Dict[str, Any] = None, orchestrator_handle=None):
-        super().__init__(plugin_id, config, orchestrator_handle)
+    def __init__(self, plugin_id: str, config: Dict[str, Any] = None):
+        super().__init__(plugin_id, config)
         self.env_changes: List[Dict[str, Any]] = []
         self.current_value = None
     
@@ -146,8 +146,8 @@ class DummyEnvPlugin(BasePlugin):
 class DummyErrorPlugin(BasePlugin):
     """Plugin for testing error handling."""
     
-    def __init__(self, plugin_id: str, config: Dict[str, Any] = None, orchestrator_handle=None):
-        super().__init__(plugin_id, config, orchestrator_handle)
+    def __init__(self, plugin_id: str, config: Dict[str, Any] = None):
+        super().__init__(plugin_id, config)
         self.errors_received: List[Dict[str, str]] = []
     
     def on_start(self) -> None:
