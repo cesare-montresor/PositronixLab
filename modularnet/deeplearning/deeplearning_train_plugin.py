@@ -18,7 +18,8 @@ from modularnet.trial.trial_config import TrialConfig
 from modularnet.dataprovider.dataprovider import DataProvider
 from modularnet.metamodel.metamodel import MetaModel
 from modularnet.deeplearning.deeplearning_common import DeeplearningCommon
-from modularnet.plugin import BasePlugin, PluginDescriptor, Subscription, EnvUpdate
+from modularnet.plugin import BasePlugin, PluginDescriptor, DataExchange
+from modularnet.plugin.plugin_messages import EnvUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,6 @@ class DeeplearningTrainPlugin(BasePlugin):
         self,
         plugin_id: str,
         config: Dict[str, Any],
-        orchestrator_handle: Optional[Any] = None,
     ):
         """
         Initialize the training plugin.
@@ -62,9 +62,8 @@ class DeeplearningTrainPlugin(BasePlugin):
                 - lr: Learning rate (default 0.001)
                 - epochs: Number of epochs (default 20)
                 - autoencoder: Use autoencoder mode (default False)
-            orchestrator_handle: Orchestrator reference for multiprocessing backend (not used directly)
         """
-        super().__init__(plugin_id, config, orchestrator_handle)
+        super().__init__(plugin_id, config)
         
         self.trial_config: Optional[TrialConfig] = config.get("trial_config")
         self.lr = config.get("lr", 0.001)
@@ -145,16 +144,12 @@ class DeeplearningTrainPlugin(BasePlugin):
         super().on_update(config)
         logger.debug(f"[{self.plugin_id}] Config updated")
 
-    def get_subscriptions(self) -> List[Subscription]:
-        """Training plugin doesn't subscribe to any topics."""
-        return []
-
-    def get_env_subscriptions(self) -> List[Subscription]:
+    def get_subscriptions(self) -> List[DataExchange]:
         """Subscribe to model, dataprovider, and optional space environment variables."""
         return [
-            Subscription(name="model", callback="on_model_changed"),
-            Subscription(name="dataprovider", callback="on_dataprovider_changed"),
-            Subscription(name="space", callback="on_space_changed"),
+            DataExchange.env_var("model", "on_model_changed"),
+            DataExchange.env_var("dataprovider", "on_dataprovider_changed"),
+            DataExchange.env_var("space", "on_space_changed"),
         ]
 
     def get_services(self) -> List[str]:

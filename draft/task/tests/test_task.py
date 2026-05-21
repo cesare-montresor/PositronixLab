@@ -14,7 +14,7 @@ import unittest
 import time
 import threading
 import multiprocessing
-from modularnet.task import BaseTask, ThreadTask, ProcessTask, Task
+from draft.task import BaseTask, ThreadTask, ProcessTask, Task
 
 
 # Test helper functions

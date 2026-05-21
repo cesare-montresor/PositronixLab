@@ -1,10 +1,9 @@
 """
-Test suite for the torch.multiprocessing plugin system backend.
+Test suite for the multiprocessing-based plugin system.
 
-Mirrors test_plugin_system.py but uses the multiprocessing backend instead of Ray.
-Tests all major features: lifecycle, pub/sub, environment variables, inter-plugin communication.
+Tests all major features: lifecycle, pub/sub, environment variables, services.
 
-Run with: pytest modularnet/plugin/tests/test_plugin_manager_mp.py -v
+Run with: pytest modularnet/plugin/tests/test_plugin_manager.py -v
 """
 
 import pytest
@@ -13,8 +12,8 @@ from typing import Dict, Any, List
 
 from modularnet.plugin.plugin_manager import PluginManager
 from modularnet.plugin.plugin_descriptor import PluginDescriptor
-from modularnet.plugin.plugin_base import BasePlugin, Subscription
-from modularnet.plugin.environment_manager import EnvUpdate
+from modularnet.plugin.plugin_base import BasePlugin
+from modularnet.plugin.plugin_messages import DataExchange, EnvUpdate
 
 
 # ============================================================================
@@ -71,13 +70,9 @@ class DummyPubSubPlugin(BasePlugin):
     def on_error(self, error: Exception, context: str = "") -> None:
         pass
     
-    def get_subscriptions(self) -> List[Subscription]:
+    def get_subscriptions(self) -> List[DataExchange]:
         return [
-            Subscription(
-                name="test_input",
-                callback="on_input_message",
-                publish_to="test_output"
-            )
+            DataExchange.topic("test_input", "on_input_message", republish_to="test_output")
         ]
     
     def on_input_message(self, data: Any, env: Dict[str, Any]) -> Any:
@@ -113,12 +108,9 @@ class DummyEnvPlugin(BasePlugin):
     def on_error(self, error: Exception, context: str = "") -> None:
         pass
     
-    def get_env_subscriptions(self) -> List[Subscription]:
+    def get_subscriptions(self) -> List[DataExchange]:
         return [
-            Subscription(
-                name="shared_param",
-                callback="on_param_change"
-            )
+            DataExchange.env_var("shared_param", "on_param_change")
         ]
     
     def on_param_change(self, update: EnvUpdate) -> None:

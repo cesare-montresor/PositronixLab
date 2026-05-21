@@ -44,7 +44,10 @@ class BaseTrial(ABC):
     def is_error(self) -> bool:
         """Check if any plugin is in error state."""
         statuses = self.plugin_manager.get_all_plugin_status()
-        return any(status == "error" for status in statuses.values())
+        for status in statuses.values():
+            if status.worker_status and status.worker_status.status == "error":
+                return True
+        return False
 
     @abstractmethod
     def is_complete(self) -> bool:

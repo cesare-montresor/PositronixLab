@@ -5,14 +5,13 @@ Defines the lifecycle, subscription, and service interfaces that all
 plugins must implement or can override.
 """
 
-from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Callable
 from enum import Enum
 
-
 from modularnet.common.utils import camel_to_kebab
 from modularnet.plugin import PluginDescriptor
+from modularnet.plugin.plugin_messages import DataExchange, SubscriptionType
 
 
 class PluginState(Enum):
@@ -24,23 +23,14 @@ class PluginState(Enum):
     ERROR = "error"
 
 
-@dataclass
-class Subscription:
-    """Describes a subscription: pub/sub topic or environment variable."""
-    name: str  # Topic name (pub/sub) or env var key
-    callback: str  # Method name on plugin
-    publish_to: Optional[str] = None  # Optional: republish results (pub/sub only)
-
-
 class BasePlugin(ABC):
     """
     Abstract base class for all ModularNet plugins.
     
     Plugins run in isolated processes and communicate via:
-    1. Control channel: Load/unload/configure commands from manager
-    2. Data plane: Pub/sub topics for high-bandwidth data exchange (via pub/sub callbacks)
-    3. State plane: Shared environment variables with change notifications
-    4. Services: Sync request/response calls
+    1. Control channel: Load/unload/configure/service commands
+    2. Data plane: Pub/sub topics for high-bandwidth data exchange
+    3. Env plane: Shared environment variables with change notifications
     
     Subclasses must implement:
     - on_start: Initialize plugin resources
@@ -49,8 +39,7 @@ class BasePlugin(ABC):
     Optional overrides:
     - on_update: Handle configuration updates
     - on_error: Handle errors
-    - get_subscriptions: Define pub/sub subscriptions
-    - get_env_subscriptions: Define env var change subscriptions
+    - get_subscriptions: Define pub/sub + env subscriptions (unified)
     - get_services: Define RPC methods
     """
 
@@ -121,27 +110,22 @@ class BasePlugin(ABC):
         """
         pass
     
-    def get_subscriptions(self) -> List[Subscription]:
+    def get_subscriptions(self) -> List[DataExchange]:
         """
-        Define pub/sub topic subscriptions.
+        Define data exchange subscriptions (pub/sub topics and env vars).
         
-        Return list of topics this plugin wants to subscribe to.
-        When messages arrive, the specified callback method is called.
+        Return list of subscriptions this plugin wants:
+        - Topics: when data arrives, call callback(data, env)
+        - Env Vars: when var changes, call callback(EnvUpdate)
+        
+        Example:
+            return [
+                DataExchange.topic("sensor_data", "on_sensor_data"),
+                DataExchange.env_var("config_param", "on_config_changed"),
+            ]
         
         Returns:
-            List of subscriptions
-        """
-        return []
-    
-    def get_env_subscriptions(self) -> List[Subscription]:
-        """
-        Define environment variable subscriptions.
-        
-        Return list of env vars this plugin wants to watch for changes.
-        When a var changes, the specified callback method is called.
-        
-        Returns:
-            List of subscriptions
+            List of DataExchange subscriptions
         """
         return []
     

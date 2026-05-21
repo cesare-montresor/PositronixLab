@@ -1,113 +1,81 @@
 """
 Plugin Manager: Lightweight multiprocessing-based plugin orchestration.
 
-Responsibilities:
-1. Plugin lifecycle management (load, start, stop, unload)
-2. Pub/sub topic routing
-3. Environment variable management
-4. Service request/response dispatch
-5. Plugin status monitoring
+Manages plugin lifecycle, pub/sub messaging, environment variables, and services.
+Uses simplified request/response protocol via Channel.
 """
 
 import logging
-from os import error
-from typing import Any, Dict, List, Optional
+import multiprocessing as mp
 import time
-import uuid
-
-try:
-    import torch.multiprocessing as mp
-except ImportError:
-    import multiprocessing as mp
-
-# Set fork mode for queue sharing between processes
-try:
-    mp.set_start_method('fork', force=True)
-except RuntimeError:
-    pass  # Already set
+from typing import Any, Dict, List, Optional
 
 from modularnet.plugin.plugin_descriptor import PluginDescriptor
 from modularnet.plugin.plugin_worker import PluginWorker
-from modularnet.plugin.plugin_messages import Commands, Responses, ResponseMessage, EnvUpdate, Channel, ProcessStatus
+from modularnet.plugin.plugin_messages import Channel, Request, Response, DataExchange, SubscriptionType, EnvUpdate, ProcessStatus, WorkerStatus
 from modularnet.plugin.environment_manager import EnvironmentManager
 
 logger = logging.getLogger(__name__)
 
+# Set fork mode for queue sharing
+try:
+    mp.set_start_method('fork', force=True)
+except RuntimeError:
+    pass
+
 
 class PluginManager:
     """
-    Lightweight plugin manager for multiprocessing-based plugin orchestration.
+    Lightweight manager for multiprocessing-based plugin orchestration.
     
-    Manages plugin lifecycle, pub/sub messaging, environment variables, and service invocation.
+    Responsibilities:
+    - Plugin lifecycle (load, start, stop, unload)
+    - Pub/sub topic routing
+    - Environment variable management and subscriptions
+    - Service request/response dispatch
     """
     
     def __init__(
         self,
-        timeout_get_subscriptions: float = 0.5,
-        timeout_register_subscription: float = 0.3,
-        timeout_start_plugin: float = 0.5,
-        timeout_service_invoke: float = 30.0,
-        timeout_response_wait: float = 0.1
+        timeout_request: float = 5.0,
+        timeout_start: float = 2.0
     ):
         """
         Initialize plugin manager.
         
         Args:
-            timeout_get_subscriptions: Timeout for getting subscriptions (seconds)
-            timeout_register_subscription: Timeout for registering subscriptions (seconds)
-            timeout_start_plugin: Timeout for starting plugin (seconds)
-            timeout_service_invoke: Timeout for service invocations (seconds)
-            timeout_response_wait: Timeout for waiting on responses (seconds)
+            timeout_request: Default timeout for sync requests (seconds)
+            timeout_start: Timeout for start command (seconds)
         """
-        self._plugins: Dict[str, Dict[str, Any]] = {}  # plugin_id -> {process, channel, subs}
-        self._topics: Dict[str, List[Any]] = {}  # topic -> [queue1, queue2, ...]
-        self._env_subscriptions: Dict[str, List[str]] = {}  # env_key -> [plugin_ids]
+        self._plugins: Dict[str, Dict[str, Any]] = {}  # plugin_id -> {process, channel, topics}
+        self._topics: Dict[str, List[Any]] = {}        # topic -> [queue, queue, ...]
+        self._env_subscriptions: Dict[str, List[str]] = {}  # env_key -> [plugin_id, ...]
+        
         self.env_manager = EnvironmentManager()
         self._manager = mp.Manager()
         
-        # Configuration
-        self.timeout_get_subscriptions = timeout_get_subscriptions
-        self.timeout_register_subscription = timeout_register_subscription
-        self.timeout_start_plugin = timeout_start_plugin
-        self.timeout_service_invoke = timeout_service_invoke
-        self.timeout_response_wait = timeout_response_wait
+        self.timeout_request = timeout_request
+        self.timeout_start = timeout_start
     
-    def _gen_cmd_id(self) -> str:
-        """Generate a unique command identifier."""
-        return str(uuid.uuid4())
-    
-    def _wait_for_response(
-        self, 
-        channel: Channel, 
-        cmd_id: str, 
-        timeout: float = 0.5
-    ) -> Optional[ResponseMessage]:
-        """
-        Wait for a response with matching cmd_id.
-        
-        Returns None on timeout.
-        """
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            try:
-                resp = channel._receive_queue.get(block=False)
-                if resp.cmd_id == cmd_id:
-                    return resp
-                else:
-                    # Put back if not for us
-                    channel._receive_queue.put(resp)
-            except:
-                time.sleep(0.01)
-        return None
-    
-    # --- Plugin Lifecycle ---
+    # ========================================================================
+    # LIFECYCLE: Load, Start, Stop, Unload
+    # ========================================================================
     
     def load_plugin(
         self,
         descriptor: PluginDescriptor,
         config: Optional[Dict[str, Any]] = None
     ) -> bool:
-        """Load and start a plugin."""
+        """
+        Load and initialize a plugin (spawn subprocess).
+        
+        Args:
+            descriptor: Plugin descriptor
+            config: Initial configuration
+        
+        Returns:
+            True if loaded successfully
+        """
         plugin_id = descriptor.name
         config = config or {}
         
@@ -116,6 +84,7 @@ class PluginManager:
             resp_queue = mp.Queue()
             channel = Channel(cmd_queue, resp_queue)
             
+            # Spawn worker process
             process = mp.Process(
                 target=PluginWorker.run,
                 args=(plugin_id, descriptor.to_dict(), config, cmd_queue, resp_queue),
@@ -126,47 +95,28 @@ class PluginManager:
             self._plugins[plugin_id] = {
                 "process": process,
                 "channel": channel,
-                "subscriptions": {}  # topic -> queue
+                "topics": {},  # topic -> queue
+                "descriptor": descriptor,
+                "config": config
             }
             
-            logger.info(f"Plugin {descriptor.name} loaded")
+            logger.info(f"Plugin {plugin_id} loaded")
             return True
             
         except Exception as e:
             logger.error(f"Error loading plugin {descriptor}: {e}")
             return False
     
-    def unload_plugin(self, plugin_id: str) -> bool:
-        """Unload a plugin and terminate its process."""
-        try:
-            self.stop_plugin(plugin_id)
-            
-            if plugin_id in self._plugins:
-                info = self._plugins[plugin_id]
-                process = info["process"]
-                
-                if process.is_alive():
-                    process.terminate()
-                    process.join(timeout=2.0)
-                    if process.is_alive():
-                        process.kill()
-                
-                del self._plugins[plugin_id]
-                
-                # Clean env subscriptions
-                for key in list(self._env_subscriptions.keys()):
-                    if plugin_id in self._env_subscriptions[key]:
-                        self._env_subscriptions[key].remove(plugin_id)
-            
-            logger.info(f"Plugin {plugin_id} unloaded")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error unloading plugin {plugin_id}: {e}")
-            return False
-    
     def start_plugin(self, plugin_id: str) -> bool:
-        """Start a loaded plugin."""
+        """
+        Start a loaded plugin and register subscriptions.
+        
+        Args:
+            plugin_id: Plugin identifier
+        
+        Returns:
+            True if started successfully
+        """
         if plugin_id not in self._plugins:
             logger.error(f"Plugin {plugin_id} not loaded")
             return False
@@ -175,48 +125,34 @@ class PluginManager:
             info = self._plugins[plugin_id]
             channel = info["channel"]
             
+            # Small delay to ensure worker is ready
             time.sleep(0.1)
             
-            # Get subscriptions
-            cmd_id = self._gen_cmd_id()
-            channel.send(Commands.get_subscriptions(cmd_id))
-            resp = self._wait_for_response(channel, cmd_id, self.timeout_get_subscriptions)
-            subscriptions = resp.result if resp and resp.result else []
-            
-            # Get env subscriptions
-            cmd_id = self._gen_cmd_id()
-            channel.send(Commands.get_env_subscriptions(cmd_id))
-            resp = self._wait_for_response(channel, cmd_id, self.timeout_get_subscriptions)
-            env_subs = resp.result if resp and resp.result else []
+            # Get subscriptions from plugin
+            data_exchanges = channel.request("get_data_exchanges", timeout=self.timeout_request)
+            subscriptions = data_exchanges.get("subscriptions", [])
             
             # Register topic subscriptions
-            for topic in subscriptions:
-                sub_queue = self._manager.Queue(maxsize=100)
-                info["subscriptions"][topic] = sub_queue
-                
-                if topic not in self._topics:
-                    self._topics[topic] = []
-                self._topics[topic].append(sub_queue)
-                
-                # Send queue to plugin
-                cmd_id = self._gen_cmd_id()
-                channel.send(Commands.register_subscription(cmd_id, topic, sub_queue))
-                self._wait_for_response(channel, cmd_id, self.timeout_register_subscription)
-                
-                logger.debug(f"Plugin {plugin_id} subscribed to topic '{topic}'")
+            for sub in subscriptions:
+                if sub.sub_type == SubscriptionType.TOPIC:
+                    topic_queue = self._manager.Queue()
+                    channel.send("register_topic_subscription", sub.name, topic_queue)
+                    
+                    # Track subscription
+                    if sub.name not in self._topics:
+                        self._topics[sub.name] = []
+                    self._topics[sub.name].append(topic_queue)
+                    info["topics"][sub.name] = topic_queue
             
-            # Register env subscriptions
-            for key in env_subs:
-                if key not in self._env_subscriptions:
-                    self._env_subscriptions[key] = []
-                if plugin_id not in self._env_subscriptions[key]:
-                    self._env_subscriptions[key].append(plugin_id)
-                logger.debug(f"Plugin {plugin_id} subscribed to env key '{key}'")
+            # Register env var subscriptions
+            for sub in subscriptions:
+                if sub.sub_type == SubscriptionType.ENV_VAR:
+                    if sub.name not in self._env_subscriptions:
+                        self._env_subscriptions[sub.name] = []
+                    self._env_subscriptions[sub.name].append(plugin_id)
             
             # Send start command
-            cmd_id = self._gen_cmd_id()
-            channel.send(Commands.start(cmd_id))
-            resp = self._wait_for_response(channel, cmd_id, self.timeout_start_plugin)
+            channel.request("start", timeout=self.timeout_start)
             
             logger.info(f"Plugin {plugin_id} started")
             return True
@@ -226,59 +162,131 @@ class PluginManager:
             return False
     
     def stop_plugin(self, plugin_id: str) -> bool:
-        """Stop a running plugin."""
+        """
+        Stop a running plugin.
+        
+        Args:
+            plugin_id: Plugin identifier
+        
+        Returns:
+            True if stopped successfully
+        """
         if plugin_id not in self._plugins:
             return False
         
         try:
             info = self._plugins[plugin_id]
             channel = info["channel"]
-            channel.send(Commands.stop(self._gen_cmd_id()))
+            channel.send("stop")
             logger.info(f"Plugin {plugin_id} stopped")
             return True
         except Exception as e:
             logger.error(f"Error stopping plugin {plugin_id}: {e}")
             return False
     
+    def unload_plugin(self, plugin_id: str) -> bool:
+        """
+        Unload a plugin and terminate its process.
+        
+        Args:
+            plugin_id: Plugin identifier
+        
+        Returns:
+            True if unloaded successfully
+        """
+        try:
+            self.stop_plugin(plugin_id)
+            
+            if plugin_id in self._plugins:
+                info = self._plugins[plugin_id]
+                process = info["process"]
+                
+                if process.is_alive():
+                    process.terminate()
+                    process.join(timeout=2)
+                    if process.is_alive():
+                        process.kill()
+                
+                # Clean up environment subscriptions
+                for env_key in list(self._env_subscriptions.keys()):
+                    if plugin_id in self._env_subscriptions[env_key]:
+                        self._env_subscriptions[env_key].remove(plugin_id)
+                    if not self._env_subscriptions[env_key]:
+                        del self._env_subscriptions[env_key]
+                
+                del self._plugins[plugin_id]
+            
+            logger.info(f"Plugin {plugin_id} unloaded")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error unloading plugin {plugin_id}: {e}")
+            return False
+    
     def update_plugin_config(self, plugin_id: str, config: Dict[str, Any]) -> bool:
-        """Update plugin configuration."""
+        """
+        Update plugin configuration.
+        
+        Args:
+            plugin_id: Plugin identifier
+            config: Updated configuration
+        
+        Returns:
+            True if updated successfully
+        """
         if plugin_id not in self._plugins:
             return False
         
         try:
             info = self._plugins[plugin_id]
             channel = info["channel"]
-            channel.send(Commands.update_config(self._gen_cmd_id(), config))
+            channel.request("update_config", config, timeout=self.timeout_request)
+            info["config"].update(config)
             logger.info(f"Plugin {plugin_id} config updated")
             return True
         except Exception as e:
             logger.error(f"Error updating config for {plugin_id}: {e}")
             return False
     
-    # --- Pub/Sub ---
+    # ========================================================================
+    # PUB/SUB: Publish and Subscribe
+    # ========================================================================
     
     def publish(self, topic: str, data: Any) -> int:
-        """Publish data to a topic."""
+        """
+        Publish data to a topic.
+        
+        Args:
+            topic: Topic name
+            data: Message data
+        
+        Returns:
+            Number of subscribers that received the message
+        """
         delivered = 0
-        failed = 0
         
         if topic in self._topics:
             for queue in self._topics[topic]:
                 try:
-                    queue.put(data, block=False)
+                    queue.put_nowait(data)
                     delivered += 1
-                except:
-                    failed += 1
-        
-        if failed > 0:
-            logger.debug(f"Published to '{topic}': {delivered} ok, {failed} dropped")
+                except Exception as e:
+                    logger.debug(f"Failed to deliver to topic '{topic}': {e}")
         
         return delivered
     
-    # --- Environment Variables ---
+    # ========================================================================
+    # ENVIRONMENT: Variables and Subscriptions
+    # ========================================================================
     
     def set_env_variable(self, key: str, value: Any) -> None:
-        """Set an environment variable (broadcast to subscribers)."""
+        """
+        Set an environment variable and notify subscribers.
+        
+        Args:
+            key: Variable key
+            value: New value
+        """
         old_value = self.env_manager.get(key)
         self.env_manager.set(key, value)
         
@@ -287,59 +295,84 @@ class PluginManager:
             update = EnvUpdate(key=key, value=value, old_value=old_value)
             for plugin_id in self._env_subscriptions[key]:
                 if plugin_id in self._plugins:
-                    cmd = Commands.receive_env_update(self._gen_cmd_id(), update)
-                    try:
-                        self._plugins[plugin_id]["channel"]._send_queue.put(cmd, block=False)
-                    except Exception as e:
-                        logger.error(f"Failed to send env update to {plugin_id}: {e}")
+                    channel = self._plugins[plugin_id]["channel"]
+                    channel.send("receive_env_update", update)
     
     def get_env_variable(self, key: str, default: Any = None) -> Any:
-        """Get an environment variable."""
+        """
+        Get an environment variable.
+        
+        Args:
+            key: Variable key
+            default: Default value if not found
+        
+        Returns:
+            Variable value
+        """
         return self.env_manager.get(key, default)
     
     def get_all_env_variables(self) -> Dict[str, Any]:
-        """Get all environment variables."""
+        """
+        Get all environment variables.
+        
+        Returns:
+            Dictionary of all variables
+        """
         return self.env_manager.get_all()
     
-    # --- Services ---
+    # ========================================================================
+    # SERVICES: Invoke methods on plugins
+    # ========================================================================
     
     def invoke_service(
-        self, 
-        plugin_id: str, 
-        method_name: str, 
-        *args, 
+        self,
+        plugin_id: str,
+        method_name: str,
+        *args,
         **kwargs
     ) -> Any:
-        """Invoke a service method on a plugin."""
+        """
+        Invoke a service method on a plugin (synchronous).
+        
+        Args:
+            plugin_id: Plugin identifier
+            method_name: Method name to invoke
+            *args: Positional arguments
+            **kwargs: Keyword arguments
+        
+        Returns:
+            Method return value
+        
+        Raises:
+            ValueError: If plugin not found
+            RuntimeError: If service invocation fails
+            TimeoutError: If request times out
+        """
         if plugin_id not in self._plugins:
             raise ValueError(f"Plugin {plugin_id} not found")
         
-        info = self._plugins[plugin_id]
-        channel = info["channel"]
-        
-        cmd_id = self._gen_cmd_id()
-        cmd = Commands.execute_service(cmd_id, method_name, *args, **kwargs)
-        
-        try:
-            channel.send(cmd)
-        except Exception as e:
-            raise RuntimeError(f"Failed to send service command to {plugin_id}: {e}")
-        
-        # Wait for response
-        deadline = time.time() + self.timeout_service_invoke
-        while time.time() < deadline:
-            resp = self._wait_for_response(channel, cmd_id, 0.1)
-            if resp:
-                if resp.error:
-                    raise Exception(resp.error)
-                return resp.result
-        
-        raise TimeoutError(f"Service {plugin_id}.{method_name} timed out")
+        channel = self._plugins[plugin_id]["channel"]
+        return channel.request(
+            method_name,
+            *args,
+            timeout=self.timeout_request,
+            **kwargs
+        )
     
-    # --- Monitoring ---
+    # ========================================================================
+    # STATUS AND MONITORING
+    # ========================================================================
     
     def get_plugin_status(self, plugin_id: str) -> Optional[ProcessStatus]:
-        """Get status of a plugin (collects from worker via service call)."""
+        """
+        Get status of a plugin.
+        
+        Args:
+            plugin_id: Plugin identifier
+        
+        Returns:
+            ProcessStatus object, or None if not found
+        """
         if plugin_id not in self._plugins:
             return None
         
@@ -351,10 +384,10 @@ class PluginManager:
         
         if alive:
             try:
-                # Get detailed status from worker
-                worker_status = self.invoke_service(plugin_id, "get_status")
+                status_dict = info["channel"].request("get_status", timeout=1.0)
+                worker_status = WorkerStatus(**status_dict)
             except Exception as e:
-                logger.warning(f"Failed to get status from {plugin_id}: {e}")
+                logger.debug(f"Failed to get status for {plugin_id}: {e}")
         
         return ProcessStatus(
             plugin_id=plugin_id,
@@ -362,14 +395,17 @@ class PluginManager:
             process_pid=pid,
             worker_status=worker_status
         )
-
     
     def get_all_plugin_status(self) -> Dict[str, ProcessStatus]:
-        """Get status of all plugins."""
+        """
+        Get status of all plugins.
+        
+        Returns:
+            Dictionary of plugin_id -> ProcessStatus
+        """
         return {
             pid: self.get_plugin_status(pid)
             for pid in self._plugins.keys()
-            if self.get_plugin_status(pid)
         }
     
     def list_plugins(self) -> List[str]:
@@ -380,23 +416,24 @@ class PluginManager:
         """Start all loaded plugins."""
         for plugin_id in list(self._plugins.keys()):
             self.start_plugin(plugin_id)
-
+    
     def stop_all_plugins(self) -> None:
         """Stop all running plugins."""
         for plugin_id in list(self._plugins.keys()):
             self.stop_plugin(plugin_id)
     
     def shutdown(self) -> None:
-        """Shutdown the plugin manager."""
+        """Shut down the plugin manager and all plugins."""
         self.stop_all_plugins()
-        
         for plugin_id in list(self._plugins.keys()):
             self.unload_plugin(plugin_id)
     
-    # --- Backward compatibility ---
+    # ========================================================================
+    # BACKWARD COMPATIBILITY
+    # ========================================================================
     
     def start_processing_loop(self, interval: float = 0.1) -> None:
-        """No-op for backward compatibility. Processing happens automatically."""
+        """No-op for backward compatibility."""
         pass
     
     def stop_processing_loop(self) -> None:

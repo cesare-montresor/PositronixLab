@@ -9,15 +9,17 @@ Main Components:
 - BasePlugin: Abstract base class for plugins
 - PluginManager: Plugin orchestration and management
 - PluginWorker: Plugin subprocess worker
-- PluginMessages: IPC message protocol (CommandMessage, ResponseMessage)
+- PluginMessages: Unified IPC message protocol (Request, Response)
+- DataExchange: Unified subscription model (topics + env vars)
 """
 
 from .plugin_descriptor import PluginDescriptor
-from .plugin_base import BasePlugin, PluginState, Subscription
+from .plugin_base import BasePlugin, PluginState
 from .environment_manager import EnvironmentManager, EnvUpdate
 from .plugin_manager import PluginManager
 from .plugin_messages import (
-    CommandMessage, ResponseMessage, CommandType, Commands, Responses, Channel,
+    Request, Response, Channel,
+    DataExchange, SubscriptionType,
     WorkerStatus, ProcessStatus
 )
 
@@ -25,16 +27,14 @@ __all__ = [
     "PluginDescriptor",
     "BasePlugin",
     "PluginState",
-    "Subscription",
     "EnvironmentManager",
     "EnvUpdate",
     "PluginManager",
-    "CommandMessage",
-    "ResponseMessage",
-    "CommandType",
-    "Commands",
-    "Responses",
+    "Request",
+    "Response",
     "Channel",
+    "DataExchange",
+    "SubscriptionType",
     "WorkerStatus",
     "ProcessStatus",
 ]
