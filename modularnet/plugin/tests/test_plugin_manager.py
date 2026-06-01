@@ -13,9 +13,9 @@ from typing import Dict, Any, List
 from modularnet.plugin.plugin_manager import PluginManager
 from modularnet.plugin.plugin_descriptor import PluginDescriptor
 from modularnet.plugin.plugin_base import BasePlugin
-from modularnet.plugin.plugin_messages import DataExchange, EnvUpdate
+from modularnet.plugin.plugin_message import Subscription
 
-
+Subscription
 # ============================================================================
 # Dummy Plugins for Testing
 # ============================================================================
@@ -70,9 +70,9 @@ class DummyPubSubPlugin(BasePlugin):
     def on_error(self, error: Exception, context: str = "") -> None:
         pass
     
-    def get_subscriptions(self) -> List[DataExchange]:
+    def get_subscriptions(self) -> List[Subscription]:
         return [
-            DataExchange.topic("test_input", "on_input_message", republish_to="test_output")
+            Subscription.topic("test_input", "on_input_message", republish_to="test_output")
         ]
     
     def on_input_message(self, data: Any, env: Dict[str, Any]) -> Any:
@@ -108,18 +108,16 @@ class DummyEnvPlugin(BasePlugin):
     def on_error(self, error: Exception, context: str = "") -> None:
         pass
     
-    def get_subscriptions(self) -> List[DataExchange]:
+    def get_subscriptions(self) -> List[Subscription]:
         return [
-            DataExchange.env_var("shared_param", "on_param_change")
+            Subscription.env_var("shared_param", "on_param_change")
         ]
     
-    def on_param_change(self, update: EnvUpdate) -> None:
+    def on_param_change(self, env_name: str) -> None:
         """Called when env var changes."""
-        self.current_value = update.value
+        self.current_value = self.messanger.env_get(env_name)
         self.env_changes.append({
-            "key": update.key,
-            "old_value": update.old_value,
-            "new_value": update.value
+            "key": env_name
         })
     
     def get_services(self) -> List[str]:
@@ -293,7 +291,7 @@ class TestLifecycleEventsFeature:
         time.sleep(0.3)
         
         # Check that on_start was called
-        state = manager.invoke_service("event_plugin", "get_state")
+        state = manager.call_service("event_plugin", "get_state")
         assert state["started"] is True
     
     def test_event_on_stop_called(self, manager):
@@ -375,7 +373,7 @@ class TestEnvFeature:
         time.sleep(0.3)
         
         # Check plugin received change
-        current = manager.invoke_service("env_plugin", "get_current_value")
+        current = manager.call_service("env_plugin", "get_current_value")
         assert current == "new_value"
     
     def test_env_on_change_tracking(self, manager):
@@ -403,7 +401,7 @@ class TestEnvFeature:
         time.sleep(0.2)
         
         # Check all changes were tracked
-        changes = manager.invoke_service("env_plugin", "get_changes")
+        changes = manager.call_service("env_plugin", "get_changes")
         assert len(changes) >= 3
         
         # Check values
@@ -432,8 +430,8 @@ class TestEnvFeature:
         time.sleep(0.3)
         
         # Both should receive it
-        val1 = manager.invoke_service("env_p0", "get_current_value")
-        val2 = manager.invoke_service("env_p1", "get_current_value")
+        val1 = manager.call_service("env_p0", "get_current_value")
+        val2 = manager.call_service("env_p1", "get_current_value")
         assert val1 == "broadcast_value"
         assert val2 == "broadcast_value"
 
@@ -465,10 +463,10 @@ class TestPubSubFeature:
         time.sleep(0.5)
         
         # Verify plugin received all messages
-        count = manager.invoke_service("pubsub_plugin", "get_message_count")
+        count = manager.call_service("pubsub_plugin", "get_message_count")
         assert count == 3
         
-        messages = manager.invoke_service("pubsub_plugin", "get_messages")
+        messages = manager.call_service("pubsub_plugin", "get_messages")
         assert len(messages) == 3
         assert messages[0]["cmd"] == "test1"
         assert messages[2]["cmd"] == "test3"
@@ -498,8 +496,8 @@ class TestPubSubFeature:
         time.sleep(0.5)
         
         # Both plugins should receive all messages
-        count1 = manager.invoke_service("p1", "get_message_count")
-        count2 = manager.invoke_service("p2", "get_message_count")
+        count1 = manager.call_service("p1", "get_message_count")
+        count2 = manager.call_service("p2", "get_message_count")
         assert count1 == 10
         assert count2 == 10
         
@@ -545,12 +543,12 @@ class TestIntegration:
         time.sleep(0.5)
         
         # Verify pub/sub worked
-        msg_count = manager.invoke_service("processor", "get_message_count")
+        msg_count = manager.call_service("processor", "get_message_count")
         print(msg_count)
         assert msg_count == 5
         
         # Verify env subscription worked
-        current_val = manager.invoke_service("monitor", "get_current_value")
+        current_val = manager.call_service("monitor", "get_current_value")
         assert current_val == "config_a"
         
         # Update env
@@ -564,11 +562,11 @@ class TestIntegration:
         time.sleep(0.5)
         
         # Verify new env value
-        current_val = manager.invoke_service("monitor", "get_current_value")
+        current_val = manager.call_service("monitor", "get_current_value")
         assert current_val == "config_b"
         
         # Verify all messages processed
-        msg_count = manager.invoke_service("processor", "get_message_count")
+        msg_count = manager.call_service("processor", "get_message_count")
         assert msg_count == 10
         
         manager.stop_processing_loop()

@@ -5,20 +5,12 @@ Simple thread-safe system for reading/writing global environment variables
 and broadcasting updates to interested plugins.
 """
 
-from dataclasses import dataclass
 from typing import Any, Dict
 from threading import Lock
 import logging
 
 logger = logging.getLogger(__name__)
 
-
-@dataclass
-class EnvUpdate:
-    """Represents an environment variable update."""
-    key: str
-    value: Any
-    old_value: Any = None
 
 
 class EnvironmentManager:
@@ -49,10 +41,13 @@ class EnvironmentManager:
         for key, value in env_dict.items():
             self.set(key, value)
     
-    def clear(self) -> None:
-        """Clear all environment variables."""
+    def clear(self, key: str=None) -> None:
+        """Clear a specific environment variable."""
         with self._lock:
-            self._env.clear()
+            if key in self._env:
+                del self._env[key]
+            else:
+                self._env.clear()
     
     def __contains__(self, key: str) -> bool:
         """Check if key exists in environment."""

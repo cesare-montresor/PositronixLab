@@ -11,17 +11,18 @@ Main Components:
 - PluginWorker: Plugin subprocess worker
 - PluginMessages: Unified IPC message protocol (Request, Response)
 - DataExchange: Unified subscription model (topics + env vars)
+- ManagerProxy: Client-side proxy for direct manager access from plugins
 """
 
-from .plugin_descriptor import PluginDescriptor
-from .plugin_base import BasePlugin, PluginState
-from .environment_manager import EnvironmentManager, EnvUpdate
-from .plugin_manager import PluginManager
-from .plugin_messages import (
-    Request, Response, Channel,
-    DataExchange, SubscriptionType,
+from modularnet.plugin.plugin_base import BasePlugin, PluginState, PluginDescriptor
+from modularnet.plugin.environment_manager import EnvironmentManager
+from modularnet.plugin.plugin_manager import PluginManager
+from modularnet.plugin.plugin_message import (
+    Request, Response,
+    Subscription, 
     WorkerStatus, ProcessStatus
 )
+from modularnet.plugin.plugin_rpc import PluginMessanger
 
 __all__ = [
     "PluginDescriptor",
@@ -33,8 +34,9 @@ __all__ = [
     "Request",
     "Response",
     "Channel",
-    "DataExchange",
+    "Subscription",
     "SubscriptionType",
     "WorkerStatus",
     "ProcessStatus",
+    "PluginMessanger",
 ]

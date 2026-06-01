@@ -10,46 +10,20 @@ Command dispatch:
   - No manual if/elif chains
 """
 
-from __future__ import annotations
 
 import logging
-import inspect
+import importlib
 import threading
-from typing import Any, Dict, Optional, Callable
-from functools import wraps
+from typing import Any, Callable, Dict, List, Optional
 
-from modularnet.plugin.plugin_messages import Request, Response, Channel, DataExchange, EnvUpdate, SubscriptionType, WorkerStatus
-from modularnet.plugin.plugin_base import BasePlugin
-from modularnet.plugin.plugin_descriptor import PluginDescriptor
+from modularnet.plugin.plugin_message import Commands, PendingRequest, Request, Subscriber, Subscription
+from modularnet.plugin.plugin_base import BasePlugin, PluginDescriptor
+
+from modularnet.plugin.plugin_rpc import  Channel,PluginRPC
+
+from torch import multiprocessing as mp
 
 logger = logging.getLogger(__name__)
-
-
-# ============================================================================
-# COMMAND HANDLER DECORATOR
-# ============================================================================
-
-_command_handlers: Dict[str, Callable] = {}
-
-
-def command_handler(command_name: str) -> Callable:
-    """
-    Decorator to register command handlers.
-    
-    Usage:
-        @command_handler("start")
-        def handle_start(self, req):
-            ...
-            return result  # automatic Response wrapping
-    """
-    def decorator(func: Callable) -> Callable:
-        _command_handlers[command_name] = func
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
-
 
 # ============================================================================
 # PLUGIN WORKER
@@ -71,8 +45,7 @@ class PluginWorker:
         plugin_id: str,
         descriptor_dict: Dict[str, Any],
         config: Dict[str, Any],
-        cmd_queue: Any,
-        resp_queue: Any
+        channel: Channel,
     ) -> None:
         """
         Entry point for plugin subprocess.
@@ -83,8 +56,15 @@ class PluginWorker:
             config: Plugin configuration
             cmd_queue: Queue for incoming requests
             resp_queue: Queue for outgoing responses
+            manager_req_queue: Queue for sending requests to manager
+            manager_resp_queue: Queue for receiving responses from manager
         """
-        worker = PluginWorker(plugin_id, descriptor_dict, config, cmd_queue, resp_queue)
+        worker = PluginWorker(
+            plugin_id,
+            descriptor_dict,
+            config,
+            channel
+        )
         worker.run_loop()
     
     def __init__(
@@ -92,38 +72,98 @@ class PluginWorker:
         plugin_id: str,
         descriptor_dict: Dict[str, Any],
         config: Dict[str, Any],
-        cmd_queue: Any,
-        resp_queue: Any
+        channel: Channel,
+        #cmd_queue: Any,
+        #resp_queue: Any,
+        #manager_req_queue: Any = None,
+        #manager_resp_queue: Any = None
     ):
         """Initialize worker."""
         self.plugin_id = plugin_id
         self.descriptor = PluginDescriptor.from_dict(descriptor_dict)
         self.config = config
-        self.channel = Channel(resp_queue, cmd_queue)  # Note: queues swapped for worker
-        
-        # Instantiate the plugin
-        self.plugin: Optional[BasePlugin] = None
-        self._init_plugin()
+        self.channel = channel  # Note: queues swapped for worker
+       
         
         # Topic subscriptions: topic_name -> queue
-        self.topic_subscriptions: Dict[str, Any] = {}
+        
+        self.topic_published = set()
+        self.topic_subscriptions: Dict[str, Subscription] = {}
+        self.topic_subscribers: Dict[str, Dict[str,Subscriber]] = {}
+        # Topic subscriptions: topic_name -> queue
+        self.env_subscriptions: Dict[str, Callable] = {}
         
         # Error log
         self.error_log: list = []
+        # Instantiate the plugin
+        self.plugin: Optional[BasePlugin] = None
+        
+        
+        # Create manager proxy for direct manager access
+        self.rpc: PluginRPC = None
+
+        self._init_plugin()
+        self._init_messanger()
+        
     
     def _init_plugin(self) -> None:
         """Instantiate plugin from descriptor."""
         try:
             # Import plugin class
-            import importlib
-            module = importlib.import_module(self.descriptor.package)
-            plugin_class = getattr(module, self.descriptor.class_name)
             
-            # Instantiate
-            self.plugin = plugin_class(self.plugin_id, self.config)
+            module = importlib.import_module(self.descriptor.package)
+            plugin_class: BasePlugin = getattr(module, self.descriptor.class_name)
+            
+
+            # Instantiate plugin with proxy
+            self.plugin = plugin_class(self, self.plugin_id, self.config )
             logger.info(f"Plugin {self.plugin_id} instantiated")
         except Exception as e:
             logger.error(f"Failed to init plugin {self.plugin_id}: {e}")
+            raise
+
+    def _init_messanger(self) -> None:
+        """Initialize command handlers from plugin methods.
+
+            + on request
+            > method
+        
+
+            + PLUGIN_START = "plugin_start"
+            + PLUGIN_STOP = "plugin_stop"
+            + PLUGIN_CALL = "plugin_call"
+            + PLUGIN_STATUS = "plugin_status"
+            - PLUGIN_STATUS_ALL = "plugin_status_all"
+            + PLUGIN_ERRORS = "plugin_errors"
+
+            > ENV_SET = "env_set"
+            > ENV_GET = "env_get"
+            > ENV_GET_ALL = "env_get_all"
+            > ENV_SUBSCRIBE = "env_subscribe"
+            > ENV_UNSUBSCRIBE = "env_unsubscribe"
+            + ENV_UPDATE = "env_update"
+
+            * TOPIC_SUBSCRIBE = "topic_subscribe"
+            * TOPIC_UNSUBSCRIBE = "topic_unsubscribe"
+            * TOPIC_PUBLISH = "topic_publish"
+            * TOPIC_LIST = "topic_list"
+        """
+        try:
+            self.rpc = PluginRPC(self.plugin_id, self.channel)
+            self.rpc.on_request(Commands.PLUGIN_START, self._respond_start)
+            self.rpc.on_request(Commands.PLUGIN_STOP, self._respond_stop)
+            self.rpc.on_request(Commands.PLUGIN_CALL, self._respond_call)
+            self.rpc.on_request(Commands.PLUGIN_STATUS, self._respond_status)
+            self.rpc.on_request(Commands.PLUGIN_ERRORS, self._respond_errors)
+            
+            self.rpc.on_request(Commands.ENV_UPDATE, self._respond_env_update)
+            
+            self.rpc.on_request(Commands.TOPIC_SUBSCRIBE, self._respond_topic_subscribe)
+            self.rpc.on_request(Commands.TOPIC_UNSUBSCRIBE, self._respond_topic_unsubscribe)
+            self.rpc.on_request(Commands.TOPIC_LIST, self._request_topic_list)
+
+        except Exception as e:
+            logger.error(f"Failed to init messanger: {e}")
             raise
     
     def run_loop(self) -> None:
@@ -153,91 +193,202 @@ class PluginWorker:
         while True:
             try:
                 # Poll each topic subscription
-                for topic, queue in list(self.topic_subscriptions.items()):
+                for topic, subscription in list(self.topic_subscriptions.items()):
                     try:
                         # Non-blocking get with tiny timeout
-                        data = queue.get(timeout=0.01)
-                        self._deliver_topic_message(topic, data)
+                        data = subscription.queue.get_nowait()
+                        subscription.callback(data)
                     except Exception:
-                        # Timeout or empty queue, continue
+                        threading.Event().wait(0)
                         continue
                 
                 # Small sleep to avoid busy loop
-                threading.Event().wait(0.01)
+                
             except Exception as e:
                 logger.error(f"Topic listener error: {e}")
-    
-    def _deliver_topic_message(self, topic: str, data: Any) -> None:
-        """Deliver a topic message to the appropriate callback."""
-        try:
-            # Find subscription for this topic
-            subs = self.plugin.get_subscriptions()
-            for sub in subs:
-                if sub.sub_type == SubscriptionType.TOPIC and sub.name == topic:
-                    # Call the callback
-                    callback_method = getattr(self.plugin, sub.callback)
-                    # Get current env state
-                    env_state = {}  # Could pass actual env if needed
-                    result = callback_method(data, env_state)
-                    
-                    # Republish if configured
-                    if sub.republish_to and result is not None:
-                        # Store for potential republish (manager will handle via publish())
-                        pass
-                    
-                    break
-        except Exception as e:
-            logger.error(f"Error delivering topic message: {e}", exc_info=True)
-            self.error_log.append(str(e))
-    
-    def _handle_request(self, req: Request) -> None:
-        """Dispatch request to appropriate handler."""
-        try:
-            command = req.command
-            
-            # Try registered handler first
-            if command in _command_handlers:
-                handler = _command_handlers[command]
-                result = handler(self, req)
-                self.channel.reply(req.cmd_id, result=result)
-            
-            # Fall back to service invocation
-            elif hasattr(self.plugin, command):
-                result = self._invoke_service(req)
-                self.channel.reply(req.cmd_id, result=result)
-            
-            else:
-                raise ValueError(f"Unknown command: {command}")
-        
-        except Exception as e:
-            logger.error(f"Request handler error: {e}", exc_info=True)
-            self.error_log.append(str(e))
-            self.channel.reply(req.cmd_id, error=str(e))
-    
-    def _invoke_service(self, req: Request) -> Any:
-        """Invoke service method on plugin via reflection."""
-        command = req.command
-        args = req.args
-        kwargs = req.kwargs
-        
-        method = getattr(self.plugin, command)
-        return method(*args, **kwargs)
-    
-    def _cleanup(self) -> None:
-        """Clean up resources."""
-        try:
-            if self.plugin:
-                self.plugin.on_stop()
-                logger.info(f"Plugin {self.plugin_id} stopped")
-        except Exception as e:
-            logger.error(f"Error during cleanup: {e}")
-    
+
+
+
+
     # ========================================================================
-    # COMMAND HANDLERS
+    # Commands to send
     # ========================================================================
     
-    @command_handler("start")
-    def handle_start(self, req: Request) -> bool:
+    """Commands that plugin can send to manager or other plugins.
+        > ENV_SET = "env_set"
+        > ENV_GET = "env_get"
+        > ENV_GET_ALL = "env_get_all"
+        > ENV_SUBSCRIBE = "env_subscribe"
+        > ENV_UNSUBSCRIBE = "env_unsubscribe"
+    """
+    def env_set(self, var_name: str, value: Any, wait: bool=True) -> PendingRequest|bool:
+        """Set an environment variable."""
+        pending: PendingRequest = self.rpc.env_set( var_name, value)
+        if not wait: return pending
+        
+        # Wait for response if no callback provided
+        response = pending.wait()
+        if response.error:
+            logger.error(f"Error setting env variable: {response.error}")
+            self.error_log.append(str(response.error))
+            return False
+        return response.result
+    
+    def env_get(self, var_name: str, wait: bool=True) -> PendingRequest|Any:
+        """Get an environment variable."""
+        pending: PendingRequest = self.rpc.env_get(var_name)
+        if not wait: return pending
+        
+        # Wait for response if no callback provided
+        response = pending.wait()
+        if response.error:
+            logger.error(f"Error getting env variable: {response.error}")
+            self.error_log.append(str(response.error))
+            return None
+        return response.result
+    
+    def env_get_all(self, wait: bool=True) -> PendingRequest|dict:
+        """Get all environment variables."""
+        pending: PendingRequest = self.rpc.env_get_all()
+        if not wait: return pending
+        
+        # Wait for response if no callback provided
+        response = pending.wait()
+        if response.error:
+            logger.error(f"Error getting all env variables: {response.error}")
+            self.error_log.append(str(response.error))
+            return None
+        return response.result
+    
+    def env_subscribe(self, var_name: str, callback: Callable) -> bool:
+        """Get all environment variables."""
+
+        pending: PendingRequest = self.rpc.env_subscribe(var_name)
+        
+        # Wait for response if no callback provided
+        response = pending.wait()
+        if response.error:
+            logger.error(f"Error getting all env variables: {response.error}")
+            self.error_log.append(str(response.error))
+            return False
+        
+        self.env_subscriptions[var_name] = callback
+        return True
+    
+    def env_unsubscribe(self, var_name: str, wait: bool=True) -> bool:
+        """Get all environment variables."""
+        pending: PendingRequest = self.rpc.env_unsubscribe(var_name)
+        
+        # Wait for response if no callback provided
+        response = pending.wait()
+        if response.error:
+            logger.error(f"Error getting all env variables: {response.error}")
+            self.error_log.append(str(response.error))
+            return False
+        
+        if var_name in self.env_subscriptions:
+            del self.env_subscriptions[var_name]
+        return True
+    
+
+    """
+    Commands that plugin can send to manager or other plugins.
+        * TOPIC_SUBSCRIBE = "topic_subscribe"
+        * TOPIC_UNSUBSCRIBE = "topic_unsubscribe"
+        * TOPIC_PUBLISH = "topic_publish"
+        * TOPIC_LIST = "topic_list"
+    """
+
+    def topic_subscribe(self, topic: str, callback: Callable) -> bool:
+        """Get all environment variables."""
+        subscription = Subscription(topic, mp.Queue(), callback)
+        subscriber = Subscriber(self.plugin_id, topic, subscription.queue)
+
+
+        pending: PendingRequest = self.rpc.topic_subscribe(subscriber)
+        # Wait for response if no callback provided
+        response = pending.wait()
+        if response.error:
+            logger.error(f"Error subscribing to topic '{topic}': {response.error}")
+            self.error_log.append(str(response.error))
+            return False
+        if response.result:
+            self.topic_subscriptions[topic] = subscription
+        return response.result
+    
+    def topic_unsubscribe(self, topic: str) -> bool:
+        """Get all environment variables."""
+        if not topic in self.topic_subscriptions:
+            logger.warning(f"Plugin {self.plugin_id} not subscribed to topic '{topic}'")
+            return True
+        
+        subscription = self.topic_subscriptions[topic] 
+        
+        subscriber = Subscriber(self.plugin_id, topic, subscription.queue)
+
+
+        pending: PendingRequest = self.rpc.topic_unsubscribe(subscriber)
+        # Wait for response if no callback provided
+        response = pending.wait()
+        if response.error:
+            logger.error(f"Error unsubscribing to topic '{topic}': {response.error}")
+            self.error_log.append(str(response.error))
+            return False
+        
+        if response.result:
+            del self.topic_subscriptions[topic]
+
+        return response.result
+
+
+    def topic_list(self, wait: bool=True) -> PendingRequest|list:
+        """Get all environment variables."""
+        pending: PendingRequest = self.rpc.topic_list()
+        if not wait: return pending
+        
+        # Wait for response if no callback provided
+        response = pending.wait()
+        if response.error:
+            logger.error(f"Error getting all env variables: {response.error}")
+            self.error_log.append(str(response.error))
+            return None
+        return response.result
+    
+
+    def topic_publish(self, topic: str, data: Any) -> None:
+        """Get all environment variables."""
+        if topic not in self.topic_subscribers:
+            self.topic_subscribers[topic] = {}
+        topic_subscribers: dict[str, Subscriber] = self.topic_subscribers.get(topic)
+
+        if topic not in self.topic_published:
+            reponse = self.rpc.topic_publish(topic, None).wait()
+            if reponse.error:
+                logger.error(f"Error registering topic '{topic}': {reponse.error}")
+                self.error_log.append(str(reponse.error))
+                return False
+            
+            manager_subscribers = reponse.result
+            self.topic_published.add(topic)
+            for subscriber in reponse.result:
+                topic_subscribers[subscriber.plugin_id] = subscriber
+
+        
+        
+        for subscriber in topic_subscribers.values():
+            try:
+                subscriber.queue.put_nowait(data)
+            except Exception as e:
+                logger.error(f"Failed to publish to subscriber {subscriber.plugin_id} on topic '{topic}': {e}")
+        
+        
+        return True
+
+    # ========================================================================
+    # On Command Recievd
+    # ========================================================================
+    
+    def _respond_start(self, rpc: PluginRPC, req: Request) -> bool:
         """Start plugin."""
         try:
             self.plugin.on_start()
@@ -246,8 +397,7 @@ class PluginWorker:
             logger.error(f"Failed to start plugin: {e}")
             raise
     
-    @command_handler("stop")
-    def handle_stop(self, req: Request) -> bool:
+    def _respond_stop(self, rpc: PluginRPC, req: Request) -> bool:
         """Stop plugin."""
         try:
             self.plugin.on_stop()
@@ -256,100 +406,66 @@ class PluginWorker:
             logger.error(f"Failed to stop plugin: {e}")
             raise
     
-    @command_handler("update_config")
-    def handle_update_config(self, req: Request) -> bool:
-        """Update plugin config."""
-        try:
-            config = req.args[0] if req.args else {}
-            self.plugin.on_update(config)
-            self.config.update(config)
-            return True
-        except Exception as e:
-            logger.error(f"Failed to update config: {e}")
-            raise
     
-    @command_handler("get_data_exchanges")
-    def handle_get_data_exchanges(self, req: Request) -> Dict[str, Any]:
-        """
-        Get all data exchange subscriptions (unified topic + env).
-        
-        Returns:
-            {
-                "topics": [topic_name, ...],
-                "env_vars": [env_key, ...]
-            }
-        """
-        subs = self.plugin.get_subscriptions()
-        topics = [s.name for s in subs if s.sub_type == SubscriptionType.TOPIC]
-        env_vars = [s.name for s in subs if s.sub_type == SubscriptionType.ENV_VAR]
-        
-        return {
-            "topics": topics,
-            "env_vars": env_vars,
-            "subscriptions": subs  # Return full subscription objects for manager
-        }
-    
-    @command_handler("register_topic_subscription")
-    def handle_register_topic_subscription(self, req: Request) -> bool:
-        """Register a topic subscription queue."""
-        topic = req.args[0]
-        queue = req.args[1]
-        self.topic_subscriptions[topic] = queue
+    def _respond_env_update(self, rpc: PluginRPC, req: Request) -> None:
+        """Receive environment variable change notification."""
+        var_name = req.args[0]
+        callback = self.env_subscriptions[var_name]
+        callback(var_name)
         return True
     
-    @command_handler("receive_env_update")
-    def handle_receive_env_update(self, req: Request) -> None:
-        """Receive environment variable change notification."""
-        update: EnvUpdate = req.args[0]
-        
-        # Find env subscription for this key
-        subs = self.plugin.get_subscriptions()
-        for sub in subs:
-            if sub.sub_type == SubscriptionType.ENV_VAR and sub.name == update.key:
-                callback_method = getattr(self.plugin, sub.callback)
-                callback_method(update)
-    
-    @command_handler("get_status")
-    def handle_get_status(self, req: Request) -> Dict[str, Any]:
+    def _respond_status(self, rpc: PluginRPC, req: Request) -> Dict[str, Any]:
         """Get plugin status."""
-        subs = self.plugin.get_subscriptions()
+        topics_read = self.topic_subscriptions.keys()
+        topics_write = self.topic_published
         return {
             "plugin_id": self.plugin_id,
             "status": "running",
             "is_running": True,
-            "subscriptions": len(subs),
+            "subs": len(topics_read),
+            "pubs": len(topics_write),
             "errors": len(self.error_log)
         }
     
-    @command_handler("get_errors")
-    def handle_get_errors(self, req: Request) -> list:
+    def _respond_errors(self, rpc: PluginRPC, req: Request) -> list:
         """Get error log."""
         return self.error_log.copy()
     
-    @command_handler("clear_errors")
-    def handle_clear_errors(self, req: Request) -> bool:
-        """Clear error log."""
-        self.error_log.clear()
-        return True
 
-
-# ============================================================================
-# TOPIC SUBSCRIPTION MESSAGE DELIVERY
-# ============================================================================
-
-def deliver_topic_message(queue: Any, data: Any) -> bool:
-    """
-    Try to deliver a topic message.
+    def _respond_call(self, rpc: PluginRPC, req: Request) -> Any:
+        """Invoke service method on plugin via reflection."""
+        command = req.command
+        args = req.args
+        kwargs = req.kwargs
+        
+        method = getattr(self.plugin, command)
+        return method(*args, **kwargs)
+            
     
-    Args:
-        queue: Subscriber's message queue
-        data: Message data
-    
-    Returns:
-        True if delivered, False if queue full/error
-    """
-    try:
-        queue.put_nowait(data)
+    def _respond_topic_subscribe(self, rpc: PluginRPC, req: Request) -> bool:
+        """Handle topic subscribe request."""
+        plugin_id = req.sender
+        subscriber: Subscriber = req.args[0]
+        topic = subscriber.topic
+        
+        if topic not in self.topic_subscribers:
+            self.topic_subscribers[topic] = {}
+        self.topic_subscribers[topic][plugin_id] = subscriber
         return True
-    except Exception:
-        return False
+    
+    def _respond_topic_unsubscribe(self, rpc: PluginRPC, req: Request) -> bool:
+        """Handle topic unsubscribe request."""
+        plugin_id = req.sender
+        subscriber: Subscriber = req.args[0]
+        topic = subscriber.topic
+
+        if topic not in self.topic_subscribers: return True
+        if plugin_id not in self.topic_subscribers[topic]: return True
+        del self.topic_subscribers[topic][plugin_id]
+        
+        return True
+    
+    def _request_topic_list(self, rpc: PluginRPC, req: Request) -> list:
+        """Handle topic list request."""
+        return self.topic_published.copy()
+    

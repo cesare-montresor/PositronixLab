@@ -6,12 +6,15 @@ plugins must implement or can override.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING
 from enum import Enum
 
 from modularnet.common.utils import camel_to_kebab
-from modularnet.plugin import PluginDescriptor
-from modularnet.plugin.plugin_messages import DataExchange, SubscriptionType
+ 
+from modularnet.plugin.plugin_message import Subscription
+
+if TYPE_CHECKING:
+    from modularnet.plugin.plugin_worker import PluginWorker 
 
 
 class PluginState(Enum):
@@ -22,6 +25,65 @@ class PluginState(Enum):
     STOPPED = "stopped"
     ERROR = "error"
 
+"""
+Plugin Descriptor: Serializable metadata for dynamic plugin loading.
+
+Describes a plugin's identity, location, and configuration options.
+"""
+
+from dataclasses import dataclass, field, asdict
+from typing import Any, Dict, Optional
+import json
+
+
+@dataclass
+class PluginDescriptor:
+    """
+    Serializable descriptor for plugin metadata and instantiation.
+    
+    Attributes:
+        name: Unique plugin identifier
+        version: Semantic version (e.g., "1.0.0")
+        package: Full package path (e.g., "modularnet.plugins.my_plugin")
+        class_name: Plugin class name in the package
+        description: Human-readable description
+        author: Plugin author
+        options: Default configuration options for the plugin
+        dependencies: List of required plugin names
+    """
+    name: str
+    version: str
+    package: str
+    class_name: str
+    description: str = ""
+    author: str = ""
+    options: Dict[str, Any] = field(default_factory=dict)
+    dependencies: list = field(default_factory=list)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert descriptor to dictionary (JSON-serializable)."""
+        return asdict(self)
+    
+    def to_json(self) -> str:
+        """Serialize descriptor to JSON."""
+        return json.dumps(self.to_dict(), indent=2)
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "PluginDescriptor":
+        """Create descriptor from dictionary."""
+        return cls(**data)
+    
+    @classmethod
+    def from_json(cls, json_str: str) -> "PluginDescriptor":
+        """Create descriptor from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+    
+    def __str__(self) -> str:
+        return f"{self.name}@{self.version} ({self.package}.{self.class_name})"
+    
+    def __repr__(self) -> str:
+        return f"PluginDescriptor({self})"
+
 
 class BasePlugin(ABC):
     """
@@ -31,6 +93,7 @@ class BasePlugin(ABC):
     1. Control channel: Load/unload/configure/service commands
     2. Data plane: Pub/sub topics for high-bandwidth data exchange
     3. Env plane: Shared environment variables with change notifications
+    4. Manager proxy: Direct access to manager services (get/set env, publish, invoke)
     
     Subclasses must implement:
     - on_start: Initialize plugin resources
@@ -41,6 +104,11 @@ class BasePlugin(ABC):
     - on_error: Handle errors
     - get_subscriptions: Define pub/sub + env subscriptions (unified)
     - get_services: Define RPC methods
+    
+    Direct manager access via self.manager:
+        model = self.manager.get_env("model")
+        self.manager.set_env("status", "ready")
+        self.manager.publish("topic", data)
     """
 
     @classmethod
@@ -49,24 +117,28 @@ class BasePlugin(ABC):
             version=version,
             author=author,
             options=options or {},
-            name=name or camel_to_kebab(cls.__name__),
+            name= camel_to_kebab(name or cls.__name__),
             package=f"{cls.__module__}",
             class_name=cls.__name__,
             description=description or f"{cls.__doc__}",
             
         )
 
-    def __init__(self, plugin_id: str, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, worker: "PluginWorker", plugin_id: str, options: Optional[Dict[str, Any]] = None):
         """
         Initialize plugin.
         
         Args:
             plugin_id: Unique identifier for this plugin instance
             config: Configuration options dictionary
+            worker: PluginWorker instance for managing the plugin
         """
+        self.worker = worker
+        self.messanger = worker.rpc  # For communication with manager
         self.plugin_id = plugin_id
-        self.config = config or {}
+        self.options = options or {}
         self._is_running = False
+        
     
     @abstractmethod
     def on_start(self) -> None:
@@ -110,38 +182,38 @@ class BasePlugin(ABC):
         """
         pass
     
-    def get_subscriptions(self) -> List[DataExchange]:
-        """
-        Define data exchange subscriptions (pub/sub topics and env vars).
-        
-        Return list of subscriptions this plugin wants:
-        - Topics: when data arrives, call callback(data, env)
-        - Env Vars: when var changes, call callback(EnvUpdate)
-        
-        Example:
-            return [
-                DataExchange.topic("sensor_data", "on_sensor_data"),
-                DataExchange.env_var("config_param", "on_config_changed"),
-            ]
-        
-        Returns:
-            List of DataExchange subscriptions
-        """
-        return []
-    
-    def get_services(self) -> List[str]:
-        """
-        Define service methods available for RPC calls.
-        
-        Return list of method names that can be called via services.
-        These methods should be sync and return serializable results.
-        
-        Returns:
-            List of method names
-        """
-        return []
     
     @property
     def is_running(self) -> bool:
         """Whether plugin is currently running."""
         return self._is_running
+    
+
+    def subscribe(self, topic:str, callback:str) -> None:
+        """Subscribe to a data topic or environment variable."""
+        self.worker.rpc.subscribe(Subscription(topic, callback))
+
+
+    def publish(self, topic:str, data:Any) -> None:
+        """Publish data to a topic."""
+        self.worker.rpc.publish(topic, data)
+
+    def env_set(self, name:str, value:Any) -> None:
+        """Set an environment variable."""
+        self.worker.rpc.env_set(name, value)
+        
+    def env_get(self, name:str=None, default:Any=None) -> Any:
+        """Get an environment variable."""
+        if name is None:
+            return self.worker.rpc.env_get_all() 
+
+        return self.worker.rpc.env_get(name, default)
+    
+    def env_on_change(self, name:str, default:Any=None) -> Any:
+        """Get an environment variable."""
+        return self.worker.rpc.env_get(name, default)
+    
+    
+    def call_service(self, service:str, *args, **kwargs) -> Any:
+        """Call a service method provided by the manager or another plugin."""
+        return self.worker.rpc.call_service(service, *args, **kwargs)
