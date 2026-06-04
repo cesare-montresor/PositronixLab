@@ -7,7 +7,7 @@ import logging
 from torch import multiprocessing as mp
 from queue import Empty
 import threading
-from modularnet.plugin.plugin_message import Commands, Message, PendingRequest, Request, RequestCallback, Response, Subscriber
+from modularnet.plugin.plugin_message import CommandType, Message, PendingRequest, Request, RequestCallback, RequestEnvGet, RequestEnvGetAll, RequestEnvSet, RequestEnvSubscribe, RequestEnvUnsubscribe, RequestEnvUpdate, RequestPluginCall, RequestPluginErrors, RequestPluginStart, RequestPluginStatus, RequestPluginStatusAll, RequestPluginStop, RequestTopicAnnounce, RequestTopicList, RequestTopicSubscribe, RequestTopicUnsubscribe, Response, Subscriber
 
 
 logger = logging.getLogger(__name__)
@@ -121,21 +121,35 @@ class PluginCoreRPC:
         # Reader thread routes Responses to reply slots
         self._reader = threading.Thread(target=self._channel_listener, daemon=True)
         self._reader.start()
+    
+      
+    def forward(self, req: Request, wait=True) -> Any:
+        forward_req = req.copy()
+        
+        # Forward the call to the target plugin and wait for response
+        remote_result = self.request(forward_req)
+        if not wait: return remote_result
+        
+        remote_result = remote_result.wait()
+        if remote_result.error:
+            raise Exception(f"Error on forwarding {req}: {remote_result.error}")
+        return remote_result.result
 
-    def request(self, command: str, callback: Callable = None, *args, **kwargs) -> PendingRequest:
+    def request(self, req: Request) -> PendingRequest:
         """
         send a request
         """
-        msg_id = self.uid()
-        req = Request(msg_id, command, args, kwargs)
-        pending_request = PendingRequest(msg_id, callback)
+        if not req.message_id:
+            req.message_id = self.uid()
+        if not req.sender:
+            req.sender = self.plugin_id
+
+        pending_request = PendingRequest(req.message_id,)
         with self._pending_lock:
-            self._pending[msg_id] = pending_request
+            self._pending[req.message_id] = pending_request
         self.channel.send(req)
         return pending_request
-        
     
-
 
     def _channel_listener(self) -> None:
         """
@@ -148,7 +162,7 @@ class PluginCoreRPC:
             try:
 
 
-                message = self.channel.receive(timeout=1.0)
+                message = self.channel.receive() #(timeout=1.0)
                 if message is None: continue  # Timeout, loop again
 
                 if isinstance(message, Request):
@@ -166,12 +180,12 @@ class PluginCoreRPC:
         """Dispatch request to appropriate handler."""
         try:
             command = req.command
-            if command not in Commands:
+            if command not in CommandType:
                 raise ValueError(f"Unknown command: {command}")
             if command not in self.command_handlers:
                 raise ValueError(f"Command not registered: {command}")
 
-            threading.Thread(target=self._execute_command, args=(req)).start() # use pool ?        
+            threading.Thread(target=self._execute_command, args=(req), daemon=True).start() # use pool ?        
         except Exception as e:
             logger.error(f"Request handler error: {e}", exc_info=True)
             self.channel.send(Response(message_id=req.message_id, error=str(e)))
@@ -213,7 +227,7 @@ class PluginCoreRPC:
         self.channel.send(resp)
         
     
-    def on_request(self, command_name: Commands, func: RequestCallback) -> None:
+    def on_request(self, command_name: CommandType, func: RequestCallback) -> None:
         """
         Register a command handler for an incoming message
         
@@ -228,24 +242,17 @@ class PluginLifeCycleRPC(PluginCoreRPC):
     """Convience class with manager-specific commands pre-registered.
     PLUGIN_START = "plugin_start"
     PLUGIN_STOP = "plugin_stop"
-    PLUGIN_CALL = "plugin_call"
     PLUGIN_STATUS = "plugin_status"
     PLUGIN_STATUS_ALL = "plugin_status_all"
     PLUGIN_ERRORS = "plugin_errors"
-
-
-
-    ## subscriptions = data_exchanges.get("subscriptions", [])
-    channel.send("register_topic_subscription", sub.name, topic_queue)     
-    channel.request("start", timeout=self.timeout_start)
-    
+    PLUGIN_CALL = "plugin_call"
     """
     def plugin_start(self):
         """
         Start the plugin process.
         """
         try:
-            return self.request(Commands.PLUGIN_START)
+            return self.request(RequestPluginStart())
         except Exception as e:
             logger.error(f"Failed to start plugin: {e}")
     
@@ -255,15 +262,16 @@ class PluginLifeCycleRPC(PluginCoreRPC):
         Stop the plugin process.
         """
         try:
-            return self.request(Commands.PLUGIN_STOP)
+            return self.request(RequestPluginStop())
         except Exception as e:
             logger.error(f"Failed to stop plugin: {e}")
         
-    def plugin_call(self, method_name: str, *args, **kwargs):
+    def plugin_call(self, plugin_id: str, method_name: str, *args, **kwargs):
         """
         Call a method on the plugin.
         
         Args:
+            plugin_id: ID of the plugin to call
             method_name: Name of the method to call
             *args: Positional arguments
             **kwargs: Keyword arguments
@@ -272,7 +280,7 @@ class PluginLifeCycleRPC(PluginCoreRPC):
             Method return value
         """
         try:
-            return self.request(Commands.PLUGIN_CALL, method_name, *args, **kwargs)
+            return self.request(RequestPluginCall(plugin_id=plugin_id, method_name=method_name, args=args, kwargs=kwargs))
         except Exception as e:
             logger.error(f"Failed to call plugin method '{method_name}': {e}")
             return None
@@ -282,7 +290,7 @@ class PluginLifeCycleRPC(PluginCoreRPC):
     # STATUS: Query manager state
     # ========================================================================
     
-    def plugin_status(self, plugin_id: str):
+    def plugin_status(self, plugin_id: str=None) -> PendingRequest | None:
         """
         Get status of another plugin.
         
@@ -293,7 +301,7 @@ class PluginLifeCycleRPC(PluginCoreRPC):
             Status dict or None if not found
         """
         try:
-            return self.request(Commands.PLUGIN_STATUS, plugin_id)
+            return self.request(RequestPluginStatus(plugin_id=plugin_id))
         except Exception as e:
             logger.debug(f"Failed to get status for {plugin_id}: {e}")
             return None
@@ -306,12 +314,12 @@ class PluginLifeCycleRPC(PluginCoreRPC):
             Dictionary of plugin_id -> status info
         """
         try:
-            return self.request(Commands.PLUGIN_STATUS)
+            return self.request(RequestPluginStatusAll())
         except Exception as e:
             logger.error(f"Failed to list plugins: {e}")
 
     
-    def plugin_errors(self):
+    def plugin_errors(self, plugin_id:str = None):
         """
         Get any errors from the manager or other plugins.
         
@@ -319,7 +327,7 @@ class PluginLifeCycleRPC(PluginCoreRPC):
             Dictionary of plugin_id -> error info
         """
         try:
-            return self.request(Commands.PLUGIN_ERRORS)
+            return self.request(RequestPluginErrors(plugin_id=plugin_id))
         except Exception as e:
             logger.error(f"Failed to get plugin errors: {e}")
             return {}
@@ -331,7 +339,7 @@ class PluginEnvRPC(PluginCoreRPC):
     # ENVIRONMENT VARIABLES
     # ========================================================================
     
-    def env_get(self, var_name: str, default: Any = None):
+    def env_get(self, var_name: str):
         """
         Get environment variable from manager.
         
@@ -343,10 +351,10 @@ class PluginEnvRPC(PluginCoreRPC):
             Variable value
         """
         try:
-            return self.request(Commands.ENV_GET, var_name, default)
+            return self.request(RequestEnvGet(var_name=var_name))
         except Exception as e:
             logger.error(f"Failed to get env variable '{var_name}': {e}")
-            return default
+
     
     def env_set(self, var_name: str, value: Any):
         """
@@ -357,7 +365,7 @@ class PluginEnvRPC(PluginCoreRPC):
             value: Variable value
         """
         try:
-            return self.request(Commands.ENV_SET, var_name, value)
+            return self.request(RequestEnvSet(var_name=var_name, value=value))
         except Exception as e:
             logger.error(f"Failed to set env variable '{var_name}': {e}")
     
@@ -369,7 +377,7 @@ class PluginEnvRPC(PluginCoreRPC):
             Dictionary of all env variables
         """
         try:
-            return self.request(Commands.ENV_GET_ALL)
+            return self.request(RequestEnvGetAll())
         except Exception as e:
             logger.error(f"Failed to get all env variables: {e}")
             return {}
@@ -377,45 +385,50 @@ class PluginEnvRPC(PluginCoreRPC):
     def env_subscribe(self, var_name: str):
         """
             Subscribe to an environment variable.
-        
-        Returns:
-            None
+
         """
         try:
-            return self.request(Commands.ENV_SUBSCRIBE, var_name)
+            return self.request(RequestEnvSubscribe(var_name=var_name))
         except Exception as e:
             logger.error(f"Failed to subscribe to env variable '{var_name}': {e}")
             return {}
         
-    def env_unsubscribe(self, var_name: str) -> None:
+    def env_unsubscribe(self, var_name: str):
         """
             Unsubscribe from an environment variable.
-        
-        Returns:
-            None
+
         """
         try:
-            return self.request(Commands.ENV_UNSUBSCRIBE, var_name)
+            return self.request(RequestEnvUnsubscribe(var_name=var_name))
         except Exception as e:
             logger.error(f"Failed to unsubscribe from env variable '{var_name}': {e}")
+
+    def env_update(self, var_name: str) :
+        """
+            Update an environment variable.
+
+        """
+        try:
+            return self.request(RequestEnvUpdate(var_name=var_name))
+        except Exception as e:
+            logger.error(f"Failed to notify update env variable '{var_name}': {e}")
 
 class PluginTopicRPC(PluginCoreRPC):
     # ========================================================================
     # PUB/SUB: Publishing
     # ========================================================================
     
-    def topic_publish(self, topic: str, data: Any):
+    def topic_announce(self, topic: str):
         """
-        Publish data to a topic.
+        Announce a topic.
         
         Args:
             topic: Topic name
-            data: Message data
         """
         try:
-            return self.request(Commands.TOPIC_PUBLISH, topic, data)
+            return self.request(RequestTopicAnnounce(topic=topic))
         except Exception as e:
-            logger.error(f"Failed to publish to '{topic}': {e}")
+            logger.error(f"Failed to announce topic '{topic}': {e}")
 
     def topic_subscribe(self, subscriber: Subscriber):
         """
@@ -426,7 +439,7 @@ class PluginTopicRPC(PluginCoreRPC):
             callback: Function to call when a message is received
         """
         try:
-            return self.request(Commands.TOPIC_SUBSCRIBE, subscriber)
+            return self.request(RequestTopicSubscribe(subscriber=subscriber))
         except Exception as e:
             logger.error(f"Failed to subscribe to '{subscriber}': {e}")
 
@@ -439,18 +452,18 @@ class PluginTopicRPC(PluginCoreRPC):
             callback: Function to remove from subscribers
         """
         try:
-            return self.request(Commands.TOPIC_UNSUBSCRIBE, subscriber)
+            return self.request(RequestTopicUnsubscribe(subscriber=subscriber))
         except Exception as e:
             logger.error(f"Failed to unsubscribe from '{subscriber}': {e}")
 
-    def topic_list(self):
+    def topic_list(self, plugin_id: str=None):
         """
         List all published topics.
         Returns:
             List of topic names
         """
         try:
-            return self.request(Commands.TOPIC_LIST)
+            return self.request(RequestTopicList(plugin_id=plugin_id))
         except Exception as e:
             logger.error(f"Failed to list topics: {e}")
         

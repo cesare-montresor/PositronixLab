@@ -28,6 +28,8 @@ from concurrent.futures import Future
 from typing import TYPE_CHECKING
 from torch import multiprocessing as mp
 
+from modularnet.plugin.plugin_base import PluginState
+
 if TYPE_CHECKING: from modularnet.plugin.plugin_worker import PluginRPC
 
 logger = logging.getLogger(__name__)
@@ -40,14 +42,14 @@ ResponseCallback = Callable[["PluginRPC","Response"], Any]
 # CORE MESSAGE TYPES
 # ============================================================================
 
-class Commands(Enum):
+class CommandType(Enum):
     """Standard commands for plugin control."""
     PLUGIN_START = "plugin_start"
     PLUGIN_STOP = "plugin_stop"
-    PLUGIN_CALL = "plugin_call"
     PLUGIN_STATUS = "plugin_status"
     PLUGIN_STATUS_ALL = "plugin_status_all"
     PLUGIN_ERRORS = "plugin_errors"
+    PLUGIN_CALL = "plugin_call"
 
     ENV_SET = "env_set"
     ENV_GET = "env_get"
@@ -58,7 +60,7 @@ class Commands(Enum):
 
     TOPIC_SUBSCRIBE = "topic_subscribe"
     TOPIC_UNSUBSCRIBE = "topic_unsubscribe"
-    TOPIC_PUBLISH = "topic_publish"
+    TOPIC_ANNOUNCE = "topic_announce"
     TOPIC_LIST = "topic_list"
 
     def __str__(self): return str(self.value)
@@ -67,18 +69,22 @@ class Commands(Enum):
 @dataclass
 class Message:
     """Base message class for all communication."""
-    sender: str
-    message_id: str 
+    sender: str = None
+    message_id: str = None
+
+    def copy(self):
+        """Create a copy of the message (for forwarding/modification)."""
+        clone = type(self)(**self.__dict__)
+        clone.message_id = None  # message_id are generated at request time.
+        return clone
 
 @dataclass
 class Request(Message):
     """
-    Unified request for all operations.
+    Unified request for all operations.ada
     Worker replies with Response(message_id, result=...) or Response(message_id, error=...)
     """
-    command: Commands
-    args: tuple = field(default_factory=tuple)
-    kwargs: dict = field(default_factory=dict)
+    command: CommandType
 
 @dataclass
 class Response(Message):
@@ -140,12 +146,14 @@ class Subscriber:
 # ============================================================================
 
 @dataclass
-class WorkerStatus:
+class PluginStatus:
     """Status snapshot from plugin worker."""
     plugin_id: str
-    status: str  # "initialized", "loaded", "running", "stopped", "error"
+    state: PluginState  # "initialized", "loaded", "running", "stopped", "error"
     is_running: bool
     subscriptions: int      # Number of data exchange subscriptions
+    subscribers: int         # Number of subscribers to this plugin's topics
+    published: int            # Number of topics published
     errors: int
 
 
@@ -155,5 +163,122 @@ class ProcessStatus:
     plugin_id: str
     process_alive: bool
     process_pid: Optional[int]
-    worker_status: Optional[WorkerStatus] = None
+    worker_status: Optional[PluginStatus] = None
+
+
+
+"""
+Classes for each request command:
+    PLUGIN_START = "plugin_start"
+    PLUGIN_STOP = "plugin_stop"
+    PLUGIN_STATUS = "plugin_status"
+    PLUGIN_STATUS_ALL = "plugin_status_all"
+    PLUGIN_ERRORS = "plugin_errors"
+    PLUGIN_CALL = "plugin_call"
+
+    ENV_SET = "env_set"
+    ENV_GET = "env_get"
+    ENV_GET_ALL = "env_get_all"
+    ENV_SUBSCRIBE = "env_subscribe"
+    ENV_UNSUBSCRIBE = "env_unsubscribe"
+    ENV_UPDATE = "env_update"
+
+    TOPIC_SUBSCRIBE = "topic_subscribe"
+    TOPIC_UNSUBSCRIBE = "topic_unsubscribe"
+    TOPIC_PUBLISH = "topic_publish"
+    TOPIC_LIST = "topic_list"
+
+"""
+
+
+
+### Plugin Lifecycle Requests
+@dataclass
+class RequestPluginStart(Request):
+    command: CommandType = CommandType.PLUGIN_START
+    plugin_id: Optional[str] = None
+
+@dataclass
+class RequestPluginStop(Request):
+    command: CommandType = CommandType.PLUGIN_STOP
+    plugin_id: Optional[str] = None
+
+@dataclass
+class RequestPluginStatus(Request):
+    command: CommandType = CommandType.PLUGIN_STATUS
+    plugin_id: Optional[str] = None
+
+@dataclass
+class RequestPluginStatusAll(Request):
+    command: CommandType = CommandType.PLUGIN_STATUS_ALL
+
+@dataclass
+class RequestPluginErrors(Request):
+    command: CommandType = CommandType.PLUGIN_ERRORS
+    plugin_id: Optional[str] = None
+
+@dataclass
+class RequestPluginCall(Request):
+    command: CommandType = CommandType.PLUGIN_CALL
+    plugin_id: str
+    method_name: str
+    args: tuple = field(default_factory=tuple)
+    kwargs: dict = field(default_factory=dict)
+
+
+
+### Plugin Environment Requests
+@dataclass
+class RequestEnvSet(Request):
+    command: CommandType = CommandType.ENV_SET
+    name: str
+    value: Any
+
+@dataclass
+class RequestEnvGet(Request):
+    command: CommandType = CommandType.ENV_GET
+    name: str
+
+@dataclass
+class RequestEnvGetAll(Request):    
+    command: CommandType = CommandType.ENV_GET_ALL
+
+@dataclass
+class RequestEnvSubscribe(Request):
+    command: CommandType = CommandType.ENV_SUBSCRIBE
+    name: str
+
+@dataclass
+class RequestEnvUnsubscribe(Request):
+    command: CommandType = CommandType.ENV_UNSUBSCRIBE
+    name: str
+
+@dataclass
+class RequestEnvUpdate(Request):
+    command: CommandType = CommandType.ENV_UPDATE
+    name: str
+    
+
+
+### Pub/Sub Requests
+@dataclass
+class RequestTopicSubscribe(Request):
+    command: CommandType = CommandType.TOPIC_SUBSCRIBE
+    subscriber: Subscriber
+
+@dataclass
+class RequestTopicUnsubscribe(Request):
+    command: CommandType = CommandType.TOPIC_UNSUBSCRIBE
+    subscriber: Subscriber
+
+@dataclass
+class RequestTopicAnnounce(Request):
+    command: CommandType = CommandType.TOPIC_ANNOUNCE
+    topic: str
+
+@dataclass
+class RequestTopicList(Request):
+    command: CommandType = CommandType.TOPIC_LIST
+    plugin_id: Optional[str] = None
+
 

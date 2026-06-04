@@ -16,10 +16,10 @@ import importlib
 import threading
 from typing import Any, Callable, Dict, List, Optional
 
-from modularnet.plugin.plugin_message import Commands, PendingRequest, Request, Subscriber, Subscription
+from modularnet.plugin.plugin_message import CommandType, PendingRequest, PluginStatus, Request, RequestPluginErrors, RequestPluginStart, RequestPluginStatus, RequestPluginStop, RequestTopicList, Subscriber, Subscription
 from modularnet.plugin.plugin_base import BasePlugin, PluginDescriptor
 
-from modularnet.plugin.plugin_rpc import  Channel,PluginRPC
+from modularnet.plugin.plugin_rpc import  Channel,PluginRPC, RequestEnvUpdate, RequestPluginCall, RequestTopicList, RequestTopicSubscribe, RequestTopicUnsubscribe
 
 from torch import multiprocessing as mp
 
@@ -150,17 +150,17 @@ class PluginWorker:
         """
         try:
             self.rpc = PluginRPC(self.plugin_id, self.channel)
-            self.rpc.on_request(Commands.PLUGIN_START, self._respond_start)
-            self.rpc.on_request(Commands.PLUGIN_STOP, self._respond_stop)
-            self.rpc.on_request(Commands.PLUGIN_CALL, self._respond_call)
-            self.rpc.on_request(Commands.PLUGIN_STATUS, self._respond_status)
-            self.rpc.on_request(Commands.PLUGIN_ERRORS, self._respond_errors)
+            self.rpc.on_request(CommandType.PLUGIN_START, self._respond_start)
+            self.rpc.on_request(CommandType.PLUGIN_STOP, self._respond_stop)
+            self.rpc.on_request(CommandType.PLUGIN_CALL, self._respond_call)
+            self.rpc.on_request(CommandType.PLUGIN_STATUS, self._respond_status)
+            self.rpc.on_request(CommandType.PLUGIN_ERRORS, self._respond_errors)
             
-            self.rpc.on_request(Commands.ENV_UPDATE, self._respond_env_update)
+            self.rpc.on_request(CommandType.ENV_UPDATE, self._respond_env_update)
             
-            self.rpc.on_request(Commands.TOPIC_SUBSCRIBE, self._respond_topic_subscribe)
-            self.rpc.on_request(Commands.TOPIC_UNSUBSCRIBE, self._respond_topic_unsubscribe)
-            self.rpc.on_request(Commands.TOPIC_LIST, self._request_topic_list)
+            self.rpc.on_request(CommandType.TOPIC_SUBSCRIBE, self._respond_topic_subscribe)
+            self.rpc.on_request(CommandType.TOPIC_UNSUBSCRIBE, self._respond_topic_unsubscribe)
+            self.rpc.on_request(CommandType.TOPIC_LIST, self._request_topic_list)
 
         except Exception as e:
             logger.error(f"Failed to init messanger: {e}")
@@ -186,29 +186,35 @@ class PluginWorker:
         except Exception as e:
             logger.error(f"Plugin {self.plugin_id} error: {e}", exc_info=True)
         finally:
-            self._cleanup()
+            self.shutdown()
     
     def _topic_listener_loop(self) -> None:
         """Background thread: listen for messages on topic subscriptions."""
         while True:
             try:
                 # Poll each topic subscription
-                for topic, subscription in list(self.topic_subscriptions.items()):
+                for topic, subscription in self.topic_subscriptions.items():
                     try:
                         # Non-blocking get with tiny timeout
                         data = subscription.queue.get_nowait()
+                        # TODO thread ?
                         subscription.callback(data)
                     except Exception:
-                        threading.Event().wait(0)
                         continue
-                
+                threading.Event().wait(0)
                 # Small sleep to avoid busy loop
                 
             except Exception as e:
                 logger.error(f"Topic listener error: {e}")
 
 
-
+    def shutdown(self) -> None:
+        """Clean up resources on shutdown."""
+        logger.info(f"Plugin {self.plugin_id} shutting down")
+        try:
+            self.rpc.close()
+        except Exception as e:
+            logger.error(f"Error closing RPC: {e}")
 
     # ========================================================================
     # Commands to send
@@ -295,7 +301,7 @@ class PluginWorker:
     Commands that plugin can send to manager or other plugins.
         * TOPIC_SUBSCRIBE = "topic_subscribe"
         * TOPIC_UNSUBSCRIBE = "topic_unsubscribe"
-        * TOPIC_PUBLISH = "topic_publish"
+        * TOPIC_ANNOUNCE = "topic_announce"
         * TOPIC_LIST = "topic_list"
     """
 
@@ -355,25 +361,33 @@ class PluginWorker:
         return response.result
     
 
+    def topic_announce(self, topic: str) -> None:
+        """ Announce a topic to manager and sync subscribers."""
+        # first time publishing this topic
+        if topic in self.topic_published: return True
+
+
+        topic_subscribers: dict[str, Subscriber] = self.topic_subscribers.get(topic)
+        reponse = self.rpc.topic_announce(topic).wait()
+        if reponse.error:
+            logger.error(f"Error registering topic '{topic}': {reponse.error}")
+            self.error_log.append(str(reponse.error))
+            return False
+        
+        manager_subscribers: list[Subscriber] = reponse.result
+        self.topic_published.add(topic)
+        for subscriber in manager_subscribers:
+            topic_subscribers[subscriber.plugin_id] = subscriber
+
+        return True
+
     def topic_publish(self, topic: str, data: Any) -> None:
-        """Get all environment variables."""
         if topic not in self.topic_subscribers:
             self.topic_subscribers[topic] = {}
         topic_subscribers: dict[str, Subscriber] = self.topic_subscribers.get(topic)
-
-        if topic not in self.topic_published:
-            reponse = self.rpc.topic_publish(topic, None).wait()
-            if reponse.error:
-                logger.error(f"Error registering topic '{topic}': {reponse.error}")
-                self.error_log.append(str(reponse.error))
-                return False
-            
-            manager_subscribers = reponse.result
-            self.topic_published.add(topic)
-            for subscriber in reponse.result:
-                topic_subscribers[subscriber.plugin_id] = subscriber
-
         
+        
+        self.topic_announce(topic)
         
         for subscriber in topic_subscribers.values():
             try:
@@ -381,14 +395,16 @@ class PluginWorker:
             except Exception as e:
                 logger.error(f"Failed to publish to subscriber {subscriber.plugin_id} on topic '{topic}': {e}")
         
-        
         return True
+    
+    
+
 
     # ========================================================================
     # On Command Recievd
     # ========================================================================
     
-    def _respond_start(self, rpc: PluginRPC, req: Request) -> bool:
+    def _respond_start(self, rpc: PluginRPC, req: RequestPluginStart) -> bool:
         """Start plugin."""
         try:
             self.plugin.on_start()
@@ -397,7 +413,7 @@ class PluginWorker:
             logger.error(f"Failed to start plugin: {e}")
             raise
     
-    def _respond_stop(self, rpc: PluginRPC, req: Request) -> bool:
+    def _respond_stop(self, rpc: PluginRPC, req: RequestPluginStop) -> bool:
         """Stop plugin."""
         try:
             self.plugin.on_stop()
@@ -407,57 +423,55 @@ class PluginWorker:
             raise
     
     
-    def _respond_env_update(self, rpc: PluginRPC, req: Request) -> None:
+    def _respond_env_update(self, rpc: PluginRPC, req: RequestEnvUpdate) -> None:
         """Receive environment variable change notification."""
-        var_name = req.args[0]
+        var_name = req.name
         callback = self.env_subscriptions[var_name]
         callback(var_name)
         return True
     
-    def _respond_status(self, rpc: PluginRPC, req: Request) -> Dict[str, Any]:
+    def _respond_status(self, rpc: PluginRPC, req: RequestPluginStatus) -> Dict[str, Any]:
         """Get plugin status."""
         topics_read = self.topic_subscriptions.keys()
         topics_write = self.topic_published
-        return {
-            "plugin_id": self.plugin_id,
-            "status": "running",
-            "is_running": True,
-            "subs": len(topics_read),
-            "pubs": len(topics_write),
-            "errors": len(self.error_log)
-        }
+        return PluginStatus(
+            plugin_id=self.plugin_id,
+            state=self.plugin.state,
+            is_running=True,
+            published=len(topics_write),
+            subscriptions=len(topics_read),
+            errors=len(self.error_log)
+        )
     
-    def _respond_errors(self, rpc: PluginRPC, req: Request) -> list:
+    def _respond_errors(self, rpc: PluginRPC, req: RequestPluginErrors) -> list:
         """Get error log."""
         return self.error_log.copy()
     
 
-    def _respond_call(self, rpc: PluginRPC, req: Request) -> Any:
+    def _respond_call(self, rpc: PluginRPC, req: RequestPluginCall) -> Any:
         """Invoke service method on plugin via reflection."""
-        command = req.command
+        method_name = req.method_name
         args = req.args
         kwargs = req.kwargs
         
-        method = getattr(self.plugin, command)
+        method = getattr(self.plugin, method_name)
         return method(*args, **kwargs)
             
     
-    def _respond_topic_subscribe(self, rpc: PluginRPC, req: Request) -> bool:
+    def _respond_topic_subscribe(self, rpc: PluginRPC, req: RequestTopicSubscribe) -> bool:
         """Handle topic subscribe request."""
         plugin_id = req.sender
-        subscriber: Subscriber = req.args[0]
-        topic = subscriber.topic
+        topic = req.subscriber.topic
         
         if topic not in self.topic_subscribers:
             self.topic_subscribers[topic] = {}
-        self.topic_subscribers[topic][plugin_id] = subscriber
+        self.topic_subscribers[topic][plugin_id] = req.subscriber
         return True
     
-    def _respond_topic_unsubscribe(self, rpc: PluginRPC, req: Request) -> bool:
+    def _respond_topic_unsubscribe(self, rpc: PluginRPC, req: RequestTopicUnsubscribe) -> bool:
         """Handle topic unsubscribe request."""
         plugin_id = req.sender
-        subscriber: Subscriber = req.args[0]
-        topic = subscriber.topic
+        topic = req.subscriber.topic
 
         if topic not in self.topic_subscribers: return True
         if plugin_id not in self.topic_subscribers[topic]: return True
@@ -465,7 +479,7 @@ class PluginWorker:
         
         return True
     
-    def _request_topic_list(self, rpc: PluginRPC, req: Request) -> list:
+    def _request_topic_list(self, rpc: PluginRPC, req: RequestTopicList) -> list:
         """Handle topic list request."""
         return self.topic_published.copy()
     

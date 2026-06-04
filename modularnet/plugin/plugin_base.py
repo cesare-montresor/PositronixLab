@@ -25,6 +25,8 @@ class PluginState(Enum):
     STOPPED = "stopped"
     ERROR = "error"
 
+    def __str__(self): return str(self.value)
+
 """
 Plugin Descriptor: Serializable metadata for dynamic plugin loading.
 
@@ -136,9 +138,10 @@ class BasePlugin(ABC):
         self.worker = worker
         self.messanger = worker.rpc  # For communication with manager
         self.plugin_id = plugin_id
+        self.state = PluginState.INITIALIZED
         self.options = options or {}
         self._is_running = False
-        
+    
     
     @abstractmethod
     def on_start(self) -> None:

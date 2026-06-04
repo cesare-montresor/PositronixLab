@@ -20,7 +20,7 @@ from modularnet.plugin.plugin_manager import PluginManager
 from modularnet.plugin.plugin_message import (
     Request, Response,
     Subscription, 
-    WorkerStatus, ProcessStatus
+    PluginStatus, ProcessStatus
 )
 from modularnet.plugin.plugin_rpc import PluginMessanger
 
@@ -36,7 +36,7 @@ __all__ = [
     "Channel",
     "Subscription",
     "SubscriptionType",
-    "WorkerStatus",
+    "PluginStatus",
     "ProcessStatus",
     "PluginMessanger",
 ]
