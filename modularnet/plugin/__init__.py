@@ -17,12 +17,12 @@ Main Components:
 from modularnet.plugin.plugin_base import BasePlugin, PluginState, PluginDescriptor
 from modularnet.plugin.environment_manager import EnvironmentManager
 from modularnet.plugin.plugin_manager import PluginManager
-from modularnet.plugin.plugin_message import (
+from modularnet.plugin.plugin_data import (
     Request, Response,
     Subscription, 
     PluginStatus, ProcessStatus
 )
-from modularnet.plugin.plugin_rpc import PluginMessanger
+from modularnet.plugin.plugin_rpc import PluginRPC
 
 __all__ = [
     "PluginDescriptor",
@@ -38,5 +38,5 @@ __all__ = [
     "SubscriptionType",
     "PluginStatus",
     "ProcessStatus",
-    "PluginMessanger",
+    "PluginRPC",
 ]

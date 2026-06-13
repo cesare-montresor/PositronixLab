@@ -1,0 +1,126 @@
+"""
+Basic test plugin for lifecycle testing.
+
+A minimal plugin that exercises the load/unload/start/stop/status lifecycle
+without any external dependencies.
+"""
+
+import logging
+from typing import Any, Dict
+
+from modularnet.plugin import BasePlugin, PluginDescriptor
+from modularnet.plugin.plugin_worker import PluginWorker
+import time
+from modularnet.plugin.plugin_manager import PluginManager
+
+logger = logging.getLogger(__name__)
+
+
+class ExamplePluginPub(BasePlugin):
+    """
+    Minimal plugin to test publish/subscribe functionality.
+    """
+
+    @classmethod
+    def Descriptor(cls, options: Dict[str, Any] = None) -> PluginDescriptor:
+        """Create plugin descriptor."""
+        return super().Descriptor(
+            version="1.0.0",
+            author="ModularNet Team",
+            description="Basic test plugin for lifecycle verification",
+            options=options or {}
+        )
+
+    def __init__(
+        self,
+        worker: PluginWorker,
+        plugin_id: str,
+        options: Dict[str, Any],
+    ):
+        super().__init__(worker, plugin_id, options)
+        self.count = None
+
+
+    def on_start(self) -> None:
+        logger.info(f"[{self.plugin_id}] ExamplePluginCount starting...")
+        self.count = 0
+        self.env_set("count_pub", self.count)
+
+    def main(self):
+        self.count +=1
+        self.topic_publish("count", self.count)
+
+    def on_stop(self) -> None:
+        logger.info(f"[{self.plugin_id}] Total loop: {self.count}")
+        self.env_set("count_pub", self.count)
+
+
+class ExamplePluginSub(BasePlugin):
+    """  """
+
+    @classmethod
+    def Descriptor(cls, options: Dict[str, Any] = None) -> PluginDescriptor:
+        """Create plugin descriptor."""
+        return super().Descriptor(
+            version="1.0.0",
+            author="ModularNet Team",
+            description="Basic test plugin for lifecycle verification",
+            options=options or {}
+        )
+
+    def __init__(
+        self,
+        worker: PluginWorker,
+        plugin_id: str,
+        options: Dict[str, Any],
+    ):
+        super().__init__(worker, plugin_id, options)
+        self.count = None
+
+
+    def on_start(self) -> None:
+        self.topic_subscribe("count", self.on_count_update)
+    
+    def on_count_update(self, value):
+        #logger.info(f"[{self.plugin_id}] Received count update: {value}")
+        self.count = value
+
+    def on_stop(self) -> None:
+        logger.info(f"[{self.plugin_id}] Total loop: {self.count}")
+        self.env_set("count_sub", self.count)
+        
+
+def main():
+    """Example main function to run the plugin standalone for testing."""
+    manager = PluginManager(worker_pydebug_port=10000)
+    pub_descriptor = ExamplePluginPub.Descriptor()
+    sub_descriptor = ExamplePluginSub.Descriptor()
+    
+    manager.load_plugin(pub_descriptor)
+    manager.start_plugin(pub_descriptor.name)
+
+    manager.load_plugin(sub_descriptor)
+    manager.start_plugin(sub_descriptor.name)
+    
+    
+
+    # Let it run for a few seconds
+    time.sleep(5)
+
+    #manager.stop_plugin(pub_descriptor.name)
+    #manager.stop_plugin(sub_descriptor.name)
+
+    #time.sleep(1)  # Give some time for plugins to stop
+
+    manager.unload_plugin(pub_descriptor.name)    
+    manager.unload_plugin(sub_descriptor.name)
+
+    all_vars = manager.env_get()
+
+    print("All environment variables:")
+    for name, value in all_vars.items():
+        print(f"  {name}: {value}")
+
+if __name__ == "__main__": 
+    main()
+

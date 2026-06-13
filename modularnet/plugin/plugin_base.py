@@ -11,7 +11,7 @@ from enum import Enum
 
 from modularnet.common.utils import camel_to_kebab
  
-from modularnet.plugin.plugin_message import Subscription
+from modularnet.plugin.plugin_data import Subscription
 
 if TYPE_CHECKING:
     from modularnet.plugin.plugin_worker import PluginWorker 
@@ -87,9 +87,9 @@ class PluginDescriptor:
         return f"PluginDescriptor({self})"
 
 
-class BasePlugin(ABC):
+class BasePlugin:
     """
-    Abstract base class for all ModularNet plugins.
+    Base class for all ModularNet plugins.
     
     Plugins run in isolated processes and communicate via:
     1. Control channel: Load/unload/configure/service commands
@@ -135,15 +135,15 @@ class BasePlugin(ABC):
             config: Configuration options dictionary
             worker: PluginWorker instance for managing the plugin
         """
-        self.worker = worker
-        self.messanger = worker.rpc  # For communication with manager
+        self._worker = worker
         self.plugin_id = plugin_id
         self.state = PluginState.INITIALIZED
         self.options = options or {}
         self._is_running = False
     
     
-    @abstractmethod
+    def main(self): pass
+    
     def on_start(self) -> None:
         """
         Called when plugin is started.
@@ -153,7 +153,6 @@ class BasePlugin(ABC):
         """
         pass
     
-    @abstractmethod
     def on_stop(self) -> None:
         """
         Called when plugin is stopped.
@@ -162,29 +161,9 @@ class BasePlugin(ABC):
         """
         pass
     
-    def on_update(self, config: Dict[str, Any]) -> None:
-        """
-        Called when plugin configuration is updated.
-        
-        Override to handle dynamic config changes. Default does nothing.
-        
-        Args:
-            config: Updated configuration dictionary
-        """
-        self.config = config
-    
-    def on_error(self, error: Exception, context: str = "") -> None:
-        """
-        Called when an error occurs in the plugin.
-        
-        Override for custom error handling. Default does nothing.
-        
-        Args:
-            error: The exception that occurred
-            context: Context about where/when error occurred
-        """
+    def on_error(self, error: Exception) -> None:
+        """ Called when an error occurs in the plugin."""
         pass
-    
     
     @property
     def is_running(self) -> bool:
@@ -192,31 +171,29 @@ class BasePlugin(ABC):
         return self._is_running
     
 
-    def subscribe(self, topic:str, callback:str) -> None:
+    def topic_subscribe(self, topic:str, callback:str) -> None:
         """Subscribe to a data topic or environment variable."""
-        self.worker.rpc.subscribe(Subscription(topic, callback))
+        self._worker.topic_subscribe(topic, callback)
 
-
-    def publish(self, topic:str, data:Any) -> None:
+    def topic_publish(self, topic:str, data:Any) -> None:
         """Publish data to a topic."""
-        self.worker.rpc.publish(topic, data)
+        self._worker.topic_publish(topic, data)
 
-    def env_set(self, name:str, value:Any) -> None:
+    def env_set(self, name:str, value:Any, wait: bool = True) -> None:
         """Set an environment variable."""
-        self.worker.rpc.env_set(name, value)
-        
+        self._worker.env_set(name, value, wait=wait)
+
     def env_get(self, name:str=None, default:Any=None) -> Any:
         """Get an environment variable."""
         if name is None:
-            return self.worker.rpc.env_get_all() 
+            return self._worker.env_get_all() 
 
-        return self.worker.rpc.env_get(name, default)
+        return self._worker.env_get(name) or default
     
-    def env_on_change(self, name:str, default:Any=None) -> Any:
-        """Get an environment variable."""
-        return self.worker.rpc.env_get(name, default)
+    def env_subscribe(self, name:str, callback:str) -> None:
+        """Subscribe to changes in an environment variable."""
+        self._worker.env_subscribe(name, callback)
     
-    
-    def call_service(self, service:str, *args, **kwargs) -> Any:
-        """Call a service method provided by the manager or another plugin."""
-        return self.worker.rpc.call_service(service, *args, **kwargs)
+    def plugin_call(self, plugin_id: str, method_name: str, *args, **kwargs) -> Any:
+        """Call a method provided by the manager or another plugin."""
+        return self._worker.plugin_call(plugin_id, method_name, *args, **kwargs)

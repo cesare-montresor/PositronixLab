@@ -5,60 +5,13 @@ from multiprocessing import Lock
 from typing import Any, Callable, Dict, Optional
 import logging
 from torch import multiprocessing as mp
-from queue import Empty
 import threading
-from modularnet.plugin.plugin_message import CommandType, Message, PendingRequest, Request, RequestCallback, RequestEnvGet, RequestEnvGetAll, RequestEnvSet, RequestEnvSubscribe, RequestEnvUnsubscribe, RequestEnvUpdate, RequestPluginCall, RequestPluginErrors, RequestPluginStart, RequestPluginStatus, RequestPluginStatusAll, RequestPluginStop, RequestTopicAnnounce, RequestTopicList, RequestTopicSubscribe, RequestTopicUnsubscribe, Response, Subscriber
+from modularnet.plugin.plugin_data import Channel, CommandType, Message, PendingRequest, Request, RequestCallback, RequestEnvGet, RequestEnvGetAll, RequestEnvSet, RequestEnvSubscribe, RequestEnvUnsubscribe, RequestEnvUpdate, RequestPluginCall, RequestPluginErrors, RequestPluginStart, RequestPluginStatus, RequestPluginStatusAll, RequestPluginStop, RequestTopicAnnounce, RequestTopicList, RequestTopicSubscribe, RequestTopicUnsubscribe, Response, Subscriber
 
 
 logger = logging.getLogger(__name__)
 
 
-
-# ============================================================================
-# CHANNEL: Bidirectional duplex IPC with proper async response routing
-# ============================================================================
-
-
-class Channel:
-    """
-    Duplex communication channel with request/response routing.
-    """
-    
-    def Reverse(self) -> Channel:
-        """Create a reversed channel for the other side (swapped queues)."""
-        rev  = Channel(self.queue_receive, self.queue_send)
-        rev.reversed = not self.reversed
-        return rev
-
-    def __init__(self, queue_send: mp.Queue=None, queue_receive: mp.Queue=None):
-        self.queue_send = queue_send or mp.Queue()
-        self.queue_receive = queue_receive or mp.Queue()
-        self.reversed = False
-
-    def send(self, message: Message) -> None:
-        """Send a message (Request or Response)."""
-        self.queue_send.put(message)
-    
-     # --- Worker side API ---
-    def receive(self, timeout: Optional[float] = None) -> Optional[Message]:
-        """
-        Worker side: block waiting for incoming request.
-        
-        Args:
-            timeout: Max wait time (None = wait forever)
-        
-        Returns:
-            Request object, or None if timeout
-        """
-
-        message = None
-        try:
-            message = self.queue_receive.get(timeout=timeout)
-        except Empty: 
-            pass
-        
-        return message
-    
 
 class MessageUID:
     """Thread-safe unique ID generator."""
@@ -76,7 +29,7 @@ class MessageUID:
         if self.minimal: return uid
         return f"{threading.current_thread().name}_{uid}"
             
-    def next(self) -> str: self.__next__()
+    def next(self) -> str: return self.__next__()
     def current(self) -> str: return self._last
 
 
@@ -112,7 +65,7 @@ class PluginCoreRPC:
         self.command_handlers: Dict[str, RequestCallback] = {}
 
         self.uid = MessageUID()
-
+        self._running = True
 
         # Request/response routing: cmd_id → Queue(maxsize=1)
         self._pending: Dict[str, PendingRequest] = {}
@@ -121,8 +74,16 @@ class PluginCoreRPC:
         # Reader thread routes Responses to reply slots
         self._reader = threading.Thread(target=self._channel_listener, daemon=True)
         self._reader.start()
+
+    def shutdown(self):
+        """Clean up resources."""
+        self._running = False
+        self._reader.join(timeout=1.0)
+        if self._reader.is_alive():
+            logger.warning("Reader thread did not exit cleanly")
+        # Note: Queues do not need explicit closing in multiprocessing
+        self.channel.shutdown()
     
-      
     def forward(self, req: Request, wait=True) -> Any:
         forward_req = req.copy()
         
@@ -133,15 +94,15 @@ class PluginCoreRPC:
         remote_result = remote_result.wait()
         if remote_result.error:
             raise Exception(f"Error on forwarding {req}: {remote_result.error}")
-        return remote_result.result
+        return remote_result.result 
 
     def request(self, req: Request) -> PendingRequest:
         """
         send a request
         """
-        if not req.message_id:
-            req.message_id = self.uid()
-        if not req.sender:
+        if req.message_id is None:
+            req.message_id = self.uid.next()
+        if req.sender is None:
             req.sender = self.plugin_id
 
         pending_request = PendingRequest(req.message_id,)
@@ -149,6 +110,18 @@ class PluginCoreRPC:
             self._pending[req.message_id] = pending_request
         self.channel.send(req)
         return pending_request
+    
+    def respond(self, req: Request, result: Any = None, error: str = None) -> PendingRequest:
+        """
+        send a response
+        """
+        error = str(error) if error else None
+
+        resp = Response(result=result, error=error)
+        resp.message_id = req.message_id
+        resp.sender = self.plugin_id
+        
+        self.channel.send(resp)
     
 
     def _channel_listener(self) -> None:
@@ -158,13 +131,9 @@ class PluginCoreRPC:
         Puts each Response into its pending request's queue.
         Warns on orphaned responses (request already timed out).
         """
-        while True:
+        while self._running:
             try:
-
-
-                message = self.channel.receive() #(timeout=1.0)
-                if message is None: continue  # Timeout, loop again
-
+                message = self.channel.receive()
                 if isinstance(message, Request):
                     self._handle_request(message)
                 elif isinstance(message, Response):   
@@ -179,16 +148,16 @@ class PluginCoreRPC:
     def _handle_request(self, req: Request) -> None:
         """Dispatch request to appropriate handler."""
         try:
-            command = req.command
-            if command not in CommandType:
-                raise ValueError(f"Unknown command: {command}")
-            if command not in self.command_handlers:
-                raise ValueError(f"Command not registered: {command}")
+            cmd = str(req.command)
+            if cmd not in CommandType:
+                raise ValueError(f"Unknown command: {cmd}")
+            if cmd not in self.command_handlers:
+                raise ValueError(f"Command not registered: {cmd} (available: {list(self.command_handlers.keys())})")
 
-            threading.Thread(target=self._execute_command, args=(req), daemon=True).start() # use pool ?        
+            threading.Thread(target=self._execute_command, args=(req,), daemon=True).start() # use pool ?        
         except Exception as e:
             logger.error(f"Request handler error: {e}", exc_info=True)
-            self.channel.send(Response(message_id=req.message_id, error=str(e)))
+            self.respond(req, error=e)
     
     def _handle_response(self, resp: Response) -> bool:
         """Route incoming response to pending request."""
@@ -196,7 +165,7 @@ class PluginCoreRPC:
             pending_request = self._pending.pop(resp.message_id, None)
         
         if pending_request is None:
-            logger.error(f"Received response for unknown message_id={resp.message_id}")
+            logger.error(f"Received response for unknown message_id={resp.message_id} {resp.__dict__}")
             return False
         
         pending_request.set_result(resp)
@@ -211,20 +180,22 @@ class PluginCoreRPC:
             *args: Positional arguments
             **kwargs: Keyword arguments
         """
-        if req.command not in self.command_handlers:
-            raise ValueError(f"Command not registered: {req.command}")
+        cmd = str(req.command)
+        if cmd not in self.command_handlers:
+            raise ValueError(f"Command not registered: {cmd} (available: {list(self.command_handlers.keys())})")
         
-        handler = self.command_handlers[req.command]
+        handler = self.command_handlers[cmd]
         result = None
         error = None
         try:
             result = handler(self, req)
         except Exception as e:
+            import traceback
+            stacktrace = traceback.format_exc()
             error = str(e)
-            logger.error(f"Error occurred while executing command '{req.command}': {e}")
+            logger.error(f"Error occurred while executing command '{cmd}': {e}\n{stacktrace}", exc_info=True)
 
-        resp = Response(message_id=req.message_id, result=result, error=error)
-        self.channel.send(resp)
+        self.respond(req, result=result, error=error)
         
     
     def on_request(self, command_name: CommandType, func: RequestCallback) -> None:
@@ -235,7 +206,8 @@ class PluginCoreRPC:
             command_name: Name of the command
             func: Function to handle the command
         """
-        self.command_handlers[command_name] = func
+        cmd = str(command_name)
+        self.command_handlers[cmd] = func
 
 
 class PluginLifeCycleRPC(PluginCoreRPC):
@@ -351,7 +323,7 @@ class PluginEnvRPC(PluginCoreRPC):
             Variable value
         """
         try:
-            return self.request(RequestEnvGet(var_name=var_name))
+            return self.request(RequestEnvGet(name=var_name))
         except Exception as e:
             logger.error(f"Failed to get env variable '{var_name}': {e}")
 
@@ -365,7 +337,7 @@ class PluginEnvRPC(PluginCoreRPC):
             value: Variable value
         """
         try:
-            return self.request(RequestEnvSet(var_name=var_name, value=value))
+            return self.request(RequestEnvSet(name=var_name, value=value))
         except Exception as e:
             logger.error(f"Failed to set env variable '{var_name}': {e}")
     
@@ -388,7 +360,7 @@ class PluginEnvRPC(PluginCoreRPC):
 
         """
         try:
-            return self.request(RequestEnvSubscribe(var_name=var_name))
+            return self.request(RequestEnvSubscribe(name=var_name))
         except Exception as e:
             logger.error(f"Failed to subscribe to env variable '{var_name}': {e}")
             return {}
@@ -399,7 +371,7 @@ class PluginEnvRPC(PluginCoreRPC):
 
         """
         try:
-            return self.request(RequestEnvUnsubscribe(var_name=var_name))
+            return self.request(RequestEnvUnsubscribe(name=var_name))
         except Exception as e:
             logger.error(f"Failed to unsubscribe from env variable '{var_name}': {e}")
 
@@ -409,7 +381,7 @@ class PluginEnvRPC(PluginCoreRPC):
 
         """
         try:
-            return self.request(RequestEnvUpdate(var_name=var_name))
+            return self.request(RequestEnvUpdate(name=var_name))
         except Exception as e:
             logger.error(f"Failed to notify update env variable '{var_name}': {e}")
 
@@ -467,7 +439,7 @@ class PluginTopicRPC(PluginCoreRPC):
         except Exception as e:
             logger.error(f"Failed to list topics: {e}")
         
-class PluginRPC(PluginCoreRPC, PluginLifeCycleRPC, PluginEnvRPC, PluginTopicRPC):
+class PluginRPC(PluginLifeCycleRPC, PluginEnvRPC, PluginTopicRPC):
     """Convience class with all command categories pre-registered."""
     pass
 

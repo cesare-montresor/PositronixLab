@@ -13,21 +13,34 @@ Command dispatch:
 
 import logging
 import importlib
+from queue import Full
 import threading
-from typing import Any, Callable, Dict, List, Optional
+import time
+from typing import Any, Callable, Dict,  Optional, TYPE_CHECKING
+import warnings
 
-from modularnet.plugin.plugin_message import CommandType, PendingRequest, PluginStatus, Request, RequestPluginErrors, RequestPluginStart, RequestPluginStatus, RequestPluginStop, RequestTopicList, Subscriber, Subscription
+from modularnet.common.utils import init_debugger, process_start_spawn
+from modularnet.plugin.plugin_data import  Channel, CommandType, Queue,QueueDescriptor, PendingRequest, PluginStatus,  RequestPluginErrors, RequestPluginStart, RequestPluginStatus, RequestPluginStop, RequestTopicList, Subscriber, Subscription
 from modularnet.plugin.plugin_base import BasePlugin, PluginDescriptor
 
-from modularnet.plugin.plugin_rpc import  Channel,PluginRPC, RequestEnvUpdate, RequestPluginCall, RequestTopicList, RequestTopicSubscribe, RequestTopicUnsubscribe
+from modularnet.plugin.plugin_rpc import  PluginRPC, RequestEnvUpdate, RequestPluginCall, RequestTopicList, RequestTopicSubscribe, RequestTopicUnsubscribe
 
 from torch import multiprocessing as mp
+
+if TYPE_CHECKING:
+    from multiprocessing.synchronize import Event
+
 
 logger = logging.getLogger(__name__)
 
 # ============================================================================
 # PLUGIN WORKER
 # ============================================================================
+
+process_start_spawn()
+
+
+
 
 class PluginWorker:
     """
@@ -45,7 +58,9 @@ class PluginWorker:
         plugin_id: str,
         descriptor_dict: Dict[str, Any],
         config: Dict[str, Any],
-        channel: Channel,
+        queue_descriptor: QueueDescriptor,
+        initialized: Event,
+        pydebug_port: int = None   
     ) -> None:
         """
         Entry point for plugin subprocess.
@@ -54,36 +69,39 @@ class PluginWorker:
             plugin_id: Plugin instance identifier
             descriptor_dict: Serialized plugin descriptor
             config: Plugin configuration
-            cmd_queue: Queue for incoming requests
-            resp_queue: Queue for outgoing responses
-            manager_req_queue: Queue for sending requests to manager
-            manager_resp_queue: Queue for receiving responses from manager
+            queue_descriptor: Queue descriptor for communication
+            initialized: Event to signal initialization completion
         """
+        if pydebug_port is not None:
+            init_debugger(pydebug_port, wait_for_client=True)
+        
         worker = PluginWorker(
             plugin_id,
             descriptor_dict,
             config,
-            channel
+            queue_descriptor,
+            initialized
         )
-        worker.run_loop()
+        worker.main()
     
     def __init__(
         self,
         plugin_id: str,
         descriptor_dict: Dict[str, Any],
         config: Dict[str, Any],
-        channel: Channel,
-        #cmd_queue: Any,
-        #resp_queue: Any,
-        #manager_req_queue: Any = None,
-        #manager_resp_queue: Any = None
+        queue_descriptor: QueueDescriptor,
+        initialized: Event
     ):
         """Initialize worker."""
+
         self.plugin_id = plugin_id
         self.descriptor = PluginDescriptor.from_dict(descriptor_dict)
         self.config = config
-        self.channel = channel  # Note: queues swapped for worker
-       
+        self._is_running = False
+        self._initialized: Event = initialized
+        
+        self.did_start = mp.Event()
+        self.did_start.clear()
         
         # Topic subscriptions: topic_name -> queue
         
@@ -99,13 +117,100 @@ class PluginWorker:
         self.plugin: Optional[BasePlugin] = None
         
         
-        # Create manager proxy for direct manager access
-        self.rpc: PluginRPC = None
+        # Create manager proxy for direct manager access+
+        channel = Channel(queue_descriptor)
+        self.rpc = PluginRPC(self.plugin_id, channel)
 
         self._init_plugin()
-        self._init_messanger()
+        self._init_rpc()
         
+
+
+    ## ========================================================================
+    # Worker Main Loop
+    # ========================================================================
+
+    def main(self) -> None:
+        """Main event loop: wait for requests and topic messages."""
+        logger.info(f"Plugin {self.plugin_id} worker started")
+        cmds = list(self.rpc.command_handlers.keys())
+        logger.info(f"Plugin {self.plugin_id} registered commands: {cmds}")
+
+        
+        self._initialized.set()  # Signal to manager that initialization is complete
+        
+        self.did_start.wait()
+        self._is_running = True
+
+        while self._is_running:
+            try:
+                # Main loop can also handle periodic tasks, timeouts, etc.
+                self.plugin.main()
+                time.sleep(0)  # Avoid busy loop if plugin.main() is non-blocking
+            except KeyboardInterrupt:
+                logger.info(f"Plugin {self.plugin_id} interrupted")
+                self._is_running = False
+            except Exception as e:
+                logger.error(f"Plugin {self.plugin_id} error: {e}", exc_info=True)
+                import traceback
+                traceback.print_exc(logger)
+                self.error_log.append(str(e))
+
+        self.shutdown()
+
     
+    def _topic_listener(self, topic: str) -> None:
+        """Background thread: listen for messages from topic subscriptions. one thread each"""
+        registered = self.topic_subscriptions.get(topic)
+        while True:
+            
+            # check is subscription still active (in case unsubscribed while waiting for data)
+            cur = self.topic_subscriptions.get(topic,None)
+            if cur is None or cur != registered: 
+                logger.info(f"Subscription for topic '{topic}' no longer registered, stopping listener thread")
+                break
+            
+
+            # pull data from subscription queue (blocking)
+            try:
+                data = registered.queue.get() # Blocking wait for new data
+            except ValueError as e:
+                if registered.queue.closed():
+                    logger.info(f"Subscription for topic '{topic}' queue closed, stopping listener thread")
+                    break
+                else:
+                    logger.error(f"Error getting data from topic '{topic}' queue: {e}")
+                    self.error_log.append(str(e))
+                    continue
+            except Exception as e:
+                logger.error(f"Error in topic '{topic}' listener: {e}", exc_info=True)
+                self.error_log.append(str(e))
+                continue
+
+            # Call the plugin's callback with the new data
+            if data is not None:
+                try:
+                    registered.callback(data)
+                except Exception as e:
+                    logger.error(f"Error in topic '{topic}' callback: {e}", exc_info=True)
+                    self.error_log.append(str(e))
+                    continue
+    
+
+    def shutdown(self) -> None:
+        """Clean up resources on shutdown."""
+        logger.info(f"Plugin {self.plugin_id} shutting down")
+        self._is_running = False
+        try:
+            self.rpc.shutdown()
+        except Exception as e:
+            logger.error(f"Error closing RPC: {e}")
+    
+
+    ## ========================================================================
+    # Initialization
+    # ========================================================================
+
     def _init_plugin(self) -> None:
         """Instantiate plugin from descriptor."""
         try:
@@ -122,7 +227,7 @@ class PluginWorker:
             logger.error(f"Failed to init plugin {self.plugin_id}: {e}")
             raise
 
-    def _init_messanger(self) -> None:
+    def _init_rpc(self) -> None:
         """Initialize command handlers from plugin methods.
 
             + on request
@@ -131,10 +236,10 @@ class PluginWorker:
 
             + PLUGIN_START = "plugin_start"
             + PLUGIN_STOP = "plugin_stop"
-            + PLUGIN_CALL = "plugin_call"
             + PLUGIN_STATUS = "plugin_status"
             - PLUGIN_STATUS_ALL = "plugin_status_all"
             + PLUGIN_ERRORS = "plugin_errors"
+            > PLUGIN_CALL = "plugin_call"
 
             > ENV_SET = "env_set"
             > ENV_GET = "env_get"
@@ -149,7 +254,6 @@ class PluginWorker:
             * TOPIC_LIST = "topic_list"
         """
         try:
-            self.rpc = PluginRPC(self.plugin_id, self.channel)
             self.rpc.on_request(CommandType.PLUGIN_START, self._respond_start)
             self.rpc.on_request(CommandType.PLUGIN_STOP, self._respond_stop)
             self.rpc.on_request(CommandType.PLUGIN_CALL, self._respond_call)
@@ -163,63 +267,38 @@ class PluginWorker:
             self.rpc.on_request(CommandType.TOPIC_LIST, self._request_topic_list)
 
         except Exception as e:
-            logger.error(f"Failed to init messanger: {e}")
+            logger.error(f"Failed to init RPC: {e}")
             raise
     
-    def run_loop(self) -> None:
-        """Main event loop: wait for requests and topic messages."""
-        logger.info(f"Plugin {self.plugin_id} worker started")
-        
-        # Start topic listener thread
-        topic_thread = threading.Thread(target=self._topic_listener_loop, daemon=True)
-        topic_thread.start()
-        
-        try:
-            while True:
-                req = self.channel.receive(timeout=1.0)
-                if req is None:
-                    continue
-                
-                self._handle_request(req)
-        except KeyboardInterrupt:
-            logger.info(f"Plugin {self.plugin_id} interrupted")
-        except Exception as e:
-            logger.error(f"Plugin {self.plugin_id} error: {e}", exc_info=True)
-        finally:
-            self.shutdown()
     
-    def _topic_listener_loop(self) -> None:
-        """Background thread: listen for messages on topic subscriptions."""
-        while True:
-            try:
-                # Poll each topic subscription
-                for topic, subscription in self.topic_subscriptions.items():
-                    try:
-                        # Non-blocking get with tiny timeout
-                        data = subscription.queue.get_nowait()
-                        # TODO thread ?
-                        subscription.callback(data)
-                    except Exception:
-                        continue
-                threading.Event().wait(0)
-                # Small sleep to avoid busy loop
-                
-            except Exception as e:
-                logger.error(f"Topic listener error: {e}")
-
-
-    def shutdown(self) -> None:
-        """Clean up resources on shutdown."""
-        logger.info(f"Plugin {self.plugin_id} shutting down")
-        try:
-            self.rpc.close()
-        except Exception as e:
-            logger.error(f"Error closing RPC: {e}")
+    
 
     # ========================================================================
     # Commands to send
     # ========================================================================
     
+    """Commands that plugin can send to manager or other plugins.
+        + PLUGIN_START = "plugin_start"
+        + PLUGIN_STOP = "plugin_stop"
+        + PLUGIN_STATUS = "plugin_status"
+        - PLUGIN_STATUS_ALL = "plugin_status_all"
+        + PLUGIN_ERRORS = "plugin_errors"
+        > PLUGIN_CALL = "plugin_call"
+    """
+    def plugin_call(self, plugin_id: str, method_name: str, *args, wait: bool=True, **kwargs) -> PendingRequest|Any:
+        """Invoke a method on the plugin via RPC."""
+        pending: PendingRequest = self.rpc.plugin_call(plugin_id, method_name, *args, **kwargs)
+        if not wait: return pending
+        
+        # Wait for response if no callback provided
+        response = pending.wait()
+        if response.error:
+            logger.error(f"Error calling plugin method '{method_name}': {response.error}")
+            self.error_log.append(str(response.error))
+            return None
+        return response.result
+
+
     """Commands that plugin can send to manager or other plugins.
         > ENV_SET = "env_set"
         > ENV_GET = "env_get"
@@ -307,11 +386,14 @@ class PluginWorker:
 
     def topic_subscribe(self, topic: str, callback: Callable) -> bool:
         """Get all environment variables."""
-        subscription = Subscription(topic, mp.Queue(), callback)
-        subscriber = Subscriber(self.plugin_id, topic, subscription.queue)
+        subscription = Subscription(topic, callback)
 
+        desc = subscription.queue.descriptor()
+        subscriber = Subscriber(self.plugin_id, topic, desc  )
+        
 
         pending: PendingRequest = self.rpc.topic_subscribe(subscriber)
+        subscriber.queue = Queue( desc )
         # Wait for response if no callback provided
         response = pending.wait()
         if response.error:
@@ -319,7 +401,9 @@ class PluginWorker:
             self.error_log.append(str(response.error))
             return False
         if response.result:
+            subscription.thread = threading.Thread(target=self._topic_listener, args=(topic,), daemon=True)
             self.topic_subscriptions[topic] = subscription
+            subscription.thread.start()
         return response.result
     
     def topic_unsubscribe(self, topic: str) -> bool:
@@ -329,8 +413,8 @@ class PluginWorker:
             return True
         
         subscription = self.topic_subscriptions[topic] 
-        
-        subscriber = Subscriber(self.plugin_id, topic, subscription.queue)
+        desc = subscription.queue.descriptor()
+        subscriber = Subscriber(self.plugin_id, topic, desc  )
 
 
         pending: PendingRequest = self.rpc.topic_unsubscribe(subscriber)
@@ -343,6 +427,9 @@ class PluginWorker:
         
         if response.result:
             del self.topic_subscriptions[topic]
+            subscription.queue.close()
+            subscription.thread.join(timeout=1.0)
+            
 
         return response.result
 
@@ -376,29 +463,54 @@ class PluginWorker:
         
         manager_subscribers: list[Subscriber] = reponse.result
         self.topic_published.add(topic)
+        #print("topic_announce: manager_subscribers: ",manager_subscribers, self.topic_published)
         for subscriber in manager_subscribers:
             topic_subscribers[subscriber.plugin_id] = subscriber
 
         return True
 
     def topic_publish(self, topic: str, data: Any) -> None:
-        if topic not in self.topic_subscribers:
-            self.topic_subscribers[topic] = {}
-        topic_subscribers: dict[str, Subscriber] = self.topic_subscribers.get(topic)
-        
-        
         self.topic_announce(topic)
         
+        topic_subscribers = self.topic_subscribers.get(topic, None) 
+        if topic_subscribers is None: return
+            
+
+        #print("topic_publish: topic_subscribers: ",self.topic_subscribers)
+
         for subscriber in topic_subscribers.values():
+            #print("----")
+
             try:
                 subscriber.queue.put_nowait(data)
+            except Full:
+                logger.warning(f"Subscriber {subscriber.plugin_id} on topic '{topic}' is full — dropping message")
             except Exception as e:
                 logger.error(f"Failed to publish to subscriber {subscriber.plugin_id} on topic '{topic}': {e}")
         
         return True
     
     
+    def start(self):
+        """Start the plugin."""
+        try:
+            self.plugin.on_start()
+            self.did_start.set()
+        except Exception as e:
+            logger.error(f"Failed to start plugin: {e}")
+            raise
+            
+            
 
+
+    def stop(self):
+        """Stop the plugin."""
+        try:
+            self.plugin.on_stop()
+            self._is_running = False
+        except Exception as e:
+            logger.error(f"Failed to stop plugin: {e}")
+            raise
 
     # ========================================================================
     # On Command Recievd
@@ -406,8 +518,9 @@ class PluginWorker:
     
     def _respond_start(self, rpc: PluginRPC, req: RequestPluginStart) -> bool:
         """Start plugin."""
+        
         try:
-            self.plugin.on_start()
+            self.start()
             return True
         except Exception as e:
             logger.error(f"Failed to start plugin: {e}")
@@ -416,7 +529,7 @@ class PluginWorker:
     def _respond_stop(self, rpc: PluginRPC, req: RequestPluginStop) -> bool:
         """Stop plugin."""
         try:
-            self.plugin.on_stop()
+            self.stop()
             return True
         except Exception as e:
             logger.error(f"Failed to stop plugin: {e}")
@@ -461,11 +574,16 @@ class PluginWorker:
     def _respond_topic_subscribe(self, rpc: PluginRPC, req: RequestTopicSubscribe) -> bool:
         """Handle topic subscribe request."""
         plugin_id = req.sender
-        topic = req.subscriber.topic
+        sub = req.subscriber
+        topic = sub.topic
+        sub.queue = Queue(req.subscriber.queue_descriptor)
         
         if topic not in self.topic_subscribers:
             self.topic_subscribers[topic] = {}
         self.topic_subscribers[topic][plugin_id] = req.subscriber
+
+        # logger.info('_respond: topic_subscribers: %s', self.topic_subscribers)
+
         return True
     
     def _respond_topic_unsubscribe(self, rpc: PluginRPC, req: RequestTopicUnsubscribe) -> bool:
