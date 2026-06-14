@@ -16,8 +16,8 @@ import importlib
 from queue import Full
 import threading
 import time
-from typing import Any, Callable, Dict,  Optional, TYPE_CHECKING
-import warnings
+import sys
+
 
 from modularnet.common.utils import init_debugger, process_start_spawn
 from modularnet.plugin.plugin_data import  Channel, CommandType, Queue,QueueDescriptor, PendingRequest, PluginStatus,  RequestPluginErrors, RequestPluginStart, RequestPluginStatus, RequestPluginStop, RequestTopicList, Subscriber, Subscription
@@ -27,11 +27,15 @@ from modularnet.plugin.plugin_rpc import  PluginRPC, RequestEnvUpdate, RequestPl
 
 from torch import multiprocessing as mp
 
+#typechecking imports
+from typing import Any, Callable, Dict,  Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from multiprocessing.synchronize import Event
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 # ============================================================================
 # PLUGIN WORKER
@@ -102,6 +106,9 @@ class PluginWorker:
         
         self.did_start = mp.Event()
         self.did_start.clear()
+
+        self.did_stop = mp.Event()
+        self.did_stop.clear()
         
         # Topic subscriptions: topic_name -> queue
         
@@ -153,59 +160,45 @@ class PluginWorker:
             except Exception as e:
                 logger.error(f"Plugin {self.plugin_id} error: {e}", exc_info=True)
                 import traceback
-                traceback.print_exc(logger)
+                traceback.print_exc()
                 self.error_log.append(str(e))
-
-        self.shutdown()
-
+        self.did_stop.set()
+        logger.info(f"Plugin {self.plugin_id} worker stopped")
+        
     
-    def _topic_listener(self, topic: str) -> None:
-        """Background thread: listen for messages from topic subscriptions. one thread each"""
-        registered = self.topic_subscriptions.get(topic)
-        while True:
-            
-            # check is subscription still active (in case unsubscribed while waiting for data)
-            cur = self.topic_subscriptions.get(topic,None)
-            if cur is None or cur != registered: 
-                logger.info(f"Subscription for topic '{topic}' no longer registered, stopping listener thread")
-                break
-            
+    def start(self):
+        """Start the plugin."""
+        try:
+            self.plugin.on_start()
+            self.did_start.set()
+        except Exception as e:
+            logger.error(f"Failed to start plugin: {e}")
+            raise
 
-            # pull data from subscription queue (blocking)
-            try:
-                data = registered.queue.get() # Blocking wait for new data
-            except ValueError as e:
-                if registered.queue.closed():
-                    logger.info(f"Subscription for topic '{topic}' queue closed, stopping listener thread")
-                    break
-                else:
-                    logger.error(f"Error getting data from topic '{topic}' queue: {e}")
-                    self.error_log.append(str(e))
-                    continue
-            except Exception as e:
-                logger.error(f"Error in topic '{topic}' listener: {e}", exc_info=True)
-                self.error_log.append(str(e))
-                continue
-
-            # Call the plugin's callback with the new data
-            if data is not None:
-                try:
-                    registered.callback(data)
-                except Exception as e:
-                    logger.error(f"Error in topic '{topic}' callback: {e}", exc_info=True)
-                    self.error_log.append(str(e))
-                    continue
-    
+    def stop(self):
+        """Stop the plugin."""
+        try:
+            self._is_running = False
+            if not self.did_stop.wait(timeout=5.0):  # Wait for main loop to acknowledge stop signal
+                logger.warning(f"Plugin {self.plugin_id} did not stop within timeout")
+            self.did_stop.set()  # Ensure event is set in case of timeout
+            self.plugin.on_stop()
+            
+        except Exception as e:
+            logger.error(f"Failed to stop plugin: {e}")
+            raise
 
     def shutdown(self) -> None:
         """Clean up resources on shutdown."""
         logger.info(f"Plugin {self.plugin_id} shutting down")
         self._is_running = False
         try:
-            self.rpc.shutdown()
+            self.rpc.shutdown() 
         except Exception as e:
             logger.error(f"Error closing RPC: {e}")
     
+
+
 
     ## ========================================================================
     # Initialization
@@ -463,7 +456,7 @@ class PluginWorker:
         
         manager_subscribers: list[Subscriber] = reponse.result
         self.topic_published.add(topic)
-        #print("topic_announce: manager_subscribers: ",manager_subscribers, self.topic_published)
+        print("topic_announce: manager_subscribers: ",manager_subscribers, self.topic_published)
         for subscriber in manager_subscribers:
             topic_subscribers[subscriber.plugin_id] = subscriber
 
@@ -485,32 +478,14 @@ class PluginWorker:
                 subscriber.queue.put_nowait(data)
             except Full:
                 logger.warning(f"Subscriber {subscriber.plugin_id} on topic '{topic}' is full — dropping message")
+                return False
             except Exception as e:
-                logger.error(f"Failed to publish to subscriber {subscriber.plugin_id} on topic '{topic}': {e}")
+                logger.error(f"Failed to publish to subscriber {subscriber.plugin_id} on topic '{topic}': {e}", stack_info=True)
+                return False
         
         return True
     
     
-    def start(self):
-        """Start the plugin."""
-        try:
-            self.plugin.on_start()
-            self.did_start.set()
-        except Exception as e:
-            logger.error(f"Failed to start plugin: {e}")
-            raise
-            
-            
-
-
-    def stop(self):
-        """Stop the plugin."""
-        try:
-            self.plugin.on_stop()
-            self._is_running = False
-        except Exception as e:
-            logger.error(f"Failed to stop plugin: {e}")
-            raise
 
     # ========================================================================
     # On Command Recievd
@@ -535,13 +510,6 @@ class PluginWorker:
             logger.error(f"Failed to stop plugin: {e}")
             raise
     
-    
-    def _respond_env_update(self, rpc: PluginRPC, req: RequestEnvUpdate) -> None:
-        """Receive environment variable change notification."""
-        var_name = req.name
-        callback = self.env_subscriptions[var_name]
-        callback(var_name)
-        return True
     
     def _respond_status(self, rpc: PluginRPC, req: RequestPluginStatus) -> Dict[str, Any]:
         """Get plugin status."""
@@ -570,6 +538,63 @@ class PluginWorker:
         method = getattr(self.plugin, method_name)
         return method(*args, **kwargs)
             
+
+    
+    def _respond_env_update(self, rpc: PluginRPC, req: RequestEnvUpdate) -> None:
+        """Receive environment variable change notification."""
+        var_name = req.name
+        callback = self.env_subscriptions[var_name]
+        callback(var_name)
+        return True
+
+
+    # ========================================================================
+    # Topic Subscription Handling
+    # ========================================================================
+
+    
+    def _topic_listener(self, topic: str) -> None:
+        """Background thread: listen for messages from topic subscriptions. one thread each"""
+        self.did_start.wait()  # Ensure plugin has started before processing messages
+        registered = self.topic_subscriptions.get(topic)
+        
+        while True:
+            
+            if self._is_running is False:
+                logger.info(f"Plugin {self.plugin_id} worker stopping, exiting topic listener for '{topic}'")
+                break
+
+            # check is subscription still active (in case unsubscribed while waiting for data)
+            cur = self.topic_subscriptions.get(topic,None)
+            if cur is None or cur != registered: 
+                logger.info(f"Subscription for topic '{topic}' no longer registered, stopping listener thread")
+                break
+            
+
+            # pull data from subscription queue (blocking)
+            try:
+                data = registered.queue.get() # Blocking wait for new data
+            except ValueError as e:
+                if registered.queue.closed():
+                    logger.info(f"Subscription for topic '{topic}' queue closed, stopping listener thread")
+                    break
+                else:
+                    logger.error(f"Error getting data from topic '{topic}' queue: {e}")
+                    self.error_log.append(str(e))
+                    continue
+            except Exception as e:
+                logger.error(f"Error in topic '{topic}' listener: {e}", exc_info=True)
+                self.error_log.append(str(e))
+                continue
+
+            # Call the plugin's callback with the new data
+            if data is not None:
+                try:
+                    registered.callback(data)
+                except Exception as e:
+                    logger.error(f"Error in topic '{topic}' callback: {e}", exc_info=True)
+                    self.error_log.append(str(e))
+                    continue
     
     def _respond_topic_subscribe(self, rpc: PluginRPC, req: RequestTopicSubscribe) -> bool:
         """Handle topic subscribe request."""

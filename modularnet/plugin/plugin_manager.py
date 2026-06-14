@@ -7,6 +7,7 @@ Uses simplified request/response protocol via Channel.
 
 from dataclasses import dataclass
 import logging
+import sys
 import threading
 import torch.multiprocessing as mp
 import time
@@ -21,7 +22,10 @@ from modularnet.plugin.environment_manager import EnvironmentManager
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
+    
 process_start_spawn()
     
 
@@ -502,9 +506,7 @@ class PluginManager:
         if plugin_sub not in self._topic_subscribers[topic]:
             self._topic_subscribers[topic][plugin_sub] = sub
 
-
-        
-
+        remote_result = True  # Default to success
 
         if plugin_pub is not None:
             forward_rpc = self._plugins[plugin_pub].rpc

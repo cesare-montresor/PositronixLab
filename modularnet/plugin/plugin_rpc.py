@@ -141,7 +141,7 @@ class PluginCoreRPC:
                 else:
                     logger.error(f"Received unknown message type: {message}")
             except Exception as e:
-                logger.error(f"Response router error: {e}")
+                logger.error(f"Response router error: {e}", exc_info=True)
 
 
 

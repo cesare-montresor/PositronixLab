@@ -105,7 +105,9 @@ def main():
     
 
     # Let it run for a few seconds
-    time.sleep(5)
+    print("Plugins are running... Press Ctrl+C to stop.")
+    time.sleep(2)
+    print("Stopping plugins...")
 
     #manager.stop_plugin(pub_descriptor.name)
     #manager.stop_plugin(sub_descriptor.name)
@@ -120,6 +122,12 @@ def main():
     print("All environment variables:")
     for name, value in all_vars.items():
         print(f"  {name}: {value}")
+
+    c_pub = all_vars.get("count_pub", 0)
+    c_sub = all_vars.get("count_sub", -1)
+
+
+    assert c_pub == c_sub, f"Count mismatch: pub={c_pub}, sub={c_sub}"
 
 if __name__ == "__main__": 
     main()
