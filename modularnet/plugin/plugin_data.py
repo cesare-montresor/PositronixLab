@@ -165,8 +165,14 @@ class Channel:
             return None
 
     def shutdown(self):
-        self._send.close()
-        self._receive.close()
+        if self._send:
+            self._send.close()
+        if self._receive:
+            self._receive.close()
+        if self._remote_send:
+            self._remote_send.close()
+        if self._remote_receive:
+            self._remote_receive.close()
 
 
 # ============================================================================

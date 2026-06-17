@@ -1,7 +1,7 @@
 
 
 import itertools
-from multiprocessing import Lock
+import time 
 from typing import Any, Callable, Dict, Optional
 import logging
 from torch import multiprocessing as mp
@@ -17,7 +17,7 @@ class MessageUID:
     """Thread-safe unique ID generator."""
     def __init__(self, minimal=True):
         self._counter = itertools.count()
-        self._lock = Lock()
+        self._lock = mp.Lock()
         self.minimal = minimal
         self._last = 0
     
@@ -72,17 +72,28 @@ class PluginCoreRPC:
         self._pending_lock = threading.Lock()
         
         # Reader thread routes Responses to reply slots
-        self._reader = threading.Thread(target=self._channel_listener, daemon=True)
+        self._reader = threading.Thread(target=self._channel_listener, daemon=False)
         self._reader.start()
 
     def shutdown(self):
         """Clean up resources."""
+        # Step 1: Signal reader to stop
         self._running = False
-        self._reader.join(timeout=1.0)
+        
+        
+        # Step 3: Wait for reader thread to exit
+        self._reader.join(timeout=2.0)
         if self._reader.is_alive():
             logger.warning("Reader thread did not exit cleanly")
-        # Note: Queues do not need explicit closing in multiprocessing
+        
+        # Step 4: Wait for pending requests to be processed (with timeout)
+        timeout_start = time.time()
+        while self.has_pending_requests() and (time.time() - timeout_start) < 2.0:
+            logger.debug(f"Plugin {self.plugin_id} waiting for pending requests to complete...")
+            time.sleep(0.05)
+        
         self.channel.shutdown()
+        
     
     def forward(self, req: Request, wait=True) -> Any:
         forward_req = req.copy()
@@ -115,13 +126,26 @@ class PluginCoreRPC:
         """
         send a response
         """
+        if not self._running:
+            logger.debug(f"Plugin {self.plugin_id} RPC is shutting down, response discarded")
+            return None
+            
         error = str(error) if error else None
 
         resp = Response(result=result, error=error)
         resp.message_id = req.message_id
         resp.sender = self.plugin_id
         
-        self.channel.send(resp)
+        try:
+            self.channel.send(resp)
+        except OSError:
+            # Channel is closed, likely during shutdown
+            logger.debug(f"Plugin {self.plugin_id} could not send response (channel closed)")
+
+    def has_pending_requests(self) -> bool:
+        """Check if there are any pending requests."""
+        with self._pending_lock:
+            return len(self._pending) > 0
     
 
     def _channel_listener(self) -> None:
@@ -133,15 +157,24 @@ class PluginCoreRPC:
         """
         while self._running:
             try:
-                message = self.channel.receive()
+                # Use timeout to allow periodic checks of self._running
+                message = self.channel.receive(timeout=0.5)
+                if message is None: continue
                 if isinstance(message, Request):
                     self._handle_request(message)
                 elif isinstance(message, Response):   
                     self._handle_response(message)
                 else:
                     logger.error(f"Received unknown message type: {message}")
+            except OSError:
+                # Channel closed, exit cleanly
+                break
             except Exception as e:
-                logger.error(f"Response router error: {e}", exc_info=True)
+                if self._running:
+                    logger.error(f"Response router error: {e}", exc_info=True)
+                else:
+                    # Expected during shutdown
+                    break
 
 
 
@@ -154,7 +187,7 @@ class PluginCoreRPC:
             if cmd not in self.command_handlers:
                 raise ValueError(f"Command not registered: {cmd} (available: {list(self.command_handlers.keys())})")
 
-            threading.Thread(target=self._execute_command, args=(req,), daemon=True).start() # use pool ?        
+            threading.Thread(target=self._execute_command, args=(req,), daemon=False).start() # use pool ?        
         except Exception as e:
             logger.error(f"Request handler error: {e}", exc_info=True)
             self.respond(req, error=e)

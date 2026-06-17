@@ -73,9 +73,9 @@ def main():
     manager.start_plugin(descriptor.name)
 
     # Let it run for a few seconds
-    time.sleep(5)
+    time.sleep(3)
 
-    manager.stop_plugin(descriptor.name)
+    
     manager.unload_plugin(descriptor.name)
 
     all_vars = manager.env_get()

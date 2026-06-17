@@ -32,7 +32,7 @@ class ConfigWriter(BasePlugin):
             description="Writes configuration to environment variables",
             options=options or {}
         )
-
+    
     def __init__(self, worker: PluginWorker, plugin_id: str, options: Dict[str, Any]):
         super().__init__(worker, plugin_id, options)
         self.iteration = 0

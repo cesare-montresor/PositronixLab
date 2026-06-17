@@ -34,8 +34,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 # ============================================================================
 # PLUGIN WORKER
@@ -61,7 +59,7 @@ class PluginWorker:
     def run(
         plugin_id: str,
         descriptor_dict: Dict[str, Any],
-        config: Dict[str, Any],
+        options: Dict[str, Any],
         queue_descriptor: QueueDescriptor,
         initialized: Event,
         pydebug_port: int = None   
@@ -72,17 +70,18 @@ class PluginWorker:
         Args:
             plugin_id: Plugin instance identifier
             descriptor_dict: Serialized plugin descriptor
-            config: Plugin configuration
+            options: Plugin options
             queue_descriptor: Queue descriptor for communication
             initialized: Event to signal initialization completion
         """
         if pydebug_port is not None:
+            logger.setLevel(logging.DEBUG)
             init_debugger(pydebug_port, wait_for_client=True)
         
         worker = PluginWorker(
             plugin_id,
             descriptor_dict,
-            config,
+            options,
             queue_descriptor,
             initialized
         )
@@ -92,7 +91,7 @@ class PluginWorker:
         self,
         plugin_id: str,
         descriptor_dict: Dict[str, Any],
-        config: Dict[str, Any],
+        options: Dict[str, Any],
         queue_descriptor: QueueDescriptor,
         initialized: Event
     ):
@@ -100,15 +99,18 @@ class PluginWorker:
 
         self.plugin_id = plugin_id
         self.descriptor = PluginDescriptor.from_dict(descriptor_dict)
-        self.config = config
+        self.options = options
         self._is_running = False
         self._initialized: Event = initialized
         
-        self.did_start = mp.Event()
+        self.did_start = threading.Event()
         self.did_start.clear()
 
-        self.did_stop = mp.Event()
+        self.did_stop = threading.Event()
         self.did_stop.clear()
+
+        self.can_shutdown = threading.Event()
+        self.can_shutdown.clear()
         
         # Topic subscriptions: topic_name -> queue
         
@@ -124,6 +126,8 @@ class PluginWorker:
         self.plugin: Optional[BasePlugin] = None
         
         
+        self.main_thread: threading.Thread = None
+
         # Create manager proxy for direct manager access+
         channel = Channel(queue_descriptor)
         self.rpc = PluginRPC(self.plugin_id, channel)
@@ -145,10 +149,21 @@ class PluginWorker:
 
         
         self._initialized.set()  # Signal to manager that initialization is complete
-        
         self.did_start.wait()
         self._is_running = True
 
+        
+        self.main_thread = threading.Thread(target=self._plugin_main, daemon=True).start()
+
+        self.did_stop.wait()
+        
+        
+        logger.info(f"Plugin {self.plugin_id} worker stopped")
+        
+        self.shutdown()
+    
+    def _plugin_main(self):
+        logger.debug(f"[{self.plugin_id}] Plugin main loop started")
         while self._is_running:
             try:
                 # Main loop can also handle periodic tasks, timeouts, etc.
@@ -162,9 +177,9 @@ class PluginWorker:
                 import traceback
                 traceback.print_exc()
                 self.error_log.append(str(e))
+        logger.debug(f"[{self.plugin_id}] Plugin main loop exiting, setting did_stop")
         self.did_stop.set()
-        logger.info(f"Plugin {self.plugin_id} worker stopped")
-        
+
     
     def start(self):
         """Start the plugin."""
@@ -177,17 +192,30 @@ class PluginWorker:
 
     def stop(self):
         """Stop the plugin."""
+        logger.debug(f"[{self.plugin_id}] Stopping plugin...")
+        
         try:
-            self._is_running = False
-            if not self.did_stop.wait(timeout=5.0):  # Wait for main loop to acknowledge stop signal
-                logger.warning(f"Plugin {self.plugin_id} did not stop within timeout")
-            self.did_stop.set()  # Ensure event is set in case of timeout
-            self.plugin.on_stop()
-            
+            logger.debug(f"[{self.plugin_id}] Calling plugin.on_stop()...")
+            self.plugin.on_stop()    
         except Exception as e:
             logger.error(f"Failed to stop plugin: {e}")
-            raise
+        
+        # Wait for main loop to exit
+        threading.Thread(target=self._after_stop).start()  # Ensure event is set in case of timeout
 
+    def _after_stop(self):
+        time.sleep(0.1)
+        self._is_running = False
+        
+        for topic, subscription in self.topic_subscriptions.items():
+            try:
+                subscription.queue.put(None)  # Unblock any waiting get() calls
+            except Exception as e:
+                logger.error(f"Error closing queue for topic '{topic}': {e}")
+                
+          # Small delay to allow main loop to exit if it hasn't already
+        self.did_stop.set()  # Ensure event is set in case of timeout  
+        
     def shutdown(self) -> None:
         """Clean up resources on shutdown."""
         logger.info(f"Plugin {self.plugin_id} shutting down")
@@ -196,6 +224,8 @@ class PluginWorker:
             self.rpc.shutdown() 
         except Exception as e:
             logger.error(f"Error closing RPC: {e}")
+
+        
     
 
 
@@ -214,7 +244,7 @@ class PluginWorker:
             
 
             # Instantiate plugin with proxy
-            self.plugin = plugin_class(self, self.plugin_id, self.config )
+            self.plugin = plugin_class(self, self.plugin_id, self.options )
             logger.info(f"Plugin {self.plugin_id} instantiated")
         except Exception as e:
             logger.error(f"Failed to init plugin {self.plugin_id}: {e}")
@@ -551,7 +581,6 @@ class PluginWorker:
     # ========================================================================
     # Topic Subscription Handling
     # ========================================================================
-
     
     def _topic_listener(self, topic: str) -> None:
         """Background thread: listen for messages from topic subscriptions. one thread each"""
@@ -574,6 +603,7 @@ class PluginWorker:
             # pull data from subscription queue (blocking)
             try:
                 data = registered.queue.get() # Blocking wait for new data
+                if data is None: continue  # Skip if None (could be used as a shutdown signal)
             except ValueError as e:
                 if registered.queue.closed():
                     logger.info(f"Subscription for topic '{topic}' queue closed, stopping listener thread")

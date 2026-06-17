@@ -94,7 +94,7 @@ class PluginManager:
             True if loaded successfully
         """
         plugin_id = descriptor.name
-        options = options or {}
+        options = options or descriptor.options or {}
         worker_pydebug_port = self.worker_pydebug_port
         if self.worker_pydebug_port is not None:
             worker_pydebug_port +=  len(self._plugins)  # Assign unique debugger port for each plugin
@@ -178,6 +178,9 @@ class PluginManager:
         
         try:
             info = self._plugins[plugin_id]
+            if not info.process.is_alive(): return True  # Already stopped
+
+
             pending = info.rpc.plugin_stop()
             res = pending.wait(timeout=self.timeout_start)
             if not res:
@@ -210,11 +213,16 @@ class PluginManager:
                 info = self._plugins[plugin_id]
                 process = info.process
                 
+                info.rpc.shutdown()  # Clean up RPC resources
+
+                process.join(timeout=self.timeout_start)
+
                 if process.is_alive():
                     process.terminate()
-                    process.join(timeout=2)
-                    if process.is_alive():
-                        process.kill()
+                    process.join(timeout=self.timeout_start)
+                    
+                if process.is_alive():
+                    process.kill()
                 
                 # Clean up environment subscriptions
                 for env, plugins in list(self._env_subscribers.items()):

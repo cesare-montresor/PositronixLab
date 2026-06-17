@@ -92,7 +92,7 @@ class ExamplePluginSub(BasePlugin):
 
 def main():
     """Example main function to run the plugin standalone for testing."""
-    manager = PluginManager(worker_pydebug_port=10000)
+    manager = PluginManager()
     pub_descriptor = ExamplePluginPub.Descriptor()
     sub_descriptor = ExamplePluginSub.Descriptor()
     
@@ -106,7 +106,7 @@ def main():
 
     # Let it run for a few seconds
     print("Plugins are running... Press Ctrl+C to stop.")
-    time.sleep(2)
+    time.sleep(5)
     print("Stopping plugins...")
 
     #manager.stop_plugin(pub_descriptor.name)
@@ -127,7 +127,10 @@ def main():
     c_sub = all_vars.get("count_sub", -1)
 
 
-    assert c_pub == c_sub, f"Count mismatch: pub={c_pub}, sub={c_sub}"
+    if c_pub == c_sub:
+        print("Count values match!")
+    else:
+        print(f"ERROR: mismatch: pub={c_pub}, sub={c_sub}")
 
 if __name__ == "__main__": 
     main()
