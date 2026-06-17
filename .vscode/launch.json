@@ -10,9 +10,15 @@
             "request": "launch",
             "program": "modularnet/plugin/examples/example_pubsub.py",
             "console": "integratedTerminal",
-            "subProcess": false, 
             "justMyCode": false,
-            "redirectOutput": true
+        },
+        {
+            "name": "Run: Example Count",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "modularnet/plugin/examples/example_count.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
         },
         {
             "name": "Run: File",
@@ -20,9 +26,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "subProcess": false, 
             "justMyCode": false,
-            "redirectOutput": true
         },
         {
             "name": "Run current tests",
@@ -32,7 +36,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": [
-            "${file}"
+                "${file}"
             ]
         },
         {
@@ -43,7 +47,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": [
-            "."
+                "."
             ]
         },
         {

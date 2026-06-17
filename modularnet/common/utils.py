@@ -1,8 +1,10 @@
 
 import contextlib
+import logging
 import pickle
 import threading
 import time
+import warnings
 import numpy as np
 import re
 import torch
@@ -10,12 +12,37 @@ import os
 import json
 import yaml
 from hashlib import md5
+import multiprocessing as mp
 
 debug = False
 
 last_session_path = None
 
 
+logger = logging.getLogger(__name__)
+
+
+
+def init_debugger(port: int, wait_for_client: bool = False) -> None:
+    try:
+        import debugpy
+        debugpy.listen(("localhost", port))
+        logger.info(f"Debugger listening on port {port}")  # extension sees this
+        print(f"Debugger listening on port {port}", flush=True)  # belt and braces
+        if wait_for_client:
+            logger.info("Waiting for debugger to attach...")
+            debugpy.wait_for_client()        # blocks AFTER the log line is out
+            logger.info("Debugger attached")
+    except Exception as e:
+        logger.warning(f"Failed to initialize debugger on port {port}: {e}")
+
+
+def process_start_spawn(force=False):
+    current = mp.get_start_method(allow_none=True)
+    if current not in ('spawn', None):
+        warnings.warn(f"Expected spawn start method, got '{current}'. CUDA may be unreliable.")
+    elif current is None:
+        mp.set_start_method('spawn', force=force)
 
 
 @contextlib.contextmanager

@@ -1,6 +1,9 @@
 from modularnet.dataprovider.base_dataprovider import BaseDataProvider
 from torch.utils.data import Dataset, DataLoader
 import torch
+from torch import nn
+import sklearn.datasets as sklearn_datasets
+
 ### iris ###
 
 class IrisDataProvider(BaseDataProvider):
@@ -15,7 +18,7 @@ class IrisDataProvider(BaseDataProvider):
         self.num_classes = 3
         
         self.criterion = nn.CrossEntropyLoss()
-        self.dataset = IrisDataset(device=device)
+        self.dataset = IrisDataset()
 
         self.train = DataLoader(self.dataset,batch_size,True,num_workers=num_workers, drop_last=True)
         self.val = DataLoader(self.dataset,batch_size,False,num_workers=num_workers, drop_last=True)
