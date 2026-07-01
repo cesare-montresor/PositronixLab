@@ -1,5 +1,3 @@
-if True==False: from modularnet.modularspace.modularspace import ModularSpace
-if True==False: from modularnet.modularspace.modularobserver import ModularObserver
 
 from collections import OrderedDict
 
@@ -7,11 +5,15 @@ import torch
 from torch import nn
 from torch import Tensor
 import math
-from modularnet.common.utils import assert_tensor, info_tensor, is_conv
+from modularnet.utils.utils import assert_tensor, info_tensor, is_conv
 import einops
-import torch.nn.functional as F
+from modularnet.spacemath.spacemath import SpaceMath
 
-from modularnet.common.torch_extras import spow_, spow, zclamp, zclamp_
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from modularnet.modularspace.modularspace import ModularSpace
+    from modularnet.modularobserver.modularobserver import ModularObserver
 
 
 

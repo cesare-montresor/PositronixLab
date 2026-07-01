@@ -1,7 +1,7 @@
 
 import yaml
 
-from modularnet.common.utils import signature_settings
+from modularnet.utils.utils import signature_settings
 
 
 class TrialConfig:
@@ -12,6 +12,8 @@ class TrialConfig:
     def __init__(self, options=None):
         if options is None: options = {}
         self.options = options 
+
+        self.name = options.get('name', "default_config")
 
         self.exp_metric_modularity = options.get('exp_metric_modularity', True)
         self.exp_modularizer = options.get('exp_modularizer', True)

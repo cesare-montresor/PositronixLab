@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 class BaseTrial(ABC):
     """Base trial class."""
     
-    def __init__(self, config: TrialConfig, trial_manager: TrialManager):
-        self.config = config
+    def __init__(self, config: TrialConfig, trial_manager: TrialManager = None ):
         self.trial_manager = trial_manager
+        self.config = config
         
         # Use new Ray-based plugin manager
         self.plugin_manager = PluginManager()
@@ -43,9 +43,9 @@ class BaseTrial(ABC):
 
     def is_error(self) -> bool:
         """Check if any plugin is in error state."""
-        statuses = self.plugin_manager.get_all_plugin_status()
+        statuses = self.plugin_manager.plugin_status_all()
         for status in statuses.values():
-            if status.worker_status and status.worker_status.status == "error":
+            if status.worker_status and status.worker_status.state == "error":
                 return True
         return False
 
@@ -55,3 +55,4 @@ class BaseTrial(ABC):
         pass
 
 
+    

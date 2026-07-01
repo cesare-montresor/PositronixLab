@@ -10,16 +10,16 @@ This plugin:
 """
 
 import logging
-from time import sleep
-from typing import Any, Dict, Optional, List
-import torch
+import time
+from typing import TYPE_CHECKING, Any, Dict, Optional, List, override
 
+
+from modularnet.plugin.plugin_worker import PluginWorker
 from modularnet.trial.trial_config import TrialConfig
 from modularnet.dataprovider.dataprovider import DataProvider
 from modularnet.metamodel.metamodel import MetaModel
 from modularnet.deeplearning.deeplearning_common import DeeplearningCommon
-from modularnet.plugin import BasePlugin, PluginDescriptor, DataExchange
-from modularnet.plugin.plugin_messages import EnvUpdate
+from modularnet.plugin import BasePlugin, PluginDescriptor, Subscription
 
 logger = logging.getLogger(__name__)
 
@@ -49,31 +49,34 @@ class DeeplearningTrainPlugin(BasePlugin):
    
     def __init__(
         self,
+        worker: PluginWorker,
         plugin_id: str,
-        config: Dict[str, Any],
+        options: Dict[str, Any],
+        
     ):
         """
         Initialize the training plugin.
         
         Args:
             plugin_id: Unique plugin identifier
-            config: Configuration containing:
+            options: Configuration containing:
                 - trial_config: TrialConfig instance
                 - lr: Learning rate (default 0.001)
                 - epochs: Number of epochs (default 20)
                 - autoencoder: Use autoencoder mode (default False)
+            worker: PluginWorker instance for managing the plugin
         """
-        super().__init__(plugin_id, config)
+        super().__init__(worker, plugin_id, options)
         
-        self.trial_config: Optional[TrialConfig] = config.get("trial_config")
-        self.lr = config.get("lr", 0.001)
-        self.epochs = config.get("epochs", 20)
-        self.autoencoder = config.get("autoencoder", False)
+        self.trial_config: TrialConfig = self.env_get("trial_config")
+        self.lr = options.get("lr", 0.001)
+        self.epochs = options.get("epochs", 20)
+        self.autoencoder = options.get("autoencoder", False)
         
         self.model: Optional[MetaModel] = None
         self.dataprovider: Optional[DataProvider] = None
         self.space: Optional[Any] = None
-        self.training_started = False
+
 
     def on_start(self) -> None:
         """Initialize env subscriptions and wait for dependencies."""
@@ -81,23 +84,29 @@ class DeeplearningTrainPlugin(BasePlugin):
         
         # Initial values will be set via on_model_changed, on_dataprovider_changed callbacks
         # No need to query orchestrator directly - just wait for subscribed env updates
-        self.check_and_start_training()
-        self.run_training()
+        
+        self.model = self.env_get("model")
+        self.dataprovider = self.env_get("dataprovider")
+        self.space = self.env_get("space")
+        # Subscribe to environment variable changes
+        self.env_subscribe("model", self._on_model_changed)
+        self.env_subscribe("dataprovider", self._on_dataprovider_changed)
+        self.env_subscribe("space", self._on_space_changed)
 
-    def on_model_changed(self, update: EnvUpdate) -> None:
+    def _on_model_changed(self) -> None:
         """Callback when model environment variable is updated."""
-        self.model = update.value
+        self.model = self.env_get("model")
         logger.info(f"[{self.plugin_id}] Model received from environment")
 
-    def on_dataprovider_changed(self, update: EnvUpdate) -> None:
+    def _on_dataprovider_changed(self) -> None:
         """Callback when dataprovider environment variable is updated."""
-        self.dataprovider = update.value
+        self.dataprovider = self.env_get("dataprovider")
         logger.info(f"[{self.plugin_id}] DataProvider received from environment")
 
-    def on_space_changed(self, update: EnvUpdate) -> None:
+    def _on_space_changed(self) -> None:
         """Callback when space environment variable is updated."""
-        self.space = update.value
-        if update.value is not None:
+        self.space = self.env_get("space")
+        if self.space is not None:
             logger.info(f"[{self.plugin_id}] ModularSpace received from environment")
         else:
             logger.info(f"[{self.plugin_id}] No ModularSpace provided (optional)")
@@ -106,9 +115,12 @@ class DeeplearningTrainPlugin(BasePlugin):
         """Check if both model and dataprovider are available, then start training."""
         logging.debug(f"[{self.plugin_id}] Checking if model and dataprovider are available for training...")
         while self.model is None or self.dataprovider is None:
-            sleep(0.01)  # Wait for dependencies to be set in environment
+             time.sleep(0.01)  # Wait for dependencies to be set in environment
 
-    def run_training(self) -> None:
+    
+    def main(self) -> None:
+        self.check_and_start_training()
+
         """Run the training process."""
         try:
             if not self.trial_config:
@@ -122,7 +134,6 @@ class DeeplearningTrainPlugin(BasePlugin):
                 config=self.trial_config,
                 model=self.model,
                 dp=self.dataprovider,
-                space=self.space,
                 draft=False
             )
             
@@ -138,21 +149,3 @@ class DeeplearningTrainPlugin(BasePlugin):
     def on_stop(self) -> None:
         """Cleanup."""
         logger.info(f"[{self.plugin_id}] Training plugin stopped")
-
-    def on_update(self, config: Dict[str, Any]) -> None:
-        """Handle configuration updates."""
-        super().on_update(config)
-        logger.debug(f"[{self.plugin_id}] Config updated")
-
-    def get_subscriptions(self) -> List[DataExchange]:
-        """Subscribe to model, dataprovider, and optional space environment variables."""
-        return [
-            DataExchange.env_var("model", "on_model_changed"),
-            DataExchange.env_var("dataprovider", "on_dataprovider_changed"),
-            DataExchange.env_var("space", "on_space_changed"),
-        ]
-
-    def get_services(self) -> List[str]:
-        """Training plugin provides no services."""
-        return []
-

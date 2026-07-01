@@ -1,24 +1,75 @@
-if True==False: from modularnet.modularspace.modularspace import ModularSpace
-if True==False: from modularnet.modularspace.modularobserver import ModularObserver
-
-from collections import OrderedDict
-
 import torch
-from torch import nn
+from torch import  nn
 from torch import Tensor
-import math
-from modularnet.utils.utils import assert_tensor, info_tensor, is_conv
-import einops
 import torch.nn.functional as F
 
-from modularnet.utils.torch_extras import spow_, spow, zclamp, zclamp_
+
+from modularnet.spacemath.common import is_conv, is_linear, zclamp, compile, classmethod_compile, staticmethod_compile
+
+class LayerType:
+    CONV = 'conv'
+    LINEAR = 'linear'
+
+
+    KNOWN_LAYERS = {
+        CONV: is_conv,
+        LINEAR: is_linear,
+    }
+
+
+    @classmethod
+    def get_layer_type(cls, module: nn.Module) -> str:
+        for layer_type, check_fn in cls.KNOWN_LAYERS.items():
+            if check_fn(module):
+                return layer_type
+        return 'unknown'
+    
+class ActivationType:
+    RELU = 'relu'
+    LEAKY_RELU = 'leakyrelu'
+    LOGISTIC = 'logistic'
+    SOFTMAX = 'softmax'
+
+
+    KNOWN_ACTIVATIONS = {
+        RELU: lambda m: isinstance(m, nn.ReLU),
+        LEAKY_RELU: lambda m: isinstance(m, nn.LeakyReLU),
+        LOGISTIC: lambda m: isinstance(m, nn.Sigmoid),
+        SOFTMAX: lambda m: isinstance(m, nn.Softmax),
+    }
+
+
+    @classmethod
+    def get_function(cls, activation_type: str) -> nn.ReLU | nn.LeakyReLU | nn.Sigmoid | nn.Softmax:
+        if activation_type == cls.RELU:
+            return nn.ReLU()
+        elif activation_type == cls.LEAKY_RELU:
+            return nn.LeakyReLU()
+        elif activation_type == cls.LOGISTIC:
+            return nn.Sigmoid()
+        elif activation_type == cls.SOFTMAX:
+            return nn.Softmax(dim=1)
+        else:
+            raise ValueError(f"Unknown activation type: {activation_type}")
+
+    @classmethod
+    def get_activation_type(cls, module: nn.Module) -> str:
+        for activation_type, check_fn in cls.KNOWN_ACTIVATIONS.items():
+            if check_fn(module):
+                return activation_type
+        return 'unknown'
+
+
 
 class SpaceMath():
     eps = 1e-8
     inf = 1e8
+
+    
     
     @classmethod
-    def distance(cls, x:Tensor, y:Tensor, dim=1, distance_type=None, pairwise=True):
+    @compile
+    def distance(cls, x:Tensor, y:Tensor, dim=1, distance_type=None, pairwise=True) -> Tensor:
         distances = ['euclidean', 'cosine']
         if distance_type not in distances: distance_type='cosine'
 
@@ -30,7 +81,7 @@ class SpaceMath():
 
         elif distance_type == 'cosine':
             x_norm = F.normalize(x, p=2, dim=dim)
-            y_norm = F.normalize(y, p=2, dim=dim)
+            y_norm = F.normalize(y, p=2, dim=dim)   
             if pairwise:
                 dist = 1 - torch.mm(x_norm, y_norm.T)
             else:
@@ -45,12 +96,12 @@ class SpaceMath():
         return dist
        
 
-    @classmethod
-    def activations_to_scores(cls, obs: 'ModularObserver', xd:Tensor, x_quantile=0.9, cnn_locality_weight=0.5):
+    @classmethod_compile
+    def activations_to_scores(cls, xd: Tensor, layer_type: str, activation_fn: nn.Module = None, x_quantile=0.9, cnn_locality_weight=0.5) -> Tensor:
         q = None
-        act = obs.observed_activation
+        act = activation_fn
         
-        if is_conv(obs.observed):
+        if layer_type == LayerType.CONV:
             q, scores = cls.get_quantile_k_kernels_per_sample(xd, x_quantile, locality_weight=cnn_locality_weight)[1].unsqueeze(1).detach()
             scores = cls.normalize_by_threshold(scores, q)
             return scores
@@ -70,8 +121,8 @@ class SpaceMath():
 
         return scores
     
-    @classmethod
-    def normalize_by_threshold(cls, scores:Tensor, q:Tensor):
+    @classmethod_compile
+    def normalize_by_threshold(cls, scores:Tensor, q:Tensor) -> Tensor:
         idxs_on, idxs_off = cls.split_active_group(scores, threshold=q)
         scores_on = scores * idxs_on # keep X >= q untouched
         scores_off = ((scores - q) - cls.eps) * idxs_off # brings X < q below zero
@@ -81,14 +132,14 @@ class SpaceMath():
         scores = scores.detach()
         return scores
 
-    @classmethod
-    def split_active_group(cls,x:Tensor, threshold=0.0):
+    @classmethod_compile
+    def split_active_group(cls, x:Tensor, threshold=0.0) -> tuple[Tensor, Tensor]:
         idxs_on  = (x >= threshold)
         idxs_off = (~idxs_on)
         return idxs_on, idxs_off
     
 
-    @classmethod
+    @classmethod_compile
     def count_active(cls, idxs_on, idxs_off):
         cnt_on = idxs_on.sum(dim=1)
         cnt_off = idxs_off.sum(dim=1)
@@ -106,7 +157,7 @@ class SpaceMath():
 
     
 
-    @classmethod
+    @classmethod_compile
     def rank_kernels_by_activation_per_sample(  cls,
                                                 feature_maps: torch.Tensor,
                                                 locality_weight: float = 0.5,
@@ -157,7 +208,7 @@ class SpaceMath():
         
         return sorted_indices, combined_scores
 
-    @classmethod
+    @classmethod_compile
     def get_quantile_k_kernels_per_sample(cls,
                                 feature_maps: torch.Tensor,
                                 quantile: float,

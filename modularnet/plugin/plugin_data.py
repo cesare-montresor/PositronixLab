@@ -298,7 +298,7 @@ class Subscriber:
 class PluginStatus:
     """Status snapshot from plugin worker."""
     plugin_id: str
-    state: PluginState  # "initialized", "loaded", "running", "stopped", "error"
+    state: str  # "initialized", "loaded", "running", "stopped", "error"
     is_running: bool
     subscriptions: int      # Number of data exchange subscriptions
     subscribers: int         # Number of subscribers to this plugin's topics

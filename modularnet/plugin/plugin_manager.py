@@ -13,7 +13,7 @@ import torch.multiprocessing as mp
 import time
 from typing import Any, Dict, List, Optional
 
-from modularnet.common.utils import process_start_spawn
+from modularnet.utils.utils import process_start_spawn
 from modularnet.plugin.plugin_base import PluginDescriptor
 from modularnet.plugin.plugin_rpc import PluginRPC, RequestEnvGetAll, RequestEnvUnsubscribe, RequestTopicAnnounce
 from modularnet.plugin.plugin_worker import PluginWorker, Queue, RequestPluginCall, RequestTopicSubscribe, RequestTopicUnsubscribe

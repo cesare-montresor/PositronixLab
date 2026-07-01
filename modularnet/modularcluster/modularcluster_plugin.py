@@ -13,12 +13,10 @@ from modularnet.modularcluster.modularcluster_kmeans import ModularClusterKmeans
 from modularnet.plugin import BasePlugin
 
 
-class PluginModularCluster(BasePlugin):
+class ModularClusterPlugin(BasePlugin):
     """
     Pub/Sub-based clustering plugin.
     
-    Receives embeddings from "cu_positions" topic, performs adaptive K-means clustering,
-    and publishes cluster labels to "cu_labels" topic.
     
     Args:
         metric: Distance metric ('euclidean' or 'cosine'). Default: 'cosine'
@@ -69,16 +67,10 @@ class PluginModularCluster(BasePlugin):
         # Store configuration
         self.verbose = verbose
 
-    @override
     def onStart(self):
         """Subscribe to input topic on plugin start."""
-        self.subscribe(self.INPUT_TOPIC, self._on_positions_received)
+        self.topic_subscribe(self.INPUT_TOPIC, self._on_positions_received)
 
-    @override
-    def onUpdate(self):
-        """Plugin update loop (minimal for pubsub-based processing)."""
-        # All work is done in the callback
-        pass
 
     def _on_positions_received(self, positions: torch.Tensor):
         """
@@ -95,7 +87,7 @@ class PluginModularCluster(BasePlugin):
             labels = self.clusterer.fit_predict(positions)
             
             # Publish results
-            self.publish(self.OUTPUT_TOPIC, labels)
+            self.topic_publish(self.OUTPUT_TOPIC, labels)
             
             if self.verbose:
                 print(f"[PluginModularCluster] Clustered {len(positions)} points, "

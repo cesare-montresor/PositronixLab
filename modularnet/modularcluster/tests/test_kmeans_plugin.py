@@ -9,7 +9,7 @@ import torch
 import pytest
 from typing import Optional
 
-from modularnet.modularcluster.modularcluster_plugin import PluginModularCluster
+from modularnet.modularcluster.modularcluster_plugin import ModularClusterPlugin
 from modularnet.plugin import PluginManager
 
 
@@ -54,7 +54,7 @@ class TestPluginModularCluster:
     
     def test_plugin_creation(self):
         """Test plugin can be created with various options."""
-        plugin = PluginModularCluster(
+        plugin = ModularClusterPlugin(
             metric='cosine',
             k_min=5,
             k_max=20,
@@ -67,14 +67,14 @@ class TestPluginModularCluster:
     
     def test_plugin_topics_defined(self):
         """Test that input/output topics are properly defined."""
-        plugin = PluginModularCluster()
+        plugin = ModularClusterPlugin()
         
         assert plugin.INPUT_TOPIC == "cu_positions"
         assert plugin.OUTPUT_TOPIC == "cu_labels"
     
     def test_plugin_on_positions_callback(self, sample_data):
         """Test the callback processes positions correctly."""
-        plugin = PluginModularCluster(metric='cosine', verbose=False)
+        plugin = ModularClusterPlugin(metric='cosine', verbose=False)
         
         # Call the callback directly
         plugin._on_positions_received(sample_data)
@@ -85,7 +85,7 @@ class TestPluginModularCluster:
     
     def test_plugin_handles_non_tensor_input(self):
         """Test that plugin handles list input and converts to tensor."""
-        plugin = PluginModularCluster(metric='cosine', verbose=False)
+        plugin = ModularClusterPlugin(metric='cosine', verbose=False)
         
         # Create proper data as list (needs enough samples)
         data_list = torch.randn(100, 32).tolist()
@@ -97,7 +97,7 @@ class TestPluginModularCluster:
     
     def test_plugin_error_handling_no_crash(self):
         """Test that plugin doesn't crash on invalid input."""
-        plugin = PluginModularCluster(
+        plugin = ModularClusterPlugin(
             metric='cosine',
             verbose=False,
             fatal_errors=False
@@ -108,7 +108,7 @@ class TestPluginModularCluster:
     
     def test_plugin_with_euclidean_metric(self, sample_data):
         """Test plugin with Euclidean metric."""
-        plugin = PluginModularCluster(
+        plugin = ModularClusterPlugin(
             metric='euclidean',
             verbose=False
         )
@@ -120,7 +120,7 @@ class TestPluginModularCluster:
     
     def test_plugin_with_custom_k_range(self, sample_data):
         """Test plugin with custom K range."""
-        plugin = PluginModularCluster(
+        plugin = ModularClusterPlugin(
             metric='cosine',
             k_min=3,
             k_max=10,
@@ -133,7 +133,7 @@ class TestPluginModularCluster:
     
     def test_plugin_multiple_clustering_calls(self, sample_data):
         """Test that plugin can cluster multiple batches sequentially."""
-        plugin = PluginModularCluster(metric='cosine', verbose=False)
+        plugin = ModularClusterPlugin(metric='cosine', verbose=False)
         
         # First clustering
         plugin._on_positions_received(sample_data[:200])
@@ -151,7 +151,7 @@ class TestPluginModularCluster:
     
     def test_plugin_preserves_clustering_quality(self, sample_data):
         """Test that plugin produces high-quality silhouette scores."""
-        plugin = PluginModularCluster(metric='cosine', verbose=False)
+        plugin = ModularClusterPlugin(metric='cosine', verbose=False)
         
         plugin._on_positions_received(sample_data)
         
@@ -168,7 +168,7 @@ class TestPluginIntegration:
     def test_plugin_manager_integration(self):
         """Test plugin can be registered with PluginManager."""
         manager = PluginManager()
-        plugin = PluginModularCluster(
+        plugin = ModularClusterPlugin(
             metric='cosine',
             verbose=False
         )
@@ -185,7 +185,7 @@ def test_async_basic_euclidean(verbose: bool = False):
     n_features = 64
     embeddings = torch.randn(n_samples, n_features)
     
-    cluster = PluginModularCluster(metric='euclidean', verbose=verbose)
+    cluster = ModularClusterPlugin(metric='euclidean', verbose=verbose)
     cluster._on_positions_received(embeddings)
     
     print("Euclidean Clustering Results:")
@@ -199,7 +199,7 @@ def test_async_basic_cosine(verbose: bool = False):
     n_features = 64
     embeddings = torch.randn(n_samples, n_features)
     
-    cluster = PluginModularCluster(metric='cosine', verbose=verbose)
+    cluster = ModularClusterPlugin(metric='cosine', verbose=verbose)
     cluster._on_positions_received(embeddings)
     
     print("Cosine Clustering Results:")

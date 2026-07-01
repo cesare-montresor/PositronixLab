@@ -5,7 +5,21 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Run: Example PubSub",
+            "name": "Trial: StrangeNet",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "modularnet/strangenet/trail_strangenet.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Example: Train",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "modularnet/deeplearning/examples/example_train.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Example: PubSub",
             "type": "debugpy",
             "request": "launch",
             "program": "modularnet/plugin/examples/example_pubsub.py",
@@ -13,7 +27,7 @@
             "justMyCode": false,
         },
         {
-            "name": "Run: Example Count",
+            "name": "Example: Count",
             "type": "debugpy",
             "request": "launch",
             "program": "modularnet/plugin/examples/example_count.py",
@@ -29,7 +43,7 @@
             "justMyCode": false,
         },
         {
-            "name": "Run current tests",
+            "name": "Test: Current File",
             "type": "debugpy",
             "request": "launch",
             "module": "pytest",
@@ -40,7 +54,7 @@
             ]
         },
         {
-            "name": "Run All Tests",
+            "name": "Test: All",
             "type": "debugpy",
             "request": "launch",
             "module": "pytest",

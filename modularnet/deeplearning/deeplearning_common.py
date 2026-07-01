@@ -7,7 +7,7 @@ from sklearn.metrics import confusion_matrix
 
 
 from tqdm.asyncio import tqdm
-from modularnet.common.utils import set_best
+from modularnet.utils.utils import set_best
 from modularnet.trial.trial_config import TrialConfig
 from modularnet.dataprovider.dataprovider import DataProvider
 from modularnet.metamodel.metamodel import MetaModel
@@ -40,22 +40,12 @@ class DeeplearningCommon:
             # "forward_time": float('inf')
         }
 
+        self.on_batch_callback = None
+    
 
-    def setup( self, name: str, num_workers_data: int = 0, debug: bool = False,):
-                
-        # Create model first to determine device
-        model = MetaModel(name, self.config, device=device)
-
-        if debug: model.print()
-
-        device  = model.device
-        # Pass model device to dataset
-        dataset = DataProvider.from_config(self.config, device=device, num_workers=num_workers_data)
-
-        return model, dataset
-
-
-
+    def on_batch(self, callback):
+        self.on_batch_callback = callback
+    
 
     def train(self, lr=0.001, epochs=20, autoencoder=False):  
         
@@ -113,6 +103,10 @@ class DeeplearningCommon:
                         print('Draft train: Early breaking.')
                         draft_batches = 20
                         break
+                
+                if self.on_batch_callback is not None:
+                    self.on_batch_callback(self, epoch_num, avg_train_loss, avg_train_acc)
+                
             print("") #new line after batch bar
 
             # self.space.observing = False

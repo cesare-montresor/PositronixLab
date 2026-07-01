@@ -8,7 +8,7 @@ without any external dependencies.
 import logging
 from typing import Any, Dict
 
-from modularnet.common.utils import process_start_spawn
+from modularnet.utils.utils import process_start_spawn
 from modularnet.plugin import BasePlugin, PluginDescriptor
 from modularnet.plugin.plugin_worker import PluginWorker
 import time

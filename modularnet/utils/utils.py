@@ -155,24 +155,6 @@ def module_name(module):
 def class_name(module):
     return module.__class__.__name__
 
-def is_activation(module):
-    return module_name(module) == 'torch.nn.modules.activation'
-
-def is_layer(module):
-    name = module_name(module).lower()
-    layers = [
-        'torch.nn.modules.linear',
-        'torch.nn.modules.conv',
-        'torch.nn.modules.rnn',
-        'torch.nn.modules.transformer'
-    ]
-    return name in layers
-
-def is_conv(module):
-    return module_name(module) == 'torch.nn.modules.conv'
-
-def is_linear(module):
-    return module_name(module) == 'torch.nn.modules.linear'
 
 def truth_table_from_cm(confusion_matrix:np.ndarray):
     truth_table = []
@@ -243,3 +225,4 @@ def load_data(path:str):
         else:
             raise Exception(f"Unsupported extension: {ext}")
     return None
+

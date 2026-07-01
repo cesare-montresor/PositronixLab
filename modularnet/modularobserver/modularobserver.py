@@ -1,62 +1,87 @@
 
 import re
-from typing import List, TYPE_CHECKING
+from typing import Dict, List, TYPE_CHECKING
 
 import torch
 from torch import nn
 
-from modularnet.common.utils import is_activation, is_conv, is_layer
+from modularnet.spacemath.spacemath import SpaceMath
+from modularnet.spacemath.common import is_activation, is_conv, is_linear, is_layer
+from modularnet.modularobserver.layerobserver import LayerCallback, WeightCallback
 from modularnet.trial.trial_config import TrialConfig
 
 if TYPE_CHECKING:
-    from modularnet.modularobserver.layerobserver_pubsub import LayerObserver
+    from modularnet.modularobserver.layerobserver import LayerObserver
 
 
 class ModularObserver:
-    def __init__(self, config: TrialConfig, device:torch.device=None, useLayers=True, useActivations=True):
+    def __init__(self, config: TrialConfig, model: nn.Module=None, device:torch.device=None, useLayers=True, useActivations=True):
         self.config = config
-        self.device = device if device else torch.device('cpu')
+        self.device = device if device else model.device if model is not None else torch.device("cpu")
         self.useLayers = useLayers
         self.useActivations = useActivations
-        self.observers = []
+        self.observers: List['LayerObserver'] = []
+        self.by_layer: Dict[nn.Module, 'LayerObserver'] = {}
+        self.model: nn.Module = None
 
-       
-    def mos_id(self, mo: 'LayerObserver'):
+        self.forward_hook = None
+        self.backward_hook = None
+
+        if model is not None:
+            self.observe(model)
+
+
+    def on_forward(self, callback=None):
+        if self.model is None:
+            raise ValueError("Model not set. Call observe(model) first.")
+        if callback is None and self.forward_hook is not None:
+            self.forward_hook.remove()
+            self.forward_hook = None
+        elif callback is not None:
+            self.forward_hook = self.model.register_forward_hook( lambda module, input, output: callback(self, input, output) )
+
+    def on_backward(self, callback=None):
+        if self.model is None:
+            raise ValueError("Model not set. Call observe(model) first.")
+        if callback is None and self.backward_hook is not None:
+            self.backward_hook.remove()
+            self.backward_hook = None
+        elif callback is not None:
+            self.backward_hook = self.model.register_full_backward_hook(lambda module, input, output: callback(self, input, output))
+
+        
+    def on_forward_layer(self, callback: LayerCallback=None):
+        [observer.on_forward_layer(callback) for observer in self.observers]
+        
+    def on_backward_layer(self, callback: LayerCallback=None):
+        [observer.on_backward_layer(callback) for observer in self.observers]
+
+    def on_grad_weights(self, callback: WeightCallback=None):
+        [observer.on_grad_weights(callback) for observer in self.observers] 
+
+    def layer_id(self, lo: 'LayerObserver'):
         for i, m in enumerate(self.observers):
-            if m == mo: return str(i)
+            if m == lo: return str(i)
         return str(-1)
 
-    def mos_get(self, mos_id:str):
+    def get_layer(self, lo_id:str):
         for i, m in enumerate(self.observers):
-            if str(i) == mos_id: return m
+            if str(i) == str(lo_id): return m
         return None
     
-
-        
-    # DEPS: modularobserver
-    def set_pruning_masks(self, masks:List[torch.Tensor]=None):
-        if masks is None: masks = []
-        
-        for mo, mask in zip(self.mos, masks):
-            if mo == self.mos[-1]: continue #print("set_pruning_masks: skip last layer"); continue
-            if mask is None: print("set_pruning_masks: empty mask"); continue
-            if not isinstance(mask, torch.Tensor): print("set_pruning_masks: not a tensor!"); continue
-            mos_id = self.mos.index(mo)
-            if len(mask) != len(self.positions[mos_id]): print("set_pruning_masks: size mismatch!"); continue
-            mo.set_pruning_mask(mask)
-
     
-    def observe_activation(self, module:nn.Module):
+    def observe_activation(self, activation_fn:nn.Module):
         if not self.useActivations: return False
-        if not is_activation(module): return False
-        self.observers[-1].observed_activation = module
+        if not SpaceMath.is_activation(activation_fn): return False
+        self.observers[-1].set_activation(activation_fn)
         return True
         
     def observe_layer(self, module: nn.Module, num_units:int, depth:int): 
         if not self.useLayers: return False
         if not is_layer(module): return False
-        lo = LayerObserver(self, num_units, module, depth, self.device)
+        lo = LayerObserver(self, module, str(len(self.observers)), depth, num_units)
         self.observers.append(lo)
+        self.by_layer[module] = lo
         return True
     
     def num_units(self, parent_module: nn.Module, child_module: nn.Module):
@@ -67,13 +92,14 @@ class ModularObserver:
         
         return None
 
-    def watch(self, parent: nn.Module):
+    def observe(self, model: nn.Module):
+        self.model = model
         self.observers = []
-        self._watch(parent)
+        self._observe(model)
         return self.observers
 
-    def _watch(self, parent: nn.Module, num_units:int|None=None, depth=1,):
-        for name, child in parent.named_children():
+    def _observe(self, parent: nn.Module, num_units:int|None=None, depth=1,):
+        for _, child in parent.named_children():
             # child.register_full_backward_hook(self.backward_hook)
             num_units = self.num_units(parent, child) or num_units
             
@@ -81,23 +107,20 @@ class ModularObserver:
             elif self.observe_layer(child, num_units, depth):
                 depth +=1
             else:
-                num_units = self._watch(child, num_units, depth)
+                num_units = self._observe(child, num_units, depth)
         
         return num_units
 
-    def find_activation_layer(self, module: nn.Module):
-        """ Recursively searches for an activation layer in the given module's children. """
-        for _, child in module.named_children():
-            if is_activation(child): return child
-            result = self.find_activation_layer(child)  # Recursive search
-            if result: return result
-                
-        return None  # No activation found
-    
-    def add_observer(self, observed:nn.Module, depth:int):
-        num_units = observed.out_features if isinstance(observed, nn.Linear) else observed.out_channels
-        observer = ModularObserver(self.space, num_units, observed, depth, self.device)
-        self.observers.append(observer)
-        return observer
-
+    def clear(self):
+        self.on_forward_layer(None)
+        self.on_backward_layer(None)
         
+        self.on_grad_weights(None)
+        
+        self.on_forward(None)
+        self.on_backward(None)
+        
+        self.observers = []
+        self.model = None
+        self.forward_hook = None
+        self.backward_hook = None

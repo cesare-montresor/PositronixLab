@@ -7,6 +7,7 @@ import logging
 from torch import multiprocessing as mp
 import threading
 from modularnet.plugin.plugin_data import Channel, CommandType, Message, PendingRequest, Request, RequestCallback, RequestEnvGet, RequestEnvGetAll, RequestEnvSet, RequestEnvSubscribe, RequestEnvUnsubscribe, RequestEnvUpdate, RequestPluginCall, RequestPluginErrors, RequestPluginStart, RequestPluginStatus, RequestPluginStatusAll, RequestPluginStop, RequestTopicAnnounce, RequestTopicList, RequestTopicSubscribe, RequestTopicUnsubscribe, Response, Subscriber
+from modularnet.plugin.plugin_transport import sanitize_for_ipc
 
 
 logger = logging.getLogger(__name__)
@@ -126,6 +127,10 @@ class PluginCoreRPC:
         """
         send a response
         """
+        result = sanitize_for_ipc(result)
+        error = sanitize_for_ipc(error)
+
+
         if not self._running:
             logger.debug(f"Plugin {self.plugin_id} RPC is shutting down, response discarded")
             return None
@@ -370,6 +375,7 @@ class PluginEnvRPC(PluginCoreRPC):
             value: Variable value
         """
         try:
+            value = sanitize_for_ipc(value)
             return self.request(RequestEnvSet(name=var_name, value=value))
         except Exception as e:
             logger.error(f"Failed to set env variable '{var_name}': {e}")

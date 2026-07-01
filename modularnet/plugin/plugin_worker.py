@@ -19,11 +19,11 @@ import time
 import sys
 
 
-from modularnet.common.utils import init_debugger, process_start_spawn
+from modularnet.utils.utils import init_debugger, process_start_spawn
 from modularnet.plugin.plugin_data import  Channel, CommandType, Queue,QueueDescriptor, PendingRequest, PluginStatus,  RequestPluginErrors, RequestPluginStart, RequestPluginStatus, RequestPluginStop, RequestTopicList, Subscriber, Subscription
 from modularnet.plugin.plugin_base import BasePlugin, PluginDescriptor
 
-from modularnet.plugin.plugin_rpc import  PluginRPC, RequestEnvUpdate, RequestPluginCall, RequestTopicList, RequestTopicSubscribe, RequestTopicUnsubscribe
+from modularnet.plugin.plugin_rpc import  PluginRPC, RequestEnvUpdate, RequestPluginCall, RequestTopicList, RequestTopicSubscribe, RequestTopicUnsubscribe, sanitize_for_ipc
 
 from torch import multiprocessing as mp
 
@@ -193,7 +193,6 @@ class PluginWorker:
     def stop(self):
         """Stop the plugin."""
         logger.debug(f"[{self.plugin_id}] Stopping plugin...")
-        
         try:
             logger.debug(f"[{self.plugin_id}] Calling plugin.on_stop()...")
             self.plugin.on_stop()    
@@ -206,6 +205,7 @@ class PluginWorker:
     def _after_stop(self):
         time.sleep(0.1)
         self._is_running = False
+        #self.main_thread.join()  # Wait for main loop to exit
         
         for topic, subscription in self.topic_subscriptions.items():
             try:
@@ -493,6 +493,8 @@ class PluginWorker:
         return True
 
     def topic_publish(self, topic: str, data: Any) -> None:
+        data = sanitize_for_ipc(data)
+
         self.topic_announce(topic)
         
         topic_subscribers = self.topic_subscribers.get(topic, None) 
@@ -543,16 +545,21 @@ class PluginWorker:
     
     def _respond_status(self, rpc: PluginRPC, req: RequestPluginStatus) -> Dict[str, Any]:
         """Get plugin status."""
-        topics_read = self.topic_subscriptions.keys()
-        topics_write = self.topic_published
-        return PluginStatus(
+        num_subscription = self.topic_subscriptions.keys()
+        num_subscribers = sum(len(subs) for subs in self.topic_subscribers.values())
+        num_published = len(self.topic_published)
+        num_errors = len(self.error_log)
+
+        status = PluginStatus(
             plugin_id=self.plugin_id,
-            state=self.plugin.state,
+            state=str(self.plugin.state),
             is_running=True,
-            published=len(topics_write),
-            subscriptions=len(topics_read),
-            errors=len(self.error_log)
+            subscriptions=num_subscription,
+            subscribers=num_subscribers,
+            published=num_published,
+            errors=num_errors
         )
+        return status
     
     def _respond_errors(self, rpc: PluginRPC, req: RequestPluginErrors) -> list:
         """Get error log."""
@@ -566,8 +573,13 @@ class PluginWorker:
         kwargs = req.kwargs
         
         method = getattr(self.plugin, method_name)
-        return method(*args, **kwargs)
+        
+        result = method(*args, **kwargs)
+        result = sanitize_for_ipc(result)
+
+        return result
             
+
 
     
     def _respond_env_update(self, rpc: PluginRPC, req: RequestEnvUpdate) -> None:

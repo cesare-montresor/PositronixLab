@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING
 from enum import Enum
 
-from modularnet.common.utils import camel_to_kebab
+from modularnet.utils.utils import camel_to_kebab
  
 from modularnet.plugin.plugin_data import Subscription
 
@@ -98,27 +98,32 @@ class BasePlugin:
     4. Manager proxy: Direct access to manager services (get/set env, publish, invoke)
     
     Subclasses must implement:
-    - on_start: Initialize plugin resources
-    - on_stop: Clean up resources
-    
-    Optional overrides:
-    - on_update: Handle configuration updates
-    - on_error: Handle errors
-    - get_subscriptions: Define pub/sub + env subscriptions (unified)
-    - get_services: Define RPC methods
-    
+    - on_start: Initialize plugin resources (optional)
+    - on_stop: Clean up resources (optional)
+    - main: Main execution loop (optional)
+    - on_error: Handle errors (optional)
+
+
     Direct manager access via self.manager:
-        model = self.manager.get_env("model")
-        self.manager.set_env("status", "ready")
-        self.manager.publish("topic", data)
+        model = self.env_get("model")
+        self.env_set("status", "ready")
+        self.topic_publish("topic", data)
     """
 
     @classmethod
+    def default_options(cls) -> Dict[str, Any]:
+        return {}
+
+    @classmethod
     def Descriptor(cls, version:str, author:str, description:str=None, name:str=None, options: Dict[str, Any] = None) -> PluginDescriptor:
+        all_options = cls.default_options().copy()
+        all_options.update(options or {})
+
+
         return PluginDescriptor(
             version=version,
             author=author,
-            options=options or {},
+            options=all_options,
             name= camel_to_kebab(name or cls.__name__),
             package=f"{cls.__module__}",
             class_name=cls.__name__,
@@ -135,10 +140,13 @@ class BasePlugin:
             config: Configuration options dictionary
             worker: PluginWorker instance for managing the plugin
         """
+        all_options = self.default_options().copy()
+        all_options.update(options or {})
+
         self._worker = worker
         self.plugin_id = plugin_id
         self.state = PluginState.INITIALIZED
-        self.options = options or {}
+        self.options = all_options
         self._is_running = False
     
     
@@ -161,7 +169,7 @@ class BasePlugin:
         """
         pass
     
-    def on_error(self, error: Exception) -> None:
+    def on_error(self, error: Exception, source: str=None) -> None:
         """ Called when an error occurs in the plugin."""
         pass
     
