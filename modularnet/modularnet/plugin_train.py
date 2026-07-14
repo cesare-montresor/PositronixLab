@@ -5,7 +5,10 @@ import torch
 from torch import cuda
 
 from modularnet.deeplearning import DeeplearningCommon
-from modularnet.modularobserver.modularobserver import LayerObserver, ModularObserver
+from modularnet.modularobserver.layerobserver import LayerObserver
+from modularnet.modularobserver.modularobserver import ModularObserver
+
+
 from modularnet.plugin.plugin_worker import PluginWorker
 from modularnet.spacemath.spacemath import SpaceMath
 from modularnet.trial.trial_config import TrialConfig
@@ -17,8 +20,17 @@ from modularnet.plugin import BasePlugin, PluginDescriptor
 logger = logging.getLogger(__name__)
 
 
-class TrainPlugin(BasePlugin):
+class ObservableTrainPlugin(BasePlugin):
     
+    @classmethod
+    def default_options(cls) -> Dict[str, Any]:
+        return {
+            "device": None,
+            "debug": False,
+            "compute_scores": True,
+            "num_workers_data": 2,
+        }
+
     @classmethod
     def Descriptor(cls, options: Dict[str, Any] = None) -> PluginDescriptor:
         return super().Descriptor(
@@ -37,16 +49,16 @@ class TrainPlugin(BasePlugin):
         super().__init__(worker, plugin_id, options )
         
         self.device = options.get("device")
-        self.num_workers_data = options.get("num_workers_data", 0)
-        self.debug = options.get("debug", False)
+        self.debug = options.get("debug")
+        self.compute_scores: bool = options.get("compute_scores")  # If True, send scores; if False, send activations
+        self.num_workers_data: int = options.get("num_workers_data")
         self.trial_config: TrialConfig = None  # Will be set in on_start via env_get("trial_config")
-        self.send_activations: bool = options.get("send_activations", False)
-        self.forward_stream = cuda.Stream()
-
         self.model: MetaModel = None
         self.dataprovider: DataProvider = None
         self.modular_observer: ModularObserver = None  # Placeholder for modular observer if needed
         self.trainer: DeeplearningCommon = None  # Will be initialized in main()
+
+        self.forward_stream = cuda.Stream()
 
 
     def on_start(self) -> None:
@@ -59,23 +71,24 @@ class TrainPlugin(BasePlugin):
         
         # Create model first to determine device
         self.model = MetaModel(self.plugin_id, self.trial_config, device=self.device)
-        
+        self.env_set("model", self.model)
+
         # Pass model device to dataset
         self.dataprovider = DataProvider.from_config(
             self.trial_config, 
             device=self.model.device, 
             num_workers=self.num_workers_data
         )
+        #self.env_set("dataprovider", self.dataprovider)
 
         self.modular_observer = ModularObserver(self.trial_config, self.model)
         self.modular_observer.observe(self.model)
         self.modular_observer.on_forward_layer(self.on_layer_forward)
 
-        self.observed_layers = [ observer.__dict__() for observer in self.modular_observer.observers ]
+        self.observed_layers = [ observer.to_dict() for observer in self.modular_observer.observers ]
 
         self.env_set("observed_layers", self.observed_layers)
-        self.env_set("model", self.model)
-        self.env_set("dataprovider", self.dataprovider)
+        
 
 
         self.trainer = DeeplearningCommon(
@@ -83,15 +96,25 @@ class TrainPlugin(BasePlugin):
             model=self.model,
             dp=self.dataprovider
         )
+
+        self.trainer.on_epoch(self.on_epoch)
+        #self.trainer.on_batch(self.on_batch)
+        
+
+    #def on_batch(pass): pass
+
+
+    def on_epoch(self, trainer: DeeplearningCommon, num_epochs: int, epochs: int):
+        self.env_set("epoch", (num_epochs, epochs))    
         
 
     def main(self):
         autoencoder = self.trial_config.task  == 'autoencoder'
-        self.trainer.train(lr=self.trial_config.learning_rate, epochs=self.trial_config.epochs, autoencoder=autoencoder)
+        self.trainer.train(lr=self.trial_config.learning_rate, epoch_total=self.trial_config.epochs, autoencoder=autoencoder)
 
 
     def on_layer_forward(self, layer: LayerObserver, x_in: torch.Tensor, x_out: torch.Tensor):
-        if self.send_activations:
+        if self.compute_scores:
             self.on_layer_forward_activations(layer, x_in, x_out)
         else:
             self.on_layer_forward_scores(layer, x_in, x_out)

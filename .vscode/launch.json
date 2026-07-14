@@ -5,10 +5,10 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Trial: StrangeNet",
+            "name": "Trial: ModularNet",
             "type": "debugpy",
             "request": "launch",
-            "program": "modularnet/strangenet/trail_strangenet.py",
+            "program": "modularnet/modularnet/trail_modularnet_v1.py",
             "console": "integratedTerminal"
         },
         {

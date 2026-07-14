@@ -23,16 +23,15 @@ import logging
 from concurrent.futures import Future
 from torch import multiprocessing as mp
 from dataclasses import dataclass, field, fields
-
+from multiprocessing.connection import Connection
 
 import threading
 
 
 
-if TYPE_CHECKING: 
-    from modularnet.plugin.plugin_base import PluginState
+if TYPE_CHECKING:
     from modularnet.plugin.plugin_worker import PluginRPC
-    from multiprocessing.connection import Connection
+    
 
 
 logger = logging.getLogger(__name__)
@@ -42,6 +41,15 @@ RequestCallback = Callable[["PluginRPC","Request"], Any]
 ResponseCallback = Callable[["PluginRPC","Response"], Any]
 
 
+
+class QueueDescriptor:
+    """Descriptor for holding 2 connections, read/write repesenting a queue made with pipes."""
+    def __init__(self, send: Connection, recieve: Connection):
+        self.send = send
+        self.receive = recieve
+    
+    def __str__(self): return f"QueueDescriptor(send_closed={self.send.closed()}, receive_closed={self.receive.closed()})"
+        
 
 
 # ============================================================================
@@ -115,15 +123,6 @@ class QueueRecive:
 
     def close(self):
         self._conn.close()
-
-class QueueDescriptor:
-    """Descriptor for holding 2 connections, read/write repesenting a queue made with pipes."""
-    def __init__(self, send: Connection, recieve: Connection):
-        self.send = send
-        self.receive = recieve
-    
-    def __str__(self): return f"QueueDescriptor(send_closed={self.send.closed()}, receive_closed={self.receive.closed()})"
-        
 
 class Channel:
     """
@@ -304,6 +303,17 @@ class PluginStatus:
     subscribers: int         # Number of subscribers to this plugin's topics
     published: int            # Number of topics published
     errors: int
+
+    def to_dict(self):
+        return {
+            "plugin_id": self.plugin_id,
+            "state": self.state,
+            "is_running": self.is_running,
+            "subscriptions": self.subscriptions,
+            "subscribers": self.subscribers,
+            "published": self.published,
+            "errors": self.errors
+        }
 
 
 @dataclass

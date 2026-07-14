@@ -23,7 +23,7 @@ class DataProvider:
             if flatten: transforms.append('flatten')
             t = MetaTransform(transforms)
             return MnistDataProvider(bs, device=device, split=split, transforms=t, num_workers=num_workers)
-        elif name == 'fmnist':
+        elif name == 'fashion_mnist':
             transforms = [] #['augment_image'] 
             if flatten: transforms.append('flatten')
             t = MetaTransform(transforms)

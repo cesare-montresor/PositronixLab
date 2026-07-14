@@ -297,7 +297,10 @@ class PluginManager:
             try:
                 pending = info.rpc.plugin_status()
                 status_dict = pending.wait(timeout=1.0)
-                worker_status = PluginStatus(**status_dict)
+                if status_dict.error:
+                    logger.debug(f"Error getting status for {plugin_id}: {status_dict.error}")
+                else:
+                    worker_status = status_dict.result
             except Exception as e:
                 logger.debug(f"Failed to get status for {plugin_id}: {e}")
         

@@ -41,13 +41,23 @@ class DeeplearningCommon:
         }
 
         self.on_batch_callback = None
-    
+        self.on_epoch_callback = None
 
     def on_batch(self, callback):
         self.on_batch_callback = callback
-    
 
-    def train(self, lr=0.001, epochs=20, autoencoder=False):  
+    def on_epoch(self, callback):
+        self.on_epoch_callback = callback
+    
+    def _update_batch(self, epoch_num, avg_train_loss, avg_train_acc):
+        if self.on_batch_callback is not None:
+            self.on_batch_callback(self, epoch_num, avg_train_loss, avg_train_acc)
+
+    def _update_epoch(self, epoch, epoch_total):
+        if self.on_epoch_callback is not None:
+            self.on_epoch_callback(self, epoch, epoch_total)
+
+    def train(self, lr=0.001, epoch_total=20, autoencoder=False):  
         
         optim = torch.optim.AdamW(self.model.parameters(), lr=lr)
 
@@ -56,9 +66,10 @@ class DeeplearningCommon:
         early_stop_cnt = 0
         val_acc_old = 0
 
-        if self.draft: epochs = 1
+        if self.draft: epoch_total = 1
 
-        for epoch_num in tqdm(range(epochs), desc=f"Step TRAIN"):
+        for epoch in tqdm(range(epoch_total), desc=f"Step TRAIN"):
+            self._update_epoch(epoch, epoch_total)
             train_loss = 0
 
             train_acc = 0
@@ -94,7 +105,7 @@ class DeeplearningCommon:
                 avg_train_loss = float(train_loss/train_num)
                 avg_train_acc =  float(train_acc/train_num)
 
-                desc = f"E {epoch_num+1}/{epochs} | L: {avg_train_loss:.5f} | A: {avg_train_acc:.2f}"
+                desc = f"E {epoch+1}/{epoch_total} | L: {avg_train_loss:.5f} | A: {avg_train_acc:.2f}"
                 batch_bar.set_description(desc)
                 batch_bar.update()
                 if self.draft:
@@ -105,7 +116,7 @@ class DeeplearningCommon:
                         break
                 
                 if self.on_batch_callback is not None:
-                    self.on_batch_callback(self, epoch_num, avg_train_loss, avg_train_acc)
+                    self.on_batch_callback(self, epoch, avg_train_loss, avg_train_acc)
                 
             print("") #new line after batch bar
 
@@ -126,7 +137,7 @@ class DeeplearningCommon:
             set_best(self.metrics_best, "val_acc", val_acc, min=False)
 
             
-            print(  f"\n[{epoch_num+1}/{epochs} | Train L:{avg_train_loss:.5f} A:{avg_train_acc:.2f} | Val L:{val_loss:.5f} A:{val_acc:.2f} | T: {forward_time:.2f}s ]")
+            print(  f"\n[{epoch+1}/{epoch_total} | Train L:{avg_train_loss:.5f} A:{avg_train_acc:.2f} | Val L:{val_loss:.5f} A:{val_acc:.2f} | T: {forward_time:.2f}s ]")
             
             #self.space.rescale_factor_step()
             #self.space.save_space()

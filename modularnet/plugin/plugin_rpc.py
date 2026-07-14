@@ -203,7 +203,7 @@ class PluginCoreRPC:
             pending_request = self._pending.pop(resp.message_id, None)
         
         if pending_request is None:
-            logger.error(f"Received response for unknown message_id={resp.message_id} {resp.__dict__}")
+            logger.error(f"Received response for unknown message_id={resp.message_id} {resp.__dict__()}")
             return False
         
         pending_request.set_result(resp)
@@ -314,7 +314,8 @@ class PluginLifeCycleRPC(PluginCoreRPC):
             return self.request(RequestPluginStatus(plugin_id=plugin_id))
         except Exception as e:
             logger.debug(f"Failed to get status for {plugin_id}: {e}")
-            return None
+            import traceback
+            logger.debug(traceback.format_exc())
     
     def plugin_status_all(self):
         """

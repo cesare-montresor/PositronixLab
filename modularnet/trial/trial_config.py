@@ -33,6 +33,7 @@ class TrialConfig:
         self.modular_space_distance = options.get('modular_space_distance', 'cosine')  # Default modular space size
         self.modular_modularize_decay = options.get('modular_modularize_decay', 0.95)  # Default modular space size
         
+        self.modular_overspace_size = options.get('modular_overspace_size', 10)  # Default modular space size
 
         self.modular_space_loss_on = options.get('modular_space_loss_on', 1)
         self.modular_space_loss_off = options.get('modular_space_loss_off', 1)

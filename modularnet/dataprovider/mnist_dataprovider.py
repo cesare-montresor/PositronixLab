@@ -1,3 +1,5 @@
+from torchvision import datasets
+
 from modularnet.dataprovider.base_dataprovider import BaseDataProvider
 from torch.utils.data import Dataset, DataLoader, random_split
 import torch

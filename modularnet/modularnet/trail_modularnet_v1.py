@@ -2,34 +2,33 @@ import logging
 import time
 
 
-from modularnet.modularcluster.tests.test_kmeans_plugin import ModularClusterPlugin
-from modularnet.strangenet.plugin_train import TrainPlugin
+from modularnet.modularnet.plugin_cluster import ClusterPlugin
+from modularnet.modularnet.plugin_overspace import OverspacePlugin
+from modularnet.modularnet.plugin_space import ModularSpacePlugin
+from modularnet.modularnet.plugin_train import ObservableTrainPlugin
+from modularnet.modularnet.plugin_ui import UIPlugin
 from modularnet.trial import BaseTrial, TrialConfig, TrialManager
 
 logger = logging.getLogger(__name__)
 
 
-class TrailStrangeNet(BaseTrial):
+class TrailModularNetV1(BaseTrial):
     def __init__(self, config: TrialConfig, trial_manager: TrialManager):
         super().__init__(config, trial_manager)
-        options = {
-            "device": None,  # Use default device
-            "num_workers_data": 0,  # No parallel data loading for test
-            "debug": True
-        }
         self.error = False
 
         self.plugin_manager.env_set("trial_config", self.config)  # Make config available to plugins
 
         self.plugins = [
-            TrainPlugin.Descriptor(options=options),
-            ModularClusterPlugin.Descriptor(options=options)
+            #UIPlugin.Descriptor(),
+            ObservableTrainPlugin.Descriptor(),
+            #ModularSpacePlugin.Descriptor(),
+            #ClusterPlugin.Descriptor(),
+            #OverspacePlugin.Descriptor()
         ]
         
-    
-        # Pass config to plugins
-        self.load_plugin(self.dl_setup, options)
-        self.load_plugin(self.dl_train, options)
+        for plugin in self.plugins:
+            self.load_plugin(plugin)
 
     def is_complete(self) -> bool:
         # For testing purposes, we can just check if the training plugin has finished
@@ -55,10 +54,10 @@ def main():
 def test_train():
     """Test basic trial execution with setup and training plugins."""
     config = TrialConfig()
-    config.dataset_name = 'iris'  # Use iris dataset for quick testing
+    config.dataset_name = 'mnist'  # Use mnist dataset for quick testing
     config.epochs = 1  # Use 1 epoch for quick test
     trial_manager = TrialManager()
-    trial = TrailStrangeNet(config, trial_manager)
+    trial = TrailModularNetV1(config, trial_manager)
     
     # Start plugins
     logger.info("Starting plugins...")

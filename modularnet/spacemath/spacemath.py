@@ -67,8 +67,7 @@ class SpaceMath():
 
     
     
-    @classmethod
-    @compile
+    @classmethod_compile
     def distance(cls, x:Tensor, y:Tensor, dim=1, distance_type=None, pairwise=True) -> Tensor:
         distances = ['euclidean', 'cosine']
         if distance_type not in distances: distance_type='cosine'

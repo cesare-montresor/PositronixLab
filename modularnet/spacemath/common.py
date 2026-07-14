@@ -1,9 +1,11 @@
 
+from __future__ import annotations
 from typing import Any, Callable
 
 import torch
 from torch import nn
 
+default_compile_mode = "reduce-overhead" # 'default', 'reduce-overhead', 'max-autotune'
 
 def zclamp_(x: torch.Tensor, eps: float = 1e-8, force_zero: bool = False) -> torch.Tensor:
     """In-place: push near-zero non-zero values to ±eps, or zero if force_zero is True."""
@@ -66,15 +68,15 @@ def is_linear(module: nn.Module):
     return module.__class__.__module__ == 'torch.nn.modules.linear'
 
 
-def set_default_torch_compile_mode(mode: str = "reduce-overhead"):
+def set_torch_compile_defaults(mode: str = "reduce-overhead"):
     """
     Set the default mode for torch.compile globally.
     
     Args:
         mode (str): The compilation mode. Options include 'default', 'reduce-overhead', 'max-autotune', etc.
     """
-    torch._dynamo.config.default_compile_fn = lambda fn, *args, **kwargs: torch.compile(fn, mode=mode, *args, **kwargs)
-set_default_torch_compile_mode()  # Set the default mode for torch.compile globally
+    global default_compile_mode
+    default_compile_mode = mode
 
 def compile(*compile_args, **compile_kwargs) -> Callable[..., Callable[..., Any]]:
     """
@@ -84,7 +86,7 @@ def compile(*compile_args, **compile_kwargs) -> Callable[..., Callable[..., Any]
     this provides a consistent API alongside `classmethod_compile`.
     """
     def decorator(func) -> Callable[..., Any]:
-        compile_kwargs.setdefault("mode", "reduce-overhead")
+        compile_kwargs.setdefault("mode", default_compile_mode)
         return torch.compile(func, *compile_args, **compile_kwargs)
     return decorator
 

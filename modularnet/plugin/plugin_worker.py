@@ -16,7 +16,6 @@ import importlib
 from queue import Full
 import threading
 import time
-import sys
 
 
 from modularnet.utils.utils import init_debugger, process_start_spawn
@@ -24,13 +23,12 @@ from modularnet.plugin.plugin_data import  Channel, CommandType, Queue,QueueDesc
 from modularnet.plugin.plugin_base import BasePlugin, PluginDescriptor
 
 from modularnet.plugin.plugin_rpc import  PluginRPC, RequestEnvUpdate, RequestPluginCall, RequestTopicList, RequestTopicSubscribe, RequestTopicUnsubscribe, sanitize_for_ipc
+from multiprocessing.synchronize import Event
 
-from torch import multiprocessing as mp
 
 #typechecking imports
 from typing import Any, Callable, Dict,  Optional, TYPE_CHECKING
-if TYPE_CHECKING:
-    from multiprocessing.synchronize import Event
+
 
 
 logger = logging.getLogger(__name__)
@@ -545,7 +543,7 @@ class PluginWorker:
     
     def _respond_status(self, rpc: PluginRPC, req: RequestPluginStatus) -> Dict[str, Any]:
         """Get plugin status."""
-        num_subscription = self.topic_subscriptions.keys()
+        num_subscription = len(self.topic_subscriptions.keys())
         num_subscribers = sum(len(subs) for subs in self.topic_subscribers.values())
         num_published = len(self.topic_published)
         num_errors = len(self.error_log)

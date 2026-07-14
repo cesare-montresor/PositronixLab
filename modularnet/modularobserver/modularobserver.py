@@ -9,9 +9,8 @@ from modularnet.spacemath.spacemath import SpaceMath
 from modularnet.spacemath.common import is_activation, is_conv, is_linear, is_layer
 from modularnet.modularobserver.layerobserver import LayerCallback, WeightCallback
 from modularnet.trial.trial_config import TrialConfig
+from modularnet.modularobserver.layerobserver import LayerObserver
 
-if TYPE_CHECKING:
-    from modularnet.modularobserver.layerobserver import LayerObserver
 
 
 class ModularObserver:
@@ -72,7 +71,7 @@ class ModularObserver:
     
     def observe_activation(self, activation_fn:nn.Module):
         if not self.useActivations: return False
-        if not SpaceMath.is_activation(activation_fn): return False
+        if not is_activation(activation_fn): return False
         self.observers[-1].set_activation(activation_fn)
         return True
         

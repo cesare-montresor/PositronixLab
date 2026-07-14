@@ -178,6 +178,11 @@ class BasePlugin:
         """Whether plugin is currently running."""
         return self._is_running
     
+    def stop(self) -> None:
+        """Stop the plugin."""
+        self._is_running = False
+        self.state = PluginState.STOPPED
+        self.on_stop()
 
     def topic_subscribe(self, topic:str, callback:str) -> None:
         """Subscribe to a data topic or environment variable."""

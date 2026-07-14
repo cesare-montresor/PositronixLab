@@ -2,7 +2,7 @@
 from typing import  Dict
 
 import torch
-from modularnet.spacemath.spacemath import ActivationType, SpaceMath
+from modularnet.spacemath.spacemath import ActivationType, SpaceMath, compile
 from modularnet.trial.trial_config import TrialConfig
 
 

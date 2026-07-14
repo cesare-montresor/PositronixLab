@@ -19,13 +19,12 @@ from modularnet.plugin import BasePlugin, PluginDescriptor
 logger = logging.getLogger(__name__)
 
 
-class StrangeNetSpacePlugin(BasePlugin):
+class ModularSpacePlugin(BasePlugin):
     
     @classmethod
     def default_options(cls) -> Dict[str, Any]:
         return {
             "device": None,
-            "num_workers_data": 0,
             "debug": False,
             "compute_scores": True,
             "enable_stats": True
@@ -49,7 +48,6 @@ class StrangeNetSpacePlugin(BasePlugin):
         super().__init__(worker, plugin_id, options )
         
         self.device = options.get("device")
-        self.num_workers_data = options.get("num_workers_data")
         self.debug = options.get("debug")
         self.stats_enabled = options.get("enable_stats")
         

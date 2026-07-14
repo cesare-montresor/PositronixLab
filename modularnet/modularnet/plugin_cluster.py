@@ -11,7 +11,7 @@ from modularnet.plugin import BasePlugin, PluginDescriptor
 logger = logging.getLogger(__name__)
 
 
-class ModularClusterPlugin(BasePlugin):
+class ClusterPlugin(BasePlugin):
 
     @classmethod
     def Descriptor(cls, options: Dict[str, Any] = None) -> PluginDescriptor:

@@ -138,7 +138,7 @@ class DeeplearningTrainPlugin(BasePlugin):
             )
             
             # Run training
-            core.train(lr=self.lr, epochs=self.epochs, autoencoder=self.autoencoder)
+            core.train(lr=self.lr, epoch_total=self.epochs, autoencoder=self.autoencoder)
             
             logger.info(f"[{self.plugin_id}] Training completed successfully")
             

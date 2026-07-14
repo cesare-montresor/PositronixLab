@@ -3,14 +3,18 @@ from pymoo.core import callback
 from torch import nn
 import torch
 
-from modularnet.utils.utils import  is_activation, is_conv, is_linear, is_layer
-
+from modularnet.spacemath.common import  is_activation, is_conv, is_linear, is_layer
 
 from typing import TYPE_CHECKING, Callable
 
 from modularnet.spacemath.spacemath import ActivationType, LayerType, SpaceMath
 if TYPE_CHECKING:
     from modularnet.modularobserver.modularobserver import ModularObserver
+
+
+
+LayerCallback = Callable[['LayerObserver', torch.Tensor, torch.Tensor], torch.Tensor | None]
+WeightCallback = Callable[['LayerObserver', torch.nn.Parameter, torch.Tensor], torch.Tensor | None]
 
 
 
@@ -43,7 +47,7 @@ class LayerObserver:
         self.forward_weights_hook = None
         self.backward_weights_hook = None
 
-    def __dict__(self):
+    def to_dict(self):
         return {
             "layer_id": self.layer_id,
             "layer_type": self.layer_type,
@@ -80,9 +84,4 @@ class LayerObserver:
         else:
             self.backward_layer_hook = self.layer.register_full_backward_hook(lambda module, input, output: callback(self, input, output))
     
-
-
-
-LayerCallback = Callable[[LayerObserver, torch.Tensor, torch.Tensor], torch.Tensor | None]
-WeightCallback = Callable[[LayerObserver, torch.nn.Parameter, torch.Tensor], torch.Tensor | None]
 
