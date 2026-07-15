@@ -17,13 +17,15 @@ class TrailModularNetV1(BaseTrial):
         super().__init__(config, trial_manager)
         self.error = False
 
+        
+        self.plugin_manager.worker_pydebug_port = 5678  # Set a debug port for worker processes (optional)
         self.plugin_manager.env_set("trial_config", self.config)  # Make config available to plugins
-
+        
         self.plugins = [
-            #UIPlugin.Descriptor(),
+            UIPlugin.Descriptor(),
             ObservableTrainPlugin.Descriptor(),
-            #ModularSpacePlugin.Descriptor(),
-            #ClusterPlugin.Descriptor(),
+            ModularSpacePlugin.Descriptor(),
+            ClusterPlugin.Descriptor(),
             #OverspacePlugin.Descriptor()
         ]
         
@@ -58,6 +60,9 @@ def test_train():
     config.epochs = 1  # Use 1 epoch for quick test
     trial_manager = TrialManager()
     trial = TrailModularNetV1(config, trial_manager)
+    
+
+    
     
     # Start plugins
     logger.info("Starting plugins...")

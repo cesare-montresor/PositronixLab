@@ -16,7 +16,6 @@ Message Flows:
 
 No Commands/Responses wrappers, no double indirection. Just Request and Response.
 """
-from queue import Empty
 from typing import Any, Callable, Optional, TYPE_CHECKING
 from enum import Enum
 import logging
@@ -83,11 +82,11 @@ class Queue:
     def put_nowait(self, item):
         self._send.put(item)
     
-    def get(self, timeout=None):
-        return self._receive.get(timeout=timeout)
+    def get(self):
+        return self._receive.get()
     
     def get_nowait(self):
-        return self._receive.get(timeout=0)
+        return self._receive.get()
 
     def close(self):
         self._send.close()
@@ -114,12 +113,8 @@ class QueueRecive:
     def __init__(self, conn: Connection):
         self._conn = conn
 
-    def get(self, timeout=None):
-        if timeout is None:
-            return self._conn.recv()
-        if self._conn.poll(timeout):
-            return self._conn.recv()
-        raise Empty
+    def get(self):
+        return self._conn.recv()
 
     def close(self):
         self._conn.close()
@@ -156,12 +151,9 @@ class Channel:
     def send(self, message) -> None:
         self._send.put(message)
 
-    def receive(self, timeout: Optional[float] = None) -> Optional[object]:
-        """Receive a message with optional timeout. Returns None on timeout."""
-        try:
-            return self._receive.get(timeout=timeout)
-        except Empty:
-            return None
+    def receive(self) -> Optional[object]:
+        """Receive a message, blocking until one arrives or the pipe closes."""
+        return self._receive.get()
 
     def shutdown(self):
         if self._send:
@@ -179,7 +171,7 @@ class Channel:
 # ============================================================================
 
 
-class CommandType(Enum):
+class CommandType:
     """Standard commands for plugin control."""
     PLUGIN_START = "plugin_start"
     PLUGIN_STOP = "plugin_stop"
@@ -200,7 +192,26 @@ class CommandType(Enum):
     TOPIC_ANNOUNCE = "topic_announce"
     TOPIC_LIST = "topic_list"
 
-    def __str__(self): return str(self.value)
+    @classmethod
+    def commands(cls):
+        return iter([
+            cls.PLUGIN_START,
+            cls.PLUGIN_STOP,
+            cls.PLUGIN_STATUS,
+            cls.PLUGIN_STATUS_ALL,
+            cls.PLUGIN_ERRORS,
+            cls.PLUGIN_CALL,
+            cls.ENV_SET,
+            cls.ENV_GET,
+            cls.ENV_GET_ALL,
+            cls.ENV_SUBSCRIBE,
+            cls.ENV_UNSUBSCRIBE,
+            cls.ENV_UPDATE,
+            cls.TOPIC_SUBSCRIBE,
+            cls.TOPIC_UNSUBSCRIBE,
+            cls.TOPIC_ANNOUNCE,
+            cls.TOPIC_LIST
+        ])
 
 
 @dataclass

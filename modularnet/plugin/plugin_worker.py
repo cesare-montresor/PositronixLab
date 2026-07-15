@@ -20,7 +20,7 @@ import time
 
 from modularnet.utils.utils import init_debugger, process_start_spawn
 from modularnet.plugin.plugin_data import  Channel, CommandType, Queue,QueueDescriptor, PendingRequest, PluginStatus,  RequestPluginErrors, RequestPluginStart, RequestPluginStatus, RequestPluginStop, RequestTopicList, Subscriber, Subscription
-from modularnet.plugin.plugin_base import BasePlugin, PluginDescriptor
+from modularnet.plugin.plugin_base import BasePlugin, PluginDescriptor, PluginState
 
 from modularnet.plugin.plugin_rpc import  PluginRPC, RequestEnvUpdate, RequestPluginCall, RequestTopicList, RequestTopicSubscribe, RequestTopicUnsubscribe, sanitize_for_ipc
 from multiprocessing.synchronize import Event
@@ -74,7 +74,7 @@ class PluginWorker:
         """
         if pydebug_port is not None:
             logger.setLevel(logging.DEBUG)
-            init_debugger(pydebug_port, wait_for_client=True)
+            init_debugger(pydebug_port, process_name=plugin_id, wait_for_client=True)
         
         worker = PluginWorker(
             plugin_id,
@@ -124,7 +124,7 @@ class PluginWorker:
         self.plugin: Optional[BasePlugin] = None
         
         
-        self.main_thread: threading.Thread = None
+        self.main_thread: Optional[threading.Thread] = None
 
         # Create manager proxy for direct manager access+
         channel = Channel(queue_descriptor)
@@ -150,8 +150,8 @@ class PluginWorker:
         self.did_start.wait()
         self._is_running = True
 
-        
-        self.main_thread = threading.Thread(target=self._plugin_main, daemon=True).start()
+        self.main_thread = threading.Thread(target=self._plugin_main, daemon=True)
+        self.main_thread.start()
 
         self.did_stop.wait()
         
@@ -183,6 +183,8 @@ class PluginWorker:
         """Start the plugin."""
         try:
             self.plugin.on_start()
+            self.plugin._is_running = True
+            self.plugin.state = PluginState.RUNNING
             self.did_start.set()
         except Exception as e:
             logger.error(f"Failed to start plugin: {e}")
@@ -192,27 +194,19 @@ class PluginWorker:
         """Stop the plugin."""
         logger.debug(f"[{self.plugin_id}] Stopping plugin...")
         try:
-            logger.debug(f"[{self.plugin_id}] Calling plugin.on_stop()...")
-            self.plugin.on_stop()    
+            logger.debug(f"[{self.plugin_id}] Calling plugin.stop()...")
+            self.plugin.stop()
         except Exception as e:
             logger.error(f"Failed to stop plugin: {e}")
-        
-        # Wait for main loop to exit
-        threading.Thread(target=self._after_stop).start()  # Ensure event is set in case of timeout
 
-    def _after_stop(self):
-        time.sleep(0.1)
         self._is_running = False
-        #self.main_thread.join()  # Wait for main loop to exit
-        
-        for topic, subscription in self.topic_subscriptions.items():
+        self.rpc.signal_shutdown()
+
+        for topic, subscription in list(self.topic_subscriptions.items()):
             try:
                 subscription.queue.put(None)  # Unblock any waiting get() calls
             except Exception as e:
                 logger.error(f"Error closing queue for topic '{topic}': {e}")
-                
-          # Small delay to allow main loop to exit if it hasn't already
-        self.did_stop.set()  # Ensure event is set in case of timeout  
         
     def shutdown(self) -> None:
         """Clean up resources on shutdown."""
@@ -551,7 +545,7 @@ class PluginWorker:
         status = PluginStatus(
             plugin_id=self.plugin_id,
             state=str(self.plugin.state),
-            is_running=True,
+            is_running=self.plugin.is_running,
             subscriptions=num_subscription,
             subscribers=num_subscribers,
             published=num_published,
@@ -613,7 +607,9 @@ class PluginWorker:
             # pull data from subscription queue (blocking)
             try:
                 data = registered.queue.get() # Blocking wait for new data
-                if data is None: continue  # Skip if None (could be used as a shutdown signal)
+                if data is None:
+                    logger.info(f"Plugin {self.plugin_id} received shutdown sentinel for topic '{topic}'")
+                    break
             except ValueError as e:
                 if registered.queue.closed():
                     logger.info(f"Subscription for topic '{topic}' queue closed, stopping listener thread")
@@ -622,19 +618,21 @@ class PluginWorker:
                     logger.error(f"Error getting data from topic '{topic}' queue: {e}")
                     self.error_log.append(str(e))
                     continue
+            except (EOFError, OSError) as e:
+                logger.info(f"Subscription for topic '{topic}' closed, stopping listener thread: {e}")
+                break
             except Exception as e:
                 logger.error(f"Error in topic '{topic}' listener: {e}", exc_info=True)
                 self.error_log.append(str(e))
                 continue
 
             # Call the plugin's callback with the new data
-            if data is not None:
-                try:
-                    registered.callback(data)
-                except Exception as e:
-                    logger.error(f"Error in topic '{topic}' callback: {e}", exc_info=True)
-                    self.error_log.append(str(e))
-                    continue
+            try:
+                registered.callback(data)
+            except Exception as e:
+                logger.error(f"Error in topic '{topic}' callback: {e}", exc_info=True)
+                self.error_log.append(str(e))
+                continue
     
     def _respond_topic_subscribe(self, rpc: PluginRPC, req: RequestTopicSubscribe) -> bool:
         """Handle topic subscribe request."""

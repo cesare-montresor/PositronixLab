@@ -15,7 +15,7 @@ function getPattern() {
 
 const attachedPorts = new Set();
 
-async function attachToWorker(port) {
+async function attachToWorker(port, name) {
     if (attachedPorts.has(port)) return;
     attachedPorts.add(port);
 
@@ -25,7 +25,7 @@ async function attachToWorker(port) {
         await vscode.debug.startDebugging(undefined, {
             type: "debugpy",
             request: "attach",
-            name: `Worker :${port}`,
+            name: `${name}`,
             connect: { host: config.get('host'), port },
             justMyCode: config.get('justMyCode')
         });
@@ -57,7 +57,7 @@ function activate(context) {
 
             const listener = vscode.window.onDidWriteTerminalData(e => {
                 const match = e.data.match(getPattern());
-                if (match) attachToWorker(parseInt(match[1]));
+                if (match) attachToWorker(parseInt(match[1]), match[2]);
             });
 
             // stop watching when session ends

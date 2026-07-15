@@ -17,13 +17,14 @@ import torch
 
 
 class DeeplearningCommon:
-    def __init__(self, config: TrialConfig, model: MetaModel, dp: DataProvider, draft=False):
+    def __init__(self, config: TrialConfig, model: MetaModel, dp: DataProvider, path_save: str=None, draft=False):
         self.model = model
         self.dp = dp
         self.config = config
         self.draft = draft
         self.train_patience = 3
         self.train_early_stop_gain = 0.01
+        self.path_save = path_save
 
         self.metrics = {
             "train_loss": [],
@@ -165,8 +166,8 @@ class DeeplearningCommon:
 
 
             
-
-        self.model.save()
+        if self.path_save is not None:
+            self.model.save()
         #vis.play()
 
     def inference(self, dataloader:DataLoader, compute_cm=False, cluster_class=False, autoencoder = False, force_eval=True) -> tuple[float, float, float, np.ndarray|None]:
@@ -190,18 +191,18 @@ class DeeplearningCommon:
         
         draft_batches = 20
 
-        old_queue_state = self.space.enable_loss_queue
+        #old_queue_state = self.enable_loss_queue
         y_batch_queue = []  
 
         if cluster_class:
             print("Preparing class_cluster_attribution...")
-            self.space.wait_for_queues()
-            self.space.enable_loss_queue = True
-            if self.space.last_clustering_all is None:
-                raise ValueError("No clustering available for class_cluster_attribution")
-
-            clusters_label = torch.unique(self.space.last_clustering_all)
-            self.space.last_cluster_stats = {lbl.item():{} for lbl in clusters_label}
+            #self.space.wait_for_queues()
+            #self.space.enable_loss_queue = True
+            #if self.space.last_clustering_all is None:
+            #    raise ValueError("No clustering available for class_cluster_attribution")
+            #
+            #clusters_label = torch.unique(self.space.last_clustering_all)
+            #self.space.last_cluster_stats = {lbl.item():{} for lbl in clusters_label}
 
         was_training = self.model.training
         if force_eval and was_training:
@@ -223,8 +224,8 @@ class DeeplearningCommon:
                     y_hat_cls = torch.argmax(y_hat, dim=1)
                     if cluster_class:
                         y_batch_queue.append( (y, y_hat_cls) )
-                        space_loss = self.space.loss_queue.get()
-                        self.space.class_cluster_attribution(space_loss, y, y_hat_cls)
+                        #space_loss = self.space.loss_queue.get()
+                        #self.space.class_cluster_attribution(space_loss, y, y_hat_cls)
 
                     val_acc += torch.sum(y == y_hat_cls)
                     if compute_cm:
@@ -250,8 +251,8 @@ class DeeplearningCommon:
         forward_time = float(forward_time/data_num)
 
 
-        if cluster_class:
-            self.space.enable_loss_queue = old_queue_state
+        #if cluster_class:
+        #    self.space.enable_loss_queue = old_queue_state
 
 
 

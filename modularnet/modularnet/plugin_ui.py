@@ -9,6 +9,8 @@ from modularnet.plugin.plugin_worker import PluginWorker
 from modularnet.trial.trial_config import TrialConfig
 from modularnet.plugin import BasePlugin, PluginDescriptor
 
+import torch
+
 from dash import Dash, html
 
 logger = logging.getLogger(__name__)

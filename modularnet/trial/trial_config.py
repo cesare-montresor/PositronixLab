@@ -20,7 +20,7 @@ class TrialConfig:
 
         
         self.task = options.get('task', "classification")  # Default task is classificationù
-        self.criterion_type = options.get('criterion_type', "mse")  # Default task is classification
+        self.criterion_type = options.get('criterion_type', "cross_entropy")  # Default task is classification
         self.model_type = options.get('model_type', "fc")  # Default model type is fully connected (fc)
         self.train_epochs = options.get('train_epochs', 10)  # Default number of training epochs
         self.space_epochs = options.get('space_epochs', 1)  # no training. Default number of space epochs ( optimized for unchaning model weights)

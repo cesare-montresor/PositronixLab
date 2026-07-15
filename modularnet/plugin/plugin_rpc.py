@@ -6,7 +6,8 @@ from typing import Any, Callable, Dict, Optional
 import logging
 from torch import multiprocessing as mp
 import threading
-from modularnet.plugin.plugin_data import Channel, CommandType, Message, PendingRequest, Request, RequestCallback, RequestEnvGet, RequestEnvGetAll, RequestEnvSet, RequestEnvSubscribe, RequestEnvUnsubscribe, RequestEnvUpdate, RequestPluginCall, RequestPluginErrors, RequestPluginStart, RequestPluginStatus, RequestPluginStatusAll, RequestPluginStop, RequestTopicAnnounce, RequestTopicList, RequestTopicSubscribe, RequestTopicUnsubscribe, Response, Subscriber
+from multiprocessing.connection import wait
+from modularnet.plugin.plugin_data import Channel, CommandType, Message, PendingRequest, Queue, Request, RequestCallback, RequestEnvGet, RequestEnvGetAll, RequestEnvSet, RequestEnvSubscribe, RequestEnvUnsubscribe, RequestEnvUpdate, RequestPluginCall, RequestPluginErrors, RequestPluginStart, RequestPluginStatus, RequestPluginStatusAll, RequestPluginStop, RequestTopicAnnounce, RequestTopicList, RequestTopicSubscribe, RequestTopicUnsubscribe, Response, Subscriber
 from modularnet.plugin.plugin_transport import sanitize_for_ipc
 
 
@@ -67,6 +68,7 @@ class PluginCoreRPC:
 
         self.uid = MessageUID()
         self._running = True
+        self._shutdown = Queue()
 
         # Request/response routing: cmd_id → Queue(maxsize=1)
         self._pending: Dict[str, PendingRequest] = {}
@@ -80,6 +82,7 @@ class PluginCoreRPC:
         """Clean up resources."""
         # Step 1: Signal reader to stop
         self._running = False
+        self.signal_shutdown()
         
         
         # Step 3: Wait for reader thread to exit
@@ -94,6 +97,13 @@ class PluginCoreRPC:
             time.sleep(0.05)
         
         self.channel.shutdown()
+
+    def signal_shutdown(self):
+        """Wake the reader thread without polling."""
+        try:
+            self._shutdown.put(None)
+        except Exception:
+            pass
         
     
     def forward(self, req: Request, wait=True) -> Any:
@@ -162,9 +172,12 @@ class PluginCoreRPC:
         """
         while self._running:
             try:
-                # Use timeout to allow periodic checks of self._running
-                message = self.channel.receive(timeout=0.5)
-                if message is None: continue
+                ready = wait([self.channel._receive._conn, self._shutdown.receiver._conn])
+                if self._shutdown.receiver._conn in ready:
+                    self._shutdown.get()
+                    logger.debug(f"Plugin {self.plugin_id} received shutdown sentinel on channel")
+                    break
+                message = self.channel.receive()
                 if isinstance(message, Request):
                     self._handle_request(message)
                 elif isinstance(message, Response):   
@@ -187,7 +200,7 @@ class PluginCoreRPC:
         """Dispatch request to appropriate handler."""
         try:
             cmd = str(req.command)
-            if cmd not in CommandType:
+            if cmd not in CommandType.commands():
                 raise ValueError(f"Unknown command: {cmd}")
             if cmd not in self.command_handlers:
                 raise ValueError(f"Command not registered: {cmd} (available: {list(self.command_handlers.keys())})")

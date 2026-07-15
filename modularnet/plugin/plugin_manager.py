@@ -36,6 +36,7 @@ class PluginInfo:
     rpc: PluginRPC
     descriptor: PluginDescriptor
     options: Dict[str, Any]
+    stop_confirmed: bool = False
 
 class PluginManager:
     """
@@ -191,6 +192,8 @@ class PluginManager:
                 return False
             
             logger.info(f"Plugin {plugin_id} stop: {res.result}")
+            if res.result:
+                info.stop_confirmed = True
             return res.result
         except Exception as e:
             logger.error(f"Error stopping plugin {plugin_id}: {e}")
@@ -207,7 +210,10 @@ class PluginManager:
             True if unloaded successfully
         """
         try:
-            self.stop_plugin(plugin_id)
+            if plugin_id in self._plugins:
+                info = self._plugins[plugin_id]
+                if info.process.is_alive() and not info.stop_confirmed:
+                    self.stop_plugin(plugin_id)
             
             if plugin_id in self._plugins:
                 info = self._plugins[plugin_id]

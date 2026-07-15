@@ -28,7 +28,7 @@ class ObservableTrainPlugin(BasePlugin):
             "device": None,
             "debug": False,
             "compute_scores": True,
-            "num_workers_data": 2,
+            "num_workers_data": 1,
         }
 
     @classmethod
@@ -52,6 +52,7 @@ class ObservableTrainPlugin(BasePlugin):
         self.debug = options.get("debug")
         self.compute_scores: bool = options.get("compute_scores")  # If True, send scores; if False, send activations
         self.num_workers_data: int = options.get("num_workers_data")
+
         self.trial_config: TrialConfig = None  # Will be set in on_start via env_get("trial_config")
         self.model: MetaModel = None
         self.dataprovider: DataProvider = None
@@ -71,7 +72,7 @@ class ObservableTrainPlugin(BasePlugin):
         
         # Create model first to determine device
         self.model = MetaModel(self.plugin_id, self.trial_config, device=self.device)
-        self.env_set("model", self.model)
+        # self.env_set("model", self.model)
 
         # Pass model device to dataset
         self.dataprovider = DataProvider.from_config(
@@ -98,10 +99,6 @@ class ObservableTrainPlugin(BasePlugin):
         )
 
         self.trainer.on_epoch(self.on_epoch)
-        #self.trainer.on_batch(self.on_batch)
-        
-
-    #def on_batch(pass): pass
 
 
     def on_epoch(self, trainer: DeeplearningCommon, num_epochs: int, epochs: int):

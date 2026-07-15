@@ -3,7 +3,7 @@
 from dash import Dash, html
 
 class ModularUI():
-    def __init__(self, host: str = "127.0.0.1", port: int = 8050, debug: bool = True, reloader: bool = False):
+    def __init__(self, host: str = "127.0.0.1", port: int = 8050, debug: bool = False, reloader: bool = False):
         self.host = host
         self.port = port
         self.debug = debug

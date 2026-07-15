@@ -23,12 +23,13 @@ logger = logging.getLogger(__name__)
 
 
 
-def init_debugger(port: int, wait_for_client: bool = False) -> None:
+def init_debugger(port: int, process_name: str = 'worker', wait_for_client: bool = False) -> None:
     try:
         import debugpy
         debugpy.listen(("localhost", port))
         logger.info(f"Debugger listening on port {port}")  # extension sees this
-        print(f"Debugger listening on port {port}", flush=True)  # belt and braces
+        
+        print(f"Debugger listening on port {port} for {process_name} process", flush=True)  # belt and braces
         if wait_for_client:
             logger.info("Waiting for debugger to attach...")
             debugpy.wait_for_client()        # blocks AFTER the log line is out
@@ -174,18 +175,26 @@ def f1s_from_truth_table(tt:np.ndarray):
     return np.array(f1s)
 
 
-
 def set_best(bests, key, val, min=True):
+    # 1. Handle new keys
     if key not in bests:
         bests[key] = val
         return 1, None
     
+    # 2. Check for improvement
     if (min and val < bests[key]) or (not min and val > bests[key]):
-        diff = 1 if key not in bests else abs((bests[key] - val) / bests[key])
+        
+        # Prevent ZeroDivisionError if the old best was exactly 0
+        if bests[key] == 0:
+            diff = 1.0
+        else:
+            diff = abs((bests[key] - val) / bests[key])
+            
         old_val = bests[key]
         bests[key] = val
         return diff, old_val
 
+    # 3. No improvement
     return -1, bests[key]
 
 def signature_settings(data:dict) -> str:

@@ -11,7 +11,7 @@ This plugin:
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Dict, Optional, List, override
+from typing import Any, Dict, Optional 
 
 
 from modularnet.plugin.plugin_worker import PluginWorker
