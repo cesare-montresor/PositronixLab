@@ -19,7 +19,7 @@
             "properties": {
                 "debugpySpawn.portPattern": {
                     "type": "string",
-                    "default": "Debugger listening on port (\\d+) for (\\w+) process",
+                    "default": "Debugger listening on port (\\d+) for ([\\w-]+) process",
                     "description": "Regex pattern to detect debugger port from worker output. Must contain one capture group for the port number."
                 },
                 "debugpySpawn.host": {

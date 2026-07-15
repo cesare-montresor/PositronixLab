@@ -62,7 +62,7 @@ class ModularSpacePlugin(BasePlugin):
     def on_start(self) -> None:
         self.trial_config: TrialConfig = self.env_get("trial_config")
         self.observed_layers: dict = self.env_get("observed_layers")
-        self.space = ModularSpace(self.plugin_id, self.trial_config, device=self.device, observed_layers=self.observed_layers, enable_stats=self.stats_enabled)
+        self.space = ModularSpace(self.trial_config, self.observed_layers, self.device, self.stats_enabled)
         self.topic_subscribe("activations", self._on_activations)
         self.topic_subscribe("scores", self._on_scores)
 

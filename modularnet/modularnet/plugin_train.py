@@ -86,7 +86,7 @@ class ObservableTrainPlugin(BasePlugin):
         self.modular_observer.observe(self.model)
         self.modular_observer.on_forward_layer(self.on_layer_forward)
 
-        self.observed_layers = [ observer.to_dict() for observer in self.modular_observer.observers ]
+        self.observed_layers = {observer.layer_id: observer.to_dict() for observer in self.modular_observer.observers}
 
         self.env_set("observed_layers", self.observed_layers)
         

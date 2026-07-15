@@ -580,7 +580,7 @@ class PluginManager:
 
         if req.topic not in self._topic_subscribers:
             self._topic_subscribers[req.topic] = {}
-        subs = list(self._topic_subscribers[req.topic])
+        subs = self._topic_subscribers[req.topic]
 
         return subs
 
