@@ -7,6 +7,7 @@ from modularnet.modularnet.plugin_overspace import OverspacePlugin
 from modularnet.modularnet.plugin_space import ModularSpacePlugin
 from modularnet.modularnet.plugin_train import ObservableTrainPlugin
 from modularnet.modularnet.plugin_ui import UIPlugin
+from modularnet.spacemath.common import clear_torch_compile_cache
 from modularnet.trial import BaseTrial, TrialConfig, TrialManager
 
 logger = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ class TrailModularNetV1(BaseTrial):
         self.error = False
 
         
-        self.plugin_manager.worker_pydebug_port = 5678  # Set a debug port for worker processes (optional)
+        #self.plugin_manager.worker_pydebug_port = 5678  # Set a debug port for worker processes (optional)
         self.plugin_manager.env_set("trial_config", self.config)  # Make config available to plugins
         
         self.plugins = [
@@ -55,6 +56,8 @@ def main():
 
 def test_train():
     """Test basic trial execution with setup and training plugins."""
+    clear_torch_compile_cache(verbose=True)  # Clear torch compile cache before starting the trial
+
     config = TrialConfig()
     config.dataset_name = 'mnist'  # Use mnist dataset for quick testing
     config.epochs = 1  # Use 1 epoch for quick test

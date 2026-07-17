@@ -27,8 +27,8 @@ class ObservableTrainPlugin(BasePlugin):
         return {
             "device": None,
             "debug": False,
-            "compute_scores": True,
-            "num_workers_data": 1,
+            "compute_scores": False,
+            "num_workers_data": 2,
         }
 
     @classmethod
@@ -70,16 +70,17 @@ class ObservableTrainPlugin(BasePlugin):
         if not self.trial_config:
             raise ValueError("trial_config not provided in config")
         
+        # Pass model device to dataset
+        self.dataprovider = DataProvider.from_config(
+            self.trial_config,
+            num_workers=self.num_workers_data
+        )
+
         # Create model first to determine device
         self.model = MetaModel(self.plugin_id, self.trial_config, device=self.device)
         # self.env_set("model", self.model)
 
-        # Pass model device to dataset
-        self.dataprovider = DataProvider.from_config(
-            self.trial_config, 
-            device=self.model.device, 
-            num_workers=self.num_workers_data
-        )
+        
         #self.env_set("dataprovider", self.dataprovider)
 
         self.modular_observer = ModularObserver(self.trial_config, self.model)
@@ -88,7 +89,7 @@ class ObservableTrainPlugin(BasePlugin):
 
         self.observed_layers = {observer.layer_id: observer.to_dict() for observer in self.modular_observer.observers}
 
-        self.env_set("observed_layers", self.observed_layers)
+        self.env_set("observed_layers", self.observed_layers)  # Make observed layers available to other plugins
         
 
 
@@ -112,16 +113,16 @@ class ObservableTrainPlugin(BasePlugin):
 
     def on_layer_forward(self, layer: LayerObserver, x_in: torch.Tensor, x_out: torch.Tensor):
         if self.compute_scores:
-            self.on_layer_forward_activations(layer, x_in, x_out)
-        else:
             self.on_layer_forward_scores(layer, x_in, x_out)
+        else:
+            self.on_layer_forward_activations(layer, x_in, x_out)
 
     def on_layer_forward_activations(self, layer: LayerObserver, x_in: torch.Tensor, x_out: torch.Tensor):
         #TODO: Should I send scores? should i use cuda timelines ? 
 
         data = {
             'layer_id': layer.layer_id,
-            "activations": x_out
+            "activations": x_out.detach()
         }
         self.topic_publish("activations", data)
         
@@ -136,13 +137,14 @@ class ObservableTrainPlugin(BasePlugin):
                 x_out.detach(), layer.layer_type, layer.activation,
                 self.trial_config.modular_space_active_q, cnn_locality_weight=0.5
             )
-            event = torch.cuda.Event()
+            event = torch.cuda.Event(interprocess=True)
             event.record()
-        
-        self.topic_publish("scores", {
+        data = {
             'layer_id': layer.layer_id,
             'scores': scores,
             'ready': event
-        })
+        }
+
+        self.topic_publish("scores", data)
         
     

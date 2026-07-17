@@ -89,6 +89,7 @@ class Queue:
         return self._receive.get()
 
     def close(self):
+        self._send.put(None)  # Send a sentinel to indicate closure
         self._send.close()
         self._receive.close()
 
@@ -295,8 +296,19 @@ class Subscriber:
         self.plugin_id: str = plugin_id
         self.topic: str = topic
         self.queue_descriptor: QueueDescriptor = queue_descriptor
-        self.queue: Optional[Queue] = queue  # Will be initialized when subscription is active
+        self._queue: Optional[Queue] = queue  # Will be initialized when subscription is active
     
+    @property
+    def queue(self) -> Queue:
+        if self._queue is None:
+            self._queue = Queue(self.queue_descriptor)
+        return self._queue
+    
+    @queue.setter
+    def queue(self, value: Queue):
+        self._queue = value
+    
+
     def __str__(self):
         return f"Subscriber(plugin_id={self.plugin_id}, topic={self.topic}, queue_descriptor={self.queue_descriptor})"
 

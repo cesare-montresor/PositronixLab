@@ -4,15 +4,12 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, List
 
 import time
 
+import torch
 from torch.cuda import Event
 
-from modularnet.deeplearning import DeeplearningCommon
-from modularnet.modularobserver.modularobserver import ModularObserver
 from modularnet.modularspace.modularspace import ModularSpace
 from modularnet.plugin.plugin_worker import PluginWorker
 from modularnet.trial.trial_config import TrialConfig
-from modularnet.dataprovider.dataprovider import DataProvider
-from modularnet.metamodel.metamodel import MetaModel
 from modularnet.plugin import BasePlugin, PluginDescriptor
 
 
@@ -26,7 +23,6 @@ class ModularSpacePlugin(BasePlugin):
         return {
             "device": None,
             "debug": False,
-            "compute_scores": True,
             "enable_stats": True
         }
 
@@ -62,6 +58,7 @@ class ModularSpacePlugin(BasePlugin):
     def on_start(self) -> None:
         self.trial_config: TrialConfig = self.env_get("trial_config")
         self.observed_layers: dict = self.env_get("observed_layers")
+        logger.info(f"[{self.plugin_id}] observed_layers:\n{self.observed_layers}")
         self.space = ModularSpace(self.trial_config, self.observed_layers, self.device, self.stats_enabled)
         self.topic_subscribe("activations", self._on_activations)
         self.topic_subscribe("scores", self._on_scores)
@@ -70,15 +67,15 @@ class ModularSpacePlugin(BasePlugin):
 
     def main(self) -> None:
         self.env_set("space_stats", self.space.stats)  # Make this plugin accessible to other plugins
-        time.sleep(1.0)  # Allow other plugins to access this plugin's state
-        pass
+        time.sleep(1.0)  # Allow other plugins to access this plugin's state    
 
     def _on_activations(self, data: Any):
         """Handle activations message from the model."""
         layer_id = data.get("layer_id")
         activations = data.get("activations")
         
-        self.space.process_activations(layer_id, activations)
+        losses, positions, stats = self.space.process_activations(layer_id, activations)
+        self._on_position_update(layer_id, losses, positions)
 
     
     def _on_scores(self, data: Any):
@@ -88,7 +85,10 @@ class ModularSpacePlugin(BasePlugin):
         
         event.synchronize()  # wait for GPU, blocks only this subscriber
 
-        loss, (positions, _) = self.space.process_scores(layer_id, scores)
+        losses, positions, stats = self.space.process_scores(layer_id, scores)
+        self._on_position_update(layer_id, losses, positions)
 
-        self.topic_publish("metrics", {"layer_id": layer_id, "metric": loss, "name": "spaceloss"})
+
+    def _on_position_update(self, layer_id: str, losses: torch.Tensor, positions: torch.Tensor):
+        self.topic_publish("metrics", {"layer_id": layer_id, "metric": losses, "name": "spaceloss"})
         self.topic_publish("positions", {"layer_id": layer_id, "positions": positions})

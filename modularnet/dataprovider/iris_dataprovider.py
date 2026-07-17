@@ -1,5 +1,5 @@
 from modularnet.dataprovider.base_dataprovider import BaseDataProvider
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 import torch
 from torch import nn
 import sklearn.datasets as sklearn_datasets
@@ -7,21 +7,15 @@ import sklearn.datasets as sklearn_datasets
 ### iris ###
 
 class IrisDataProvider(BaseDataProvider):
-    def __init__(self, 
-                 batch_size=32,
-                 device=None,
-                 split=None, 
-                 num_workers=None):
-        super().__init__(batch_size=batch_size, device=device, num_workers=num_workers, split=split)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.name = 'iris'
         self.num_features = 4
         self.num_classes = 3
         
         self.criterion = nn.CrossEntropyLoss()
         self.dataset = IrisDataset()
-
-        self.train = DataLoader(self.dataset,batch_size,True,num_workers=num_workers, drop_last=True)
-        self.val = DataLoader(self.dataset,batch_size,False,num_workers=num_workers, drop_last=True)
+        self.dataset_train, self.dataset_val, self.dataset_test = self.dataset, self.dataset, self.dataset # 150 items 
 
 class IrisDataset(Dataset):
     
@@ -33,10 +27,6 @@ class IrisDataset(Dataset):
         self.x = torch.FloatTensor( iris['data'] )
         y = torch.LongTensor(iris['target'])
         self.y = y
-        #y = torch.nn.functional.one_hot(y,self.num_class)
-        #self.y = y.to(dtype=torch.float)
-        
-
 
     def __len__(self):
         return len(self.x)

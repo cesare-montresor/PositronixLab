@@ -1,62 +1,32 @@
-"""
-ipc_safe.py
-
-One function — `to_sendable(obj)` — that makes a CUDA tensor or nn.Module
-safe to put on a torch.multiprocessing Pipe/Queue more than once.
-
-Why this is needed:
-Once a CUDA tensor is reconstructed in a process via IPC (which is what
-torch.multiprocessing does transparently the first time a CUDA tensor
-crosses a process boundary), its underlying storage is permanently flagged
-`received_cuda=True` at the C++ level. Trying to share that storage again
--- forwarding it to a third process, or even echoing it back to the
-original sender -- raises:
-
-    RuntimeError: Attempted to send CUDA tensor received from another
-    process; this is not currently supported. Consider cloning before
-    sending.
-
-There's no public flag to read this directly, so `_is_ipc_received` checks
-it the same way pickling would: by calling the actual reduction function
-torch registers for CUDA tensors and seeing if it raises. This is cheap in
-both branches -- torch dedupes/caches shares per-storage, and the guard
-raises immediately (before any real IPC work) when it fires.
-"""
-
 import copy
+import logging
 from collections import OrderedDict
 
 import torch
 import torch.nn as nn
 from torch.multiprocessing.reductions import reduce_tensor
 
+logger = logging.getLogger(__name__)
 
-def sanitize_for_ipc(obj):
-    """
-    Return a version of `obj` safe to put on a torch.multiprocessing
-    Pipe/Queue, cloning only when actually necessary:
 
-      - torch.Tensor  -> obj.clone()    if its storage was IPC-received
-      - nn.Module     -> deepcopy(obj)  if any param/buffer was IPC-received
-      - anything else -> returned unchanged
-    """
-    if obj is None: return None
-
-    if isinstance(obj, nn.Module):
-        return _deepcopy_without_hooks(obj) if _module_needs_clone(obj) else obj
-
-    if isinstance(obj, torch.Tensor):
-        return obj.clone() if _is_ipc_received(obj) else obj
-
-    return obj
-
+def mark_graph_output(t: torch.Tensor) -> torch.Tensor:
+    """Call this immediately after a reduce-overhead compiled fn returns.
+    PT2 compiled graphs sometimes pool memory in ways that shouldn't cross IPC."""
+    if isinstance(t, torch.Tensor):
+        t._from_graph_pool = True
+    return t
 
 
 def _is_ipc_received(t: torch.Tensor) -> bool:
     """True if `t` sits on a CUDA storage that was itself received via IPC
-    from another process (and therefore can't be re-shared as-is)."""
+    from another process (and therefore can't be re-shared as-is), OR if
+    it was pooled by a compiled graph."""
+    if getattr(t, "_from_graph_pool", False):
+        return True
+
     if not t.is_cuda:
         return False
+        
     try:
         reduce_tensor(t)
         return False
@@ -77,40 +47,64 @@ def _deepcopy_without_hooks(module: nn.Module) -> nn.Module:
     """deepcopy(module) will choke if any hook closure holds state that
     isn't deepcopy-able (a Queue, a Channel, a CUDA event, a lock...).
     Hooks are meaningless once the module crosses a process boundary
-    anyway, so strip them for the duration of the copy and restore them
-    on the original afterward."""
-    saved = [
-        (m, m._forward_hooks, m._forward_pre_hooks, m._backward_hooks)
-        for m in module.modules()
-    ]
-    for m, *_ in saved:
-        m._forward_hooks = OrderedDict()
-        m._forward_pre_hooks = OrderedDict()
-        m._backward_hooks = OrderedDict()
+    anyway, so strip *all* hook registries for the duration of the copy
+    and restore them on the original afterward. We iterate by attribute
+    name rather than hardcoding _forward_hooks/_forward_pre_hooks/
+    _backward_hooks, since torch has added more hook dicts over time
+    (_forward_hooks_with_kwargs, _backward_pre_hooks, etc.) and any of
+    them can hold non-copyable closures."""
+    saved = []
+    for m in module.modules():
+        hook_attrs = {
+            name: val for name, val in vars(m).items()
+            if "hook" in name and isinstance(val, OrderedDict)
+        }
+        saved.append((m, hook_attrs))
+        for name in hook_attrs:
+            setattr(m, name, OrderedDict())
+
     try:
         return copy.deepcopy(module)
+    except Exception:
+        logger.error(
+            "deepcopy failed while sanitizing module %r for IPC even after "
+            "stripping hooks -- likely a non-hook attribute holding a "
+            "non-copyable object (lock, open handle, CUDA event, etc.)",
+            type(module).__name__,
+            exc_info=True,
+        )
+        raise
     finally:
-        for m, fh, fph, bh in saved:
-            m._forward_hooks, m._forward_pre_hooks, m._backward_hooks = fh, fph, bh
+        for m, hook_attrs in saved:
+            for name, val in hook_attrs.items():
+                setattr(m, name, val)
 
 
-def to_sendable(obj):
+def sanitize_for_ipc(obj):
     """
-    Return a version of `obj` safe to put on a torch.multiprocessing
-    Pipe/Queue, cloning only when actually necessary:
+    Recursively return a version of `obj` safe to put on a
+    torch.multiprocessing Pipe/Queue, cloning only when necessary.
 
-      - torch.Tensor  -> obj.clone()    if its storage was IPC-received
-      - nn.Module     -> deepcopy(obj)  if any param/buffer was IPC-received
+      - torch.Tensor -> obj.clone() if IPC-received OR compiled-graph output
+      - nn.Module    -> deepcopy(obj) if any param/buffer needs cloning
+      - dict/list/tuple -> rebuilt recursively (payloads are usually dicts
+        of tensors)
       - anything else -> returned unchanged
-
-    Call this on the specific object you're about to put in a message
-    (e.g. `result = to_sendable(result)` in respond()), not blindly on an
-    entire nested payload -- it doesn't recurse into dicts/dataclasses.
     """
-    if isinstance(obj, nn.Module):
-        return _deepcopy_without_hooks(obj) if _module_needs_clone(obj) else obj
+    if obj is None:
+        return None
 
     if isinstance(obj, torch.Tensor):
         return obj.clone() if _is_ipc_received(obj) else obj
+
+    if isinstance(obj, nn.Module):
+        return _deepcopy_without_hooks(obj) if _module_needs_clone(obj) else obj
+
+    if isinstance(obj, dict):
+        return {k: sanitize_for_ipc(v) for k, v in obj.items()}
+
+    if isinstance(obj, (list, tuple)):
+        cloned = [sanitize_for_ipc(v) for v in obj]
+        return type(obj)(cloned) if isinstance(obj, tuple) else cloned
 
     return obj

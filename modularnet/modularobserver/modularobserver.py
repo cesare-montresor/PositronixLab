@@ -1,12 +1,11 @@
 
-import re
-from typing import Dict, List, TYPE_CHECKING
+
+from typing import Dict, List
 
 import torch
 from torch import nn
 
-from modularnet.spacemath.spacemath import SpaceMath
-from modularnet.spacemath.common import is_activation, is_conv, is_linear, is_layer
+from modularnet.spacemath.common import is_activation, is_layer
 from modularnet.modularobserver.layerobserver import LayerCallback, WeightCallback
 from modularnet.trial.trial_config import TrialConfig
 from modularnet.modularobserver.layerobserver import LayerObserver

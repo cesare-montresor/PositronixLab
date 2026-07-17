@@ -147,8 +147,8 @@ class PluginWorker:
 
         
         self._initialized.set()  # Signal to manager that initialization is complete
-        self.did_start.wait()
         self._is_running = True
+        self.did_start.wait()
 
         self.main_thread = threading.Thread(target=self._plugin_main, daemon=True)
         self.main_thread.start()
@@ -162,11 +162,12 @@ class PluginWorker:
     
     def _plugin_main(self):
         logger.debug(f"[{self.plugin_id}] Plugin main loop started")
+        min_interval = 0.001  # floor between iterations; tune per-plugin if needed
+
         while self._is_running:
+            start = time.perf_counter()
             try:
-                # Main loop can also handle periodic tasks, timeouts, etc.
                 self.plugin.main()
-                time.sleep(0)  # Avoid busy loop if plugin.main() is non-blocking
             except KeyboardInterrupt:
                 logger.info(f"Plugin {self.plugin_id} interrupted")
                 self._is_running = False
@@ -175,8 +176,13 @@ class PluginWorker:
                 import traceback
                 traceback.print_exc()
                 self.error_log.append(str(e))
-        logger.debug(f"[{self.plugin_id}] Plugin main loop exiting, setting did_stop")
-        self.did_stop.set()
+
+            elapsed = time.perf_counter() - start
+            remaining = min_interval - elapsed
+            if remaining > 0:
+                time.sleep(remaining)
+            # else: plugin.main() already took longer than min_interval,
+        # so we don't add any extra pause — go straight to the next call.
 
     
     def start(self):
@@ -373,6 +379,10 @@ class PluginWorker:
             return False
         
         self.env_subscriptions[var_name] = callback
+
+        
+        callback(var_name)  # Trigger callback for initial value
+
         return True
     
     def env_unsubscribe(self, var_name: str, wait: bool=True) -> bool:
@@ -468,6 +478,8 @@ class PluginWorker:
         # first time publishing this topic
         if topic in self.topic_published: return True
 
+        if not topic in self.topic_subscribers:
+            self.topic_subscribers[topic] = {}
 
         topic_subscribers: dict[str, Subscriber] = self.topic_subscribers.get(topic)
         reponse = self.rpc.topic_announce(topic).wait()
@@ -476,11 +488,22 @@ class PluginWorker:
             self.error_log.append(str(reponse.error))
             return False
         
-        manager_subscribers: list[Subscriber] = reponse.result
+
         self.topic_published.add(topic)
-        print("topic_announce: manager_subscribers: ",manager_subscribers, self.topic_published)
-        for subscriber in manager_subscribers:
-            topic_subscribers[subscriber.plugin_id] = subscriber
+
+        manager_subscribers: Dict[str, Subscriber] = reponse.result
+
+
+        diff_subs =  [] 
+        for sub in manager_subscribers.values():
+            if sub.plugin_id not in topic_subscribers:
+                sub.queue = Queue(sub.queue_descriptor)
+                diff_subs.append(sub)
+                topic_subscribers[sub.plugin_id] = sub
+
+        topic_subscribers.update(manager_subscribers)
+        #print("topic_announce: manager_subscribers: ", self.topic_published, manager_subscribers )
+        
 
         return True
 
@@ -504,7 +527,8 @@ class PluginWorker:
                 logger.warning(f"Subscriber {subscriber.plugin_id} on topic '{topic}' is full — dropping message")
                 return False
             except Exception as e:
-                logger.error(f"Failed to publish to subscriber {subscriber.plugin_id} on topic '{topic}': {e}", stack_info=True)
+                logger.error(f"[ERROR] Failed to publish to subscriber {subscriber.plugin_id} on topic '{topic}':", exc_info=True)
+                logger.error(f"[ERROR]\n{e}\n---")
                 return False
         
         return True
@@ -643,7 +667,7 @@ class PluginWorker:
         
         if topic not in self.topic_subscribers:
             self.topic_subscribers[topic] = {}
-        self.topic_subscribers[topic][plugin_id] = req.subscriber
+        self.topic_subscribers[topic][plugin_id] = sub
 
         # logger.info('_respond: topic_subscribers: %s', self.topic_subscribers)
 
@@ -656,8 +680,13 @@ class PluginWorker:
 
         if topic not in self.topic_subscribers: return True
         if plugin_id not in self.topic_subscribers[topic]: return True
-        del self.topic_subscribers[topic][plugin_id]
+        sub = self.topic_subscribers[topic].pop(plugin_id)
         
+        try:
+            sub.queue.close()
+        except Exception as e:
+            logger.info(f"Error closing queue for topic '{topic}': {e}", exc_info=True)
+
         return True
     
     def _request_topic_list(self, rpc: PluginRPC, req: RequestTopicList) -> list:
