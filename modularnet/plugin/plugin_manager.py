@@ -571,7 +571,7 @@ class PluginManager:
 
         return True
 
-    def _respond_topic_announce(self, rpc: PluginRPC, req: RequestTopicAnnounce) -> int:
+    def _respond_topic_announce(self, rpc: PluginRPC, req: RequestTopicAnnounce) -> Dict[str, Subscriber]:
         """
         Announce a new topic.
         

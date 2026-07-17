@@ -1,14 +1,41 @@
 
+from typing import List, TypeVar
+
 import torch
 
 
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
+
+class DataReader(DataLoader):
+    def __init__(self, 
+        dataset: Dataset,
+        batch_size: int = 32,
+        num_workers: int = 2,
+        persistent_workers: bool = True,
+        multiprocessing_context: str = None,
+        drop_last=True,
+        **kwargs
+    ):
+        if multiprocessing_context is None and num_workers > 0:
+            multiprocessing_context = "fork" if not torch.cuda.is_initialized() else "spawn"
+
+        super().__init__(
+            dataset=dataset,
+            batch_size=batch_size,
+            persistent_workers=persistent_workers if num_workers > 0 else False,
+            multiprocessing_context=multiprocessing_context if num_workers > 0 else None,
+            drop_last=drop_last,
+            num_workers=num_workers,
+            **kwargs
+        )
+
 class BaseDataProvider():
     def __init__(self, 
-                 batch_size=32,
-                 split=None,
-                 device = None,
-                 num_workers=None,
-                 transforms=None,
+                 batch_size:int =32,
+                 split: List[float]=None,
+                 num_workers:int=None,
+                 transforms: transforms.Compose =None,
                  ):
         self.dataset_split = split if split is not None else [0.7, 0.3]
         self.num_features = None
@@ -19,14 +46,33 @@ class BaseDataProvider():
         self.x_shape = None
         self.y_shape = None
 
-        self.dataset = None
-        
+        self.dataset: Dataset = None
+        self.dataset_train: Dataset = None
+        self.dataset_val: Dataset = None
+        self.dataset_test: Dataset = None
+
         self.batch_size = batch_size
-        self.train = None
-        self.val = None
-        self.test = None
+        self._train:DataReader = None
+        self._val:DataReader = None
+        self._test:DataReader = None
         
-        self.device = device
-        if self.device is None: 
-            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
+    @property
+    def train(self) -> DataReader:
+        if self._train is None and self.dataset_train is not None:
+            self._train = DataReader(self.dataset_train, batch_size=self.batch_size, num_workers=self.num_workers)
+        return self._train
+    
+    @property
+    def val(self) -> DataReader:
+        if self._val is None and self.dataset_val is not None:
+            self._val = DataReader(self.dataset_val, batch_size=self.batch_size, num_workers=self.num_workers)
+        return self._val
+    
+    @property
+    def test(self) -> DataReader:
+        if self._test is None and self.dataset_test is not None:
+            self._test = DataReader(self.dataset_test, batch_size=self.batch_size, num_workers=self.num_workers)
+        return self._test
+
+

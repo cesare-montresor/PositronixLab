@@ -20,7 +20,7 @@ async function attachToWorker(port, name) {
     attachedPorts.add(port);
 
     const config = getConfig();
-    vscode.window.showInformationMessage(`debugpy-spawn: worker detected on port ${port}, attaching...`);
+    // vscode.window.showInformationMessage(`debugpy-spawn: worker detected on port ${port}, attaching...`);
     try {
         await vscode.debug.startDebugging(undefined, {
             type: "debugpy",

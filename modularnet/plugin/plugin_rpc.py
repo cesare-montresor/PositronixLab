@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, Optional
 import logging
 from torch import multiprocessing as mp
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from multiprocessing.connection import wait
 from modularnet.plugin.plugin_data import Channel, CommandType, Message, PendingRequest, Queue, Request, RequestCallback, RequestEnvGet, RequestEnvGetAll, RequestEnvSet, RequestEnvSubscribe, RequestEnvUnsubscribe, RequestEnvUpdate, RequestPluginCall, RequestPluginErrors, RequestPluginStart, RequestPluginStatus, RequestPluginStatusAll, RequestPluginStop, RequestTopicAnnounce, RequestTopicList, RequestTopicSubscribe, RequestTopicUnsubscribe, Response, Subscriber
 from modularnet.plugin.plugin_transport import sanitize_for_ipc
@@ -78,6 +79,12 @@ class PluginCoreRPC:
         self._reader = threading.Thread(target=self._channel_listener, daemon=False)
         self._reader.start()
 
+        # Persistent pool for executing incoming requests — avoids spawning
+        # a fresh OS thread per RPC call (was the source of the stutter).
+        self._executor = ThreadPoolExecutor(
+            max_workers=8, thread_name_prefix=f"rpc-{plugin_id}"
+        )
+
     def shutdown(self):
         """Clean up resources."""
         # Step 1: Signal reader to stop
@@ -89,7 +96,13 @@ class PluginCoreRPC:
         self._reader.join(timeout=2.0)
         if self._reader.is_alive():
             logger.warning("Reader thread did not exit cleanly")
-        
+
+        # Step 3b: Stop accepting new work; let in-flight commands finish.
+        # wait=False keeps shutdown() from blocking indefinitely on a command
+        # handler that's still running — the pending-request wait loop below
+        # covers giving them time to complete.
+        self._executor.shutdown(wait=False, cancel_futures=False)
+
         # Step 4: Wait for pending requests to be processed (with timeout)
         timeout_start = time.time()
         while self.has_pending_requests() and (time.time() - timeout_start) < 2.0:
@@ -205,7 +218,7 @@ class PluginCoreRPC:
             if cmd not in self.command_handlers:
                 raise ValueError(f"Command not registered: {cmd} (available: {list(self.command_handlers.keys())})")
 
-            threading.Thread(target=self._execute_command, args=(req,), daemon=False).start() # use pool ?        
+            self._executor.submit(self._execute_command, req)
         except Exception as e:
             logger.error(f"Request handler error: {e}", exc_info=True)
             self.respond(req, error=e)

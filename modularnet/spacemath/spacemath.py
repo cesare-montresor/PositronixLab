@@ -1,10 +1,15 @@
+import logging
 import torch
 from torch import  nn
 from torch import Tensor
 import torch.nn.functional as F
 
 
-from modularnet.spacemath.common import is_conv, is_linear, zclamp, compile, classmethod_compile, staticmethod_compile
+from modularnet.spacemath.common import is_conv, is_linear, zclamp
+
+
+
+logger = logging.getLogger(__name__)
 
 class LayerType:
     CONV = 'conv'
@@ -67,10 +72,12 @@ class SpaceMath():
 
     
     
-    @classmethod_compile
-    def distance(cls, x:Tensor, y:Tensor, dim=1, distance_type=None, pairwise=True) -> Tensor:
+    @classmethod
+    def distance(cls, x:Tensor, y:Tensor, dim=1, distance_type='cosine', pairwise=True) -> Tensor:
         distances = ['euclidean', 'cosine']
-        if distance_type not in distances: distance_type='cosine'
+        if distance_type not in distances: 
+            logger.warning(f"Unknown distance type: {distance_type}. Defaulting to 'cosine'.")
+            distance_type='cosine'
 
         if distance_type == 'euclidean':
             if pairwise:
@@ -95,7 +102,7 @@ class SpaceMath():
         return dist
        
 
-    @classmethod_compile
+    @classmethod
     def activations_to_scores(cls, xd: Tensor, layer_type: str, activation_fn: nn.Module = None, x_quantile=0.9, cnn_locality_weight=0.5) -> Tensor:
         q = None
         act = activation_fn
@@ -120,7 +127,7 @@ class SpaceMath():
 
         return scores
     
-    @classmethod_compile
+    @classmethod
     def normalize_by_threshold(cls, scores:Tensor, q:Tensor) -> Tensor:
         idxs_on, idxs_off = cls.split_active_group(scores, threshold=q)
         scores_on = scores * idxs_on # keep X >= q untouched
@@ -128,17 +135,16 @@ class SpaceMath():
         scores_max = torch.abs(torch.amax(scores_on,dim=1)).unsqueeze(1) + cls.eps
         scores_min = torch.abs(torch.amin(scores_off,dim=1)).unsqueeze(1) + cls.eps
         scores = (scores_on / scores_max ) + (scores_off / scores_min )
-        scores = scores.detach()
         return scores
 
-    @classmethod_compile
+    @classmethod
     def split_active_group(cls, x:Tensor, threshold=0.0) -> tuple[Tensor, Tensor]:
         idxs_on  = (x >= threshold)
         idxs_off = (~idxs_on)
         return idxs_on, idxs_off
     
 
-    @classmethod_compile
+    @classmethod
     def count_active(cls, idxs_on, idxs_off):
         cnt_on = idxs_on.sum(dim=1)
         cnt_off = idxs_off.sum(dim=1)
@@ -156,12 +162,12 @@ class SpaceMath():
 
     
 
-    @classmethod_compile
+    @classmethod
     def rank_kernels_by_activation_per_sample(  cls,
-                                                feature_maps: torch.Tensor,
-                                                locality_weight: float = 0.5,
-                                                spatial_radius: int = 3,
-                                                ) -> tuple[torch.Tensor, torch.Tensor]:
+        feature_maps: torch.Tensor,
+        locality_weight: float = 0.5,
+        spatial_radius: int = 3,
+        ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Fast GPU-optimized method to rank convolutional kernels for each sample in the batch.
         
@@ -207,7 +213,8 @@ class SpaceMath():
         
         return sorted_indices, combined_scores
 
-    @classmethod_compile
+
+    @classmethod
     def get_quantile_k_kernels_per_sample(cls,
                                 feature_maps: torch.Tensor,
                                 quantile: float,

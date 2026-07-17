@@ -9,7 +9,7 @@ import requests
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, random_split
 from modularnet.dataprovider.base_dataprovider import BaseDataProvider
 
 
@@ -33,7 +33,6 @@ class HIGGSDataProvider(BaseDataProvider):
     Args:
         batch_size: Batch size for dataloaders
         split: Train/val/test split ratios (default [0.7, 0.15, 0.15])
-        device: Device to use
         num_workers: Number of dataloader workers
         transforms: Optional transforms
         normalize: Whether to normalize features (computed from train set)
@@ -46,20 +45,15 @@ class HIGGSDataProvider(BaseDataProvider):
         root: Root directory for data
     """
     def __init__(self,
-                 batch_size=32,
-                 split=None,
-                 device=None,
-                 num_workers=None,
-                 transforms=None,
-                 normalize=True,
+                 root='./data',
                  epoch_size=0.1,
-                 root='./data'):
+                 normalize=True,
+                 split=[0.7, 0.15, 0.15],
+                 **kwargs
+                 ):
         super().__init__(
-            batch_size=batch_size,
-            split=split if split is not None else [0.7, 0.15, 0.15],
-            device=device,
-            num_workers=num_workers,
-            transforms=transforms
+            split=split,
+           **kwargs
         )
         
         self.name = 'higgs'
@@ -70,12 +64,11 @@ class HIGGSDataProvider(BaseDataProvider):
         self.normalize = normalize
         self.root = Path(root)
         self.epoch_size = epoch_size
-        
+
         # Load full dataset metadata (lazy load) - always use 100% for accurate split size
         self.dataset_full = HIGGSDataset(
             root=root,
-            device=device,
-            transforms=transforms,
+            transforms=self.transforms,
             epoch_size=1.0  # Use full dataset to compute accurate split indices
         )
         
@@ -123,8 +116,7 @@ class HIGGSDataProvider(BaseDataProvider):
         # Create split datasets with computed epoch_size
         self.dataset_train = HIGGSDataset(
             root=root,
-            device=device,
-            transforms=transforms,
+            transforms=self.transforms,
             indices=self.train_indices,
             epoch_size=epoch_size_train,
             normalize=normalize,
@@ -133,8 +125,7 @@ class HIGGSDataProvider(BaseDataProvider):
         
         self.dataset_val = HIGGSDataset(
             root=root,
-            device=device,
-            transforms=transforms,
+            transforms=self.transforms,
             indices=self.val_indices,
             epoch_size=epoch_size_val,
             normalize=normalize,
@@ -144,8 +135,7 @@ class HIGGSDataProvider(BaseDataProvider):
         if self.test_indices is not None:
             self.dataset_test = HIGGSDataset(
                 root=root,
-                device=device,
-                transforms=transforms,
+                transforms=self.transforms,
                 indices=self.test_indices,
                 epoch_size=epoch_size_test,
                 normalize=normalize,
@@ -161,30 +151,6 @@ class HIGGSDataProvider(BaseDataProvider):
             if self.dataset_test is not None:
                 self.dataset_test.apply_normalization(self.dataset_train.mean, self.dataset_train.std)
         
-        # Create dataloaders
-        self.train = DataLoader(
-            self.dataset_train, 
-            batch_size, 
-            shuffle=True, 
-            num_workers=num_workers, 
-            drop_last=True
-        )
-        self.val = DataLoader(
-            self.dataset_val, 
-            batch_size, 
-            shuffle=False, 
-            num_workers=num_workers, 
-            drop_last=True
-        )
-        
-        if self.dataset_test is not None:
-            self.test = DataLoader(
-                self.dataset_test, 
-                batch_size, 
-                shuffle=False, 
-                num_workers=num_workers, 
-                drop_last=True
-            )
     
     def get_feature_groups(self):
         """Returns feature groups: low-level (0-20) and high-level (21-27)"""
@@ -209,7 +175,6 @@ class HIGGSDataset(Dataset):
     
     def __init__(self,
                  root='./data',
-                 device=None,
                  indices=None,
                  transforms=None,
                  epoch_size=0.1,
@@ -219,7 +184,6 @@ class HIGGSDataset(Dataset):
         
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
-        self.device = device if device is not None else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.transforms = transforms
         self.normalize = normalize
         self.split_name = split_name

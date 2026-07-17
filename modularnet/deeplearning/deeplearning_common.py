@@ -19,6 +19,7 @@ import torch
 class DeeplearningCommon:
     def __init__(self, config: TrialConfig, model: MetaModel, dp: DataProvider, path_save: str=None, draft=False):
         self.model = model
+        self.device = model.device
         self.dp = dp
         self.config = config
         self.draft = draft
@@ -81,8 +82,8 @@ class DeeplearningCommon:
             
             batch_bar = tqdm(self.dp.train)
             for x, y in batch_bar:
-                x = x.to(device=self.dp.device)
-                y = y.to(device=self.dp.device)
+                x = x.to(device=self.device)
+                y = y.to(device=self.device)
                 optim.zero_grad()
                 y_hat = self.model(x)
                 #print('.', end='', flush=True)
@@ -210,8 +211,8 @@ class DeeplearningCommon:
 
         with torch.no_grad():
             for x, y in tqdm(dataloader, desc="Step INFERENCE"): 
-                x = x.to(device=self.dp.device)
-                y = y.to(device=self.dp.device)
+                x = x.to(device=self.device)
+                y = y.to(device=self.device)
                 
                 y_hat = self.model(x)
                 

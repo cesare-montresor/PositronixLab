@@ -1,11 +1,18 @@
 
 from __future__ import annotations
-from typing import Any, Callable
-
+import functools
 import torch
 from torch import nn
+import os
+import shutil
 
-default_compile_mode = "reduce-overhead" # 'default', 'reduce-overhead', 'max-autotune'
+from typing import Any, Callable, TypeVar
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+default_compile_mode = "default" #"reduce-overhead" # 'default', 'reduce-overhead', 'max-autotune'
+
+torch.set_float32_matmul_precision('high')
 
 def zclamp_(x: torch.Tensor, eps: float = 1e-8, force_zero: bool = False) -> torch.Tensor:
     """In-place: push near-zero non-zero values to ±eps, or zero if force_zero is True."""
@@ -68,55 +75,76 @@ def is_linear(module: nn.Module):
     return module.__class__.__module__ == 'torch.nn.modules.linear'
 
 
-def set_torch_compile_defaults(mode: str = "reduce-overhead"):
+def compile(func: F) -> F:
     """
-    Set the default mode for torch.compile globally.
-    
-    Args:
-        mode (str): The compilation mode. Options include 'default', 'reduce-overhead', 'max-autotune', etc.
-    """
-    global default_compile_mode
-    default_compile_mode = mode
+    Simple torch.compile decorator. Stack under @staticmethod / @classmethod:
 
-def compile(*compile_args, **compile_kwargs) -> Callable[..., Callable[..., Any]]:
-    """
-    Custom decorator for standard instance methods (with 'self').
-    
-    While @torch.compile works directly on instance methods natively, 
-    this provides a consistent API alongside `classmethod_compile`.
-    """
-    def decorator(func) -> Callable[..., Any]:
-        compile_kwargs.setdefault("mode", default_compile_mode)
-        return torch.compile(func, *compile_args, **compile_kwargs)
-    return decorator
+        @staticmethod
+        @compile
+        def f(x, y): ...
 
-def classmethod_compile(*compile_args, **compile_kwargs)-> Callable[..., classmethod[Any, Callable[..., Any], Any]]:
+        @classmethod
+        @compile
+        def f(cls, x, y): ...
     """
-    Custom decorator that safely applies torch.compile and 
-    converts the result into a classmethod. ( order would matter )
-    
-    This ensures the correct bottom-to-top execution order:
-    raw function -> torch.compile -> classmethod descriptor.
-    """
-    def decorator(func) -> classmethod[Any, Callable[..., Any], Any]:
-        # 1. Pass the raw function through our instance method compiler
-        compiled_func = compile(*compile_args, **compile_kwargs)(func)
-        # 2. Wrap the resulting compiled function in a classmethod descriptor
-        return classmethod(compiled_func)
-    return decorator
+    compiled = torch.compile(func, mode=default_compile_mode)
+    return functools.wraps(func)(compiled)
 
-def staticmethod_compile(*compile_args, **compile_kwargs)-> Callable[..., staticmethod[Any, Callable[..., Any], Any]]:
-    """
-    Custom decorator that safely applies torch.compile and 
-    converts the result into a staticmethod. ( order would matter )
-    
-    This ensures the correct bottom-to-top execution order:
-    raw function -> torch.compile -> staticmethod descriptor.
-    """
-    def decorator(func)  -> staticmethod[Callable[..., Any], Any]:
-        # 1. Pass the raw function through our instance method compiler
-        compiled_func = compile(*compile_args, **compile_kwargs)(func)
-        # 2. Wrap the resulting compiled function in a staticmethod descriptor
-        return staticmethod(compiled_func)
-    return decorator
 
+def classmethod_compile(func: F) -> classmethod:
+    """
+    @classmethod_compile
+    def f(cls, x, y): ...
+    """
+    return classmethod(compile(func))
+
+
+def staticmethod_compile(func: F) -> staticmethod:
+    """
+    @staticmethod_compile
+    def f(x, y): ...
+    """
+    return staticmethod(compile(func))
+
+
+
+
+def clear_torch_compile_cache(triton: bool = True, verbose: bool = False) -> None:
+    
+    if verbose:
+        print(f"[clear_torch_compile_cache] --------------------------- ")
+
+    """Reset Dynamo/Inductor state and wipe on-disk compile caches."""
+    import torch._dynamo as dynamo
+    dynamo.reset()
+
+    try:
+        import torch._inductor.codecache as codecache
+        if hasattr(codecache, "clear_cache"):
+            codecache.clear_cache()
+        else:
+            from torch._inductor.utils import clear_inductor_caches
+            clear_inductor_caches()
+    except Exception as e:
+        if verbose:
+            print(f"[skip] inductor codecache.clear_cache(): {e}")
+    
+
+    paths = [f"/tmp/torchinductor_{os.environ.get('USER', '')}"]
+    if custom := os.environ.get("TORCHINDUCTOR_CACHE_DIR"):
+        paths.append(custom)
+    if triton:
+        paths.append(os.path.expanduser("~/.triton/cache"))
+        if custom := os.environ.get("TRITON_CACHE_DIR"):
+            paths.append(custom)
+
+    for p in paths:
+        if p and os.path.isdir(p):
+            shutil.rmtree(p, ignore_errors=True)
+            if verbose:
+                print(f"removed {p}")
+
+    if verbose:
+        print("torch.compile cache cleared.")
+        print(f"[clear_torch_compile_cache] --------------------------- ")
+    
