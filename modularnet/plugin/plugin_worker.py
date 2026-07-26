@@ -200,24 +200,29 @@ class PluginWorker:
         """Stop the plugin."""
         logger.debug(f"[{self.plugin_id}] Stopping plugin...")
         try:
-            logger.debug(f"[{self.plugin_id}] Calling plugin.stop()...")
-            self.plugin.stop()
+            self.plugin.on_stop()
         except Exception as e:
             logger.error(f"Failed to stop plugin: {e}")
 
         self._is_running = False
+        self.state = PluginState.STOPPED
         self.rpc.signal_shutdown()
+        
 
         for topic, subscription in list(self.topic_subscriptions.items()):
             try:
                 subscription.queue.put(None)  # Unblock any waiting get() calls
             except Exception as e:
                 logger.error(f"Error closing queue for topic '{topic}': {e}")
+
+        self.did_stop.set()
+        logger.debug(f"[{self.plugin_id}] Plugin stopped successfully.")
         
     def shutdown(self) -> None:
         """Clean up resources on shutdown."""
         logger.info(f"Plugin {self.plugin_id} shutting down")
         self._is_running = False
+        self.state = PluginState.STOPPED
         try:
             self.rpc.shutdown() 
         except Exception as e:

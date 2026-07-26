@@ -99,16 +99,20 @@ class ObservableTrainPlugin(BasePlugin):
             dp=self.dataprovider
         )
 
-        self.trainer.on_epoch(self.on_epoch)
+        self.trainer.on_epoch_start(self.on_epoch_start)
+        self.trainer.on_epoch_end(self.on_epoch_end)
 
-
-    def on_epoch(self, trainer: DeeplearningCommon, num_epochs: int, epochs: int):
-        self.env_set("epoch", (num_epochs, epochs))    
+    def on_epoch_start(self, epoch: int, epochs: int):
+        self.env_set("epoch", (epoch, epochs))
+    
+    def on_epoch_end(self, epoch: int, epochs: int, metrics: Dict[str, float]):
+        self.topic_publish("metrics", {"layer_id": "model", "metric": metrics, "name": "training"})
         
-
+    
     def main(self):
         autoencoder = self.trial_config.task  == 'autoencoder'
         self.trainer.train(lr=self.trial_config.learning_rate, epoch_total=self.trial_config.epochs, autoencoder=autoencoder)
+        self.stop()
 
 
     def on_layer_forward(self, layer: LayerObserver, x_in: torch.Tensor, x_out: torch.Tensor):

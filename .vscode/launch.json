@@ -6,6 +6,13 @@
     "configurations": [
     
         {
+            "name": "Example: UI",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "modularnet/modularui/examples/example_ui.py",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "Trial: ModularNet",
             "type": "debugpy",
             "request": "launch",

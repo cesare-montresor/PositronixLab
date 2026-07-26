@@ -64,7 +64,8 @@ class PluginManager:
             worker_pydebug_port: Port for the worker pydebug (optional, for debugging plugins)
         """
         self._plugins: Dict[str, PluginInfo] = {}  # plugin_id -> PluginInfo
-        
+        self._plugins_lock = threading.Lock()  # For thread-safe plugin management
+
         self._topic_publishers: Dict[str, str] = {}       # topic -> plugin_id
         self._topic_subscribers: Dict[str, Dict[str, Subscriber]] = {}        # topic -> [queue, queue, ...]
         self._env_subscribers: Dict[str, List[str]] = {}  # env_key -> [plugin_id, ...]
@@ -77,7 +78,36 @@ class PluginManager:
 
 
 
-    
+    def load_plugins(self, descriptors: List[PluginDescriptor], parallel: bool = True) -> None:
+
+        """
+        Load and initialize multiple plugins.
+        
+        Args:
+            descriptors: List of PluginDescriptor objects
+            parallel: Whether to load plugins in parallel
+        """
+
+        if parallel:
+            barrier = mp.Barrier(len(descriptors) + 1)  # +1 for the main process
+            for descriptor in descriptors:
+                thread = threading.Thread(target=self._load_plugin_thread, args=(descriptor, barrier))
+                thread.start()
+            barrier.wait()  # Wait for all plugins to be loaded
+        else:
+            for descriptor in descriptors:
+                self.load_plugin(descriptor)
+
+    def _load_plugin_thread(self, descriptor: PluginDescriptor, barrier: 'mp.Barrier') -> None:
+        """
+        Thread target for loading a plugin and waiting at the barrier.
+        
+        Args:
+            descriptor: PluginDescriptor object
+            barrier: Multiprocessing barrier for synchronization
+        """
+        self.load_plugin(descriptor)
+        barrier.wait()  # Wait for all plugins to be loaded
 
     def load_plugin(
         self,
@@ -98,7 +128,9 @@ class PluginManager:
         options = options or descriptor.options or {}
         worker_pydebug_port = self.worker_pydebug_port
         if self.worker_pydebug_port is not None:
-            worker_pydebug_port +=  len(self._plugins)  # Assign unique debugger port for each plugin
+            with self._plugins_lock:
+                self._plugins[plugin_id] = None
+                worker_pydebug_port +=  len(self._plugins)  # Assign unique debugger port for each plugin
         
         try:
             plugin_rpc = PluginRPC(plugin_id)
@@ -302,13 +334,15 @@ class PluginManager:
         if alive:
             try:
                 pending = info.rpc.plugin_status()
-                status_dict = pending.wait(timeout=1.0)
-                if status_dict.error:
-                    logger.debug(f"Error getting status for {plugin_id}: {status_dict.error}")
+                status_response = pending.wait(timeout=1.0)
+                if status_response is None:
+                    logger.debug(f"[{plugin_id}] No status received")
+                elif status_response.error:
+                    logger.debug(f"[{plugin_id}] Error getting status: {status_response.error}")
                 else:
-                    worker_status = status_dict.result
+                    worker_status = status_response.result
             except Exception as e:
-                logger.debug(f"Failed to get status for {plugin_id}: {e}")
+                logger.debug(f"[{plugin_id}] Failed to get status: {e}")
         
         return ProcessStatus(
             plugin_id=plugin_id,

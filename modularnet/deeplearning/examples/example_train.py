@@ -77,13 +77,17 @@ def test_train():
         if current_time - last_status_time >= 3:
             logger.info(f"Plugin status check ({current_time - start_time:.1f}s):")
             for plugin_id, status in statuses.items():
-                msg = f"  {plugin_id}: process_alive={status.process_alive}"
-                if status.process_pid:
-                    msg += f" pid={status.process_pid}"
+                msg = f"[{plugin_id}] STATUS: "
                 if status.worker_status:
-                    msg += f" worker_status={status.worker_status.state}"
                     if status.worker_status.errors:
                         msg += f" ERRORS: {status.worker_status.errors}"
+                    else:
+                        msg += f" STATE: {status.worker_status.state}"
+                else:
+                    if status.process_alive:
+                        msg += " ALIVE but status unknown"
+                    else:
+                        msg += " Terminated."
                 logger.info(msg)
                 
                 # Check for errors immediately
