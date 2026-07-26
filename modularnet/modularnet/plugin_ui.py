@@ -1,5 +1,7 @@
 from collections import deque
 import logging
+import os
+from pathlib import Path
 import time
 from typing import TYPE_CHECKING, Any, Dict, Optional, List
 
@@ -23,6 +25,7 @@ class UIPlugin(BasePlugin):
             "host": None,
             "port": None,
             "positions_maxlen": 1000,
+            "save_path": None,
         }
 
 
@@ -46,16 +49,11 @@ class UIPlugin(BasePlugin):
         self.trial_config: TrialConfig = None  # Will be set in on_start via env_get("trial_config")
         self.host = options.get("host")
         self.port = options.get("port")
-        self.positions_maxlen = options.get("positions_maxlen")
-
-        self.metrics: Dict[str, Dict[ str, List[float] ]] = {}  # Store metrics received from the model
-        self.positions: Dict[str, deque[torch.Tensor] ] = {}  # Store positions received from the model
-        self.stats: Dict[str, torch.Tensor ] = {}  # Store statistics received from the model
-
+        self.save_path = options.get("save_path")
 
     def on_start(self) -> None:
         self.trial_config = self.env_get("trial_config")
-        self.ui = ModularUI(host=self.host, port=self.port)
+        self.ui = ModularUI(host=self.host, port=self.port, save_path=self.save_path)
         self.ui.run()
 
 
@@ -65,22 +63,30 @@ class UIPlugin(BasePlugin):
 
     def main(self) -> None:
         all_vars = self.env_get()
-        self.ui.update_layout(all_vars=all_vars)
-        time.sleep(1.0)  # Allow other plugins to access this plugin's state
+        self.ui.update_vars(all_vars=all_vars)
+        self.ui.save_state()
+        time.sleep(2.0)  # Allow other plugins to access this plugin's state
         
     def on_stop(self) -> None:
         self.ui.stop() 
 
 
+    def _on_metrics_received(self, data: Dict[str, Dict[str, List[float]]]) -> None:
+        layer_id: str = data.get("layer_id", None)
+        metrics: Dict[str, List[float]] = data.get("metric", None)
+        name: str = data.get("name", None)
 
-    def _on_metrics_received(self, metrics: Dict[str, Any]) -> None:
-        layer_id = metrics["layer_id"]
-        name = metrics["name"]
-        value = metrics["metric"]
-        self.metrics.setdefault(layer_id, {}).setdefault(name, []).append(value)
+        if name == 'spaceloss':
+            self.ui.add_metric_spaceloss(layer_id, metrics)
+        elif name == 'training':
+            self.ui.add_metric_training(metrics)
+        
+        logger.debug(f"Metrics received: {metrics}")
 
-    def _on_positions_received(self, message: Dict[str, Any]) -> None:
-        layer_id = message["layer_id"]
-        positions = message["positions"]
-        self.positions.setdefault(layer_id, deque(maxlen=self.positions_maxlen)).append(positions)
-    
+    def _on_positions_received(self, data: Dict[str, List[torch.Tensor]]) -> None:
+        positions: torch.Tensor = data.get("positions", None)
+        layer_id: str = data.get("layer_id", None)
+        self.ui.add_positions(layer_id, positions)
+        logger.debug(f"Positions received: {positions}")
+
+

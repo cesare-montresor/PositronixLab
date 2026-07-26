@@ -1,7 +1,8 @@
 import logging
+import threading
 import time
-from typing import Any, Dict, Literal, Optional
-
+from typing import Any, Dict, List, Literal, Optional
+import numpy as np
 import torch
 
 from modularnet.modularcluster.modularcluster_kmeans import ModularClusterKmeans
@@ -42,6 +43,9 @@ class ClusterPlugin(BasePlugin):
         self.precompute_distances: bool = options.get("precompute_distances", True)
 
         # One ModularClusterKmeans instance per layer_id
+        self.positions_last: Dict[str, np.ndarray] = {}
+
+        # One ModularClusterKmeans instance per layer_id
         self.clusterers: Dict[str, ModularClusterKmeans] = {}
 
         # Last results per layer_id: {"best_k", "best_score", "labels", "centroids", "silhouette_scores"}
@@ -51,9 +55,17 @@ class ClusterPlugin(BasePlugin):
         self.topic_subscribe("positions", self._on_positions_received)
 
     def main(self) -> None:
+        ths: List[threading.Thread] = []
+        for layer_id, positions in self.positions_last.items():
+            th = threading.Thread(target=self.process_positions, args=(layer_id, positions))
+            ths.append(th)
+            th.start()
+        for th in ths:
+            th.join()
+        
         self.env_set("cluster_stats", self.cluster_stats)  # Make this plugin accessible to other plugins
         time.sleep(1.0)  # Allow other plugins to access this plugin's state
-        pass
+        
 
     def _get_clusterer(self, layer_id: str) -> ModularClusterKmeans:
         """Get or create the clusterer dedicated to a given layer_id."""
@@ -81,8 +93,20 @@ class ClusterPlugin(BasePlugin):
             data: dict containing "positions" (Tensor of shape (n_samples, n_features))
                   and "layer_id" (str)
         """
-        positions: torch.Tensor = data.get("positions")
+        positions: np.ndarray = data.get("positions")
         layer_id: str = data.get("layer_id")
+
+        self.positions_last[layer_id] = positions  # Store last positions for this layer
+
+
+    def process_positions(self, layer_id: str, positions: np.ndarray):
+        """
+        Process positions for a given layer.
+
+        Args:
+            layer_id: ID of the layer
+            positions: NumPy array of shape (n_samples, n_features)
+        """
 
         try:
             if not isinstance(positions, torch.Tensor):

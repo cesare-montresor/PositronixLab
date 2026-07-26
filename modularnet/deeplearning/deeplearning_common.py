@@ -43,21 +43,29 @@ class DeeplearningCommon:
         }
 
         self.on_batch_callback = None
-        self.on_epoch_callback = None
+        self.on_epoch_start_callback = None
+        self.on_epoch_end_callback = None
 
     def on_batch(self, callback):
         self.on_batch_callback = callback
 
-    def on_epoch(self, callback):
-        self.on_epoch_callback = callback
+    def on_epoch_start(self, callback):
+        self.on_epoch_start_callback = callback
+
+    def on_epoch_end(self, callback):
+        self.on_epoch_end_callback = callback
     
     def _update_batch(self, epoch_num, avg_train_loss, avg_train_acc):
         if self.on_batch_callback is not None:
-            self.on_batch_callback(self, epoch_num, avg_train_loss, avg_train_acc)
+            self.on_batch_callback(epoch_num, avg_train_loss, avg_train_acc)
 
-    def _update_epoch(self, epoch, epoch_total):
-        if self.on_epoch_callback is not None:
-            self.on_epoch_callback(self, epoch, epoch_total)
+    def _epoch_did_start(self, epoch, epoch_total):
+        if self.on_epoch_start_callback is not None:
+            self.on_epoch_start_callback(epoch, epoch_total)
+
+    def _epoch_did_end(self, epoch, epoch_total, metrics):
+        if self.on_epoch_end_callback is not None:
+            self.on_epoch_end_callback(epoch, epoch_total, metrics)
 
     def train(self, lr=0.001, epoch_total=20, autoencoder=False):  
         
@@ -71,13 +79,13 @@ class DeeplearningCommon:
         if self.draft: epoch_total = 1
 
         for epoch in tqdm(range(epoch_total), desc=f"Step TRAIN"):
-            self._update_epoch(epoch, epoch_total)
-            train_loss = 0
+            self._epoch_did_start(epoch, epoch_total)
+            train_loss_total = 0
 
-            train_acc = 0
+            train_acc_total = 0
             train_num = 0
-            avg_train_loss = 0
-            avg_train_acc = 0
+            train_loss = 0
+            train_acc = 0
             
             
             batch_bar = tqdm(self.dp.train)
@@ -98,16 +106,16 @@ class DeeplearningCommon:
                 #    self.space.wait_for_queues()
                 
                 with torch.no_grad():
-                    train_loss += loss.detach().item()
+                    train_loss_total += loss.item()
                     train_num += len(x)
                     if self.config.task == "classification":
                         y_hat_cls = torch.argmax(y_hat,dim=1)
-                        train_acc += torch.sum(y == y_hat_cls)
+                        train_acc_total += torch.sum(y == y_hat_cls)
                 
-                avg_train_loss = float(train_loss/train_num)
-                avg_train_acc =  float(train_acc/train_num)
+                train_loss = float(train_loss_total/train_num)
+                train_acc =  float(train_acc_total/train_num)
 
-                desc = f"E {epoch+1}/{epoch_total} | L: {avg_train_loss:.5f} | A: {avg_train_acc:.2f}"
+                desc = f"E {epoch+1}/{epoch_total} | L: {train_loss:.5f} | A: {train_acc:.2f}"
                 batch_bar.set_description(desc)
                 batch_bar.update()
                 if self.draft:
@@ -117,8 +125,7 @@ class DeeplearningCommon:
                         draft_batches = 20
                         break
                 
-                if self.on_batch_callback is not None:
-                    self.on_batch_callback(self, epoch, avg_train_loss, avg_train_acc)
+                self._update_batch( epoch, train_loss, train_acc)
                 
             print("") #new line after batch bar
 
@@ -127,19 +134,19 @@ class DeeplearningCommon:
             
             # self.space.observing = True
 
-            self.metrics["train_loss"].append(avg_train_loss)
-            self.metrics["train_acc"].append(avg_train_acc)
+            self.metrics["train_loss"].append(train_loss)
+            self.metrics["train_acc"].append(train_acc)
             self.metrics["val_loss"].append(val_loss)
             self.metrics["val_acc"].append(val_acc)
             # self.metrics["forward_time"].append(forward_time)
 
-            set_best(self.metrics_best, "train_loss", avg_train_loss)
-            set_best(self.metrics_best, "train_acc", avg_train_acc, min=False)
+            set_best(self.metrics_best, "train_loss", train_loss)
+            set_best(self.metrics_best, "train_acc", train_acc, min=False)
             set_best(self.metrics_best, "val_loss", val_loss)
             set_best(self.metrics_best, "val_acc", val_acc, min=False)
 
             
-            print(  f"\n[{epoch+1}/{epoch_total} | Train L:{avg_train_loss:.5f} A:{avg_train_acc:.2f} | Val L:{val_loss:.5f} A:{val_acc:.2f} | T: {forward_time:.2f}s ]")
+            print(  f"\n[{epoch+1}/{epoch_total} | Train L:{train_loss:.5f} A:{train_acc:.2f} | Val L:{val_loss:.5f} A:{val_acc:.2f} | T: {forward_time:.2f}s ]")
             
             #self.space.rescale_factor_step()
             #self.space.save_space()
@@ -159,8 +166,14 @@ class DeeplearningCommon:
                     print(f'[EarlyStop] No gain. Stopping.')
                     break
 
+            metrics = {
+                "train_loss": train_loss,
+                "train_acc": train_acc,
+                "val_loss": val_loss,
+                "val_acc": val_acc,
+            }
             
-                
+            self._epoch_did_end(epoch, epoch_total, metrics)
             
             #self.space.wait_for_queues()
 

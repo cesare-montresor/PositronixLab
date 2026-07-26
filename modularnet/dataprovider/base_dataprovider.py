@@ -1,4 +1,5 @@
 
+import threading
 from typing import List, TypeVar
 
 import torch
@@ -35,7 +36,8 @@ class BaseDataProvider():
                  batch_size:int =32,
                  split: List[float]=None,
                  num_workers:int=None,
-                 transforms: transforms.Compose =None,
+                 transforms: transforms.Compose = None,
+                 perload: bool = True
                  ):
         self.dataset_split = split if split is not None else [0.7, 0.3]
         self.num_features = None
@@ -55,8 +57,7 @@ class BaseDataProvider():
         self._train:DataReader = None
         self._val:DataReader = None
         self._test:DataReader = None
-        
-        
+    
     @property
     def train(self) -> DataReader:
         if self._train is None and self.dataset_train is not None:

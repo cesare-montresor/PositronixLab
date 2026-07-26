@@ -63,7 +63,8 @@ class ModularSpace():
     def process_activations(self, layer_id: str, activations: torch.Tensor )-> tuple[tuple, Tensor, Tensor | None]:
         layer_info = self.get_space(layer_id)[0]
         scores = self._process_activations(self.config.modular_space_active_q, activations, layer_info["layer_type"], layer_info["activation"])
-        return self.process_scores(layer_id, scores.detach().clone() )
+        scores = scores.detach().clone()  # Detach and clone to avoid in-place modifications
+        return self.process_scores(layer_id, scores)
 
     @staticmethod_compile
     #@staticmethod
@@ -90,8 +91,8 @@ class ModularSpace():
         loss.backward()
         optimizer.step()    
         
-        losses = tuple(loss.detach() for loss in losses)
-        return losses, positions.detach(), None if stats is None else stats.detach() 
+        losses = tuple(loss.detach().cpu().numpy() for loss in losses)
+        return losses, positions.detach().cpu().numpy(), None if stats is None else stats.detach().cpu().numpy() 
 
     @staticmethod_compile
     #@staticmethod

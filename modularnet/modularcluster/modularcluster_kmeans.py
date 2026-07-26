@@ -118,6 +118,7 @@ class ModularClusterKmeans:
                 spherical=spherical, 
                 verbose=self.verbose,
                 nredo=self.n_init
+                #gpu=True
             )
             
             kmeans.train(x)

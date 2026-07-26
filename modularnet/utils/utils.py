@@ -201,37 +201,49 @@ def signature_settings(data:dict) -> str:
     content  = json.dumps(data, sort_keys=True)
     content = content.encode()
     sign = md5(content).hexdigest()
-    print(f"Settings signature: {sign}\n\n---\n\n{data}\n\n---\n\n")
+    #print(f"Settings signature: {sign}\n\n---\n\n{data}\n\n---\n\n")
     return sign
 
 
 
 def save_data(path:str, data):
+    path = str(path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     ext = os.path.splitext(path)[1]
-    with open(path, 'w') as f:
-        if ext == '.json':
+    if ext == '.json':
+        with open(path, 'w') as f: 
             json.dump(data, f, indent=2)
-        elif ext == '.yaml':
+    elif ext == '.yaml':
+        with open(path, 'w') as f: 
             yaml.dump(data, f)
-        elif ext in ['.pkl', '.pickle']:
+    elif ext in ['.pkl', '.pickle']:
+        with open(path, 'wb') as f: 
             pickle.dump(data, f)
-        else:
-            raise Exception(f"Unsupported extension: {ext}")
+    else:
+        logging.error(f"Unsupported extension: {ext}")
+        return False
     return True
 
 
 def load_data(path:str):
+    path = str(path)
     if not os.path.exists(path): return None
     ext = os.path.splitext(path)[1].strip()
-    with open(path, 'r') as f:
-        if ext == '.json':
+    
+    if ext == '.json':
+        with open(path, 'r') as f:
             return json.load(f)
-        elif ext == '.yaml':
+    elif ext == '.yaml':
+        with open(path, 'r') as f:
             return yaml.load(f)
-        elif ext in ['.pkl', '.pickle']:
+    elif ext in ['.pkl', '.pickle']:
+        with open(path, 'rb') as f:
             return pickle.load(f)
-        else:
-            raise Exception(f"Unsupported extension: {ext}")
+    else:
+        logging.error(f"Unsupported extension: {ext}")
     return None
 
+
+def is_debugpy_attached() -> bool:
+    import debugpy
+    return debugpy.is_client_connected()

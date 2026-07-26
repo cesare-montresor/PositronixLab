@@ -57,7 +57,11 @@ class ModularSpacePlugin(BasePlugin):
 
     def on_start(self) -> None:
         self.trial_config: TrialConfig = self.env_get("trial_config")
-        self.observed_layers: dict = self.env_get("observed_layers")
+        while self.observed_layers is None:
+            self.observed_layers = self.env_get("observed_layers")
+            if self.observed_layers is None:
+                logger.warning(f"[{self.plugin_id}] Waiting for observed_layers to be set in the environment...")
+                time.sleep(1.0)
         logger.info(f"[{self.plugin_id}] observed_layers:\n{self.observed_layers}")
         self.space = ModularSpace(self.trial_config, self.observed_layers, self.device, self.stats_enabled)
         self.topic_subscribe("activations", self._on_activations)
@@ -66,7 +70,7 @@ class ModularSpacePlugin(BasePlugin):
         
 
     def main(self) -> None:
-        self.env_set("space_stats", self.space.stats)  # Make this plugin accessible to other plugins
+        self.env_set("space_stats", {layer_id: stat.cpu().numpy() for layer_id, stat in self.space.stats.items()})  # Make this plugin accessible to other plugins
         time.sleep(1.0)  # Allow other plugins to access this plugin's state    
 
     def _on_activations(self, data: Any):
@@ -75,6 +79,7 @@ class ModularSpacePlugin(BasePlugin):
         activations = data.get("activations")
         
         losses, positions, stats = self.space.process_activations(layer_id, activations)
+        del activations  # Free memory
         self._on_position_update(layer_id, losses, positions)
 
     
@@ -86,6 +91,7 @@ class ModularSpacePlugin(BasePlugin):
         event.synchronize()  # wait for GPU, blocks only this subscriber
 
         losses, positions, stats = self.space.process_scores(layer_id, scores)
+        del scores  # Free memory
         self._on_position_update(layer_id, losses, positions)
 
 

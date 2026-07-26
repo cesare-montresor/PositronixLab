@@ -180,9 +180,8 @@ class BasePlugin:
     
     def stop(self) -> None:
         """Stop the plugin."""
-        self._is_running = False
-        self.state = PluginState.STOPPED
-        self.on_stop()
+        
+        self._worker.stop()
 
     def topic_subscribe(self, topic:str, callback:str) -> None:
         """Subscribe to a data topic or environment variable."""
@@ -196,7 +195,7 @@ class BasePlugin:
         """Set an environment variable."""
         self._worker.env_set(name, value, wait=wait)
 
-    def env_get(self, name:str=None, default:Any=None) -> Any:
+    def env_get(self, name:str=None, default:Any=None) -> dict|Any:
         """Get an environment variable."""
         if name is None:
             return self._worker.env_get_all() 

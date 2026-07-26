@@ -1,4 +1,6 @@
 import logging
+import os
+from pathlib import Path
 import time
 
 
@@ -9,29 +11,31 @@ from modularnet.modularnet.plugin_train import ObservableTrainPlugin
 from modularnet.modularnet.plugin_ui import UIPlugin
 from modularnet.spacemath.common import clear_torch_compile_cache
 from modularnet.trial import BaseTrial, TrialConfig, TrialManager
+from modularnet.utils.utils import is_debugpy_attached
 
 logger = logging.getLogger(__name__)
-
 
 class TrailModularNetV1(BaseTrial):
     def __init__(self, config: TrialConfig, trial_manager: TrialManager):
         super().__init__(config, trial_manager)
         self.error = False
 
-        
-        #self.plugin_manager.worker_pydebug_port = 5678  # Set a debug port for worker processes (optional)
+        logger.setLevel(logging.DEBUG)
+        self.plugin_manager.worker_pydebug_port = 5678 if is_debugpy_attached() else None  # Set a debug port for worker processes (optional)
         self.plugin_manager.env_set("trial_config", self.config)  # Make config available to plugins
         
+        self.workdir = os.path.dirname(os.path.realpath(__file__))
+        self.ui_save_path = Path(self.workdir,"dump","data.pickle")
+
         self.plugins = [
-            UIPlugin.Descriptor(),
+            UIPlugin.Descriptor({ "save_path": self.ui_save_path }),
             ObservableTrainPlugin.Descriptor(),
             ModularSpacePlugin.Descriptor(),
-            ClusterPlugin.Descriptor(),
+            #ClusterPlugin.Descriptor(),
             #OverspacePlugin.Descriptor()
         ]
         
-        for plugin in self.plugins:
-            self.load_plugin(plugin)
+        self.plugin_manager.load_plugins(self.plugins, parallel=False)  # Load plugins in the main process for debugging purposes
 
     def is_complete(self) -> bool:
         # For testing purposes, we can just check if the training plugin has finished
@@ -56,11 +60,11 @@ def main():
 
 def test_train():
     """Test basic trial execution with setup and training plugins."""
-    clear_torch_compile_cache(verbose=True)  # Clear torch compile cache before starting the trial
+    # clear_torch_compile_cache(verbose=True)  # Clear torch compile cache before starting the trial
 
     config = TrialConfig()
     config.dataset_name = 'mnist'  # Use mnist dataset for quick testing
-    config.epochs = 1  # Use 1 epoch for quick test
+    config.epochs = 3  # Use 3 epochs for quick test
     trial_manager = TrialManager()
     trial = TrailModularNetV1(config, trial_manager)
     
@@ -87,13 +91,17 @@ def test_train():
         if current_time - last_status_time >= 3:
             logger.info(f"Plugin status check ({current_time - start_time:.1f}s):")
             for plugin_id, status in statuses.items():
-                msg = f"  {plugin_id}: process_alive={status.process_alive}"
-                if status.process_pid:
-                    msg += f" pid={status.process_pid}"
+                msg = f"[{plugin_id}] STATUS: "
                 if status.worker_status:
-                    msg += f" worker_status={status.worker_status.state}"
                     if status.worker_status.errors:
                         msg += f" ERRORS: {status.worker_status.errors}"
+                    else:
+                        msg += f" STATE: {status.worker_status.state}"
+                else:
+                    if status.process_alive:
+                        msg += " ALIVE but status unknown"
+                    else:
+                        msg += " Terminated."
                 logger.info(msg)
                 
                 # Check for errors immediately
