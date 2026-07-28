@@ -143,7 +143,7 @@ class PluginWorker:
         """Main event loop: wait for requests and topic messages."""
         logger.info(f"Plugin {self.plugin_id} worker started")
         cmds = list(self.rpc.command_handlers.keys())
-        logger.info(f"Plugin {self.plugin_id} registered commands: {cmds}")
+        logger.debug(f"Plugin {self.plugin_id} registered commands: {cmds}")
 
         
         self._initialized.set()  # Signal to manager that initialization is complete
