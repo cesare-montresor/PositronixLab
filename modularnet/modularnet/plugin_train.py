@@ -56,8 +56,8 @@ class ObservableTrainPlugin(BasePlugin):
         self.debug = options.get("debug")
         self.compute_scores: bool = options.get("compute_scores")  # If True, send scores; if False, send activations
         self.num_workers_data: int = options.get("num_workers_data")
-        self.ipc_event_pool_max_size: int = options.get("ipc_event_pool_max_size", 8)
- 
+
+
         self.trial_config: TrialConfig = None  # Will be set in on_start via env_get("trial_config")
         self.model: MetaModel = None
         self.dataprovider: BaseDataProvider = None
