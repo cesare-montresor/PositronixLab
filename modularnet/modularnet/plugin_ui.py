@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class UIPlugin(BasePlugin):
-    
+
 
     @classmethod
     def default_options(cls) -> Dict[str, Any]:
@@ -42,7 +42,7 @@ class UIPlugin(BasePlugin):
         self,
         worker: PluginWorker,
         plugin_id: str,
-        options: Dict[str, Any],        
+        options: Dict[str, Any],
     ):
         super().__init__(worker, plugin_id, options )
         self.ui: ModularUI = None  # Will be initialized in on_start()
@@ -59,16 +59,26 @@ class UIPlugin(BasePlugin):
 
         self.topic_subscribe("metrics", self._on_metrics_received)
         self.topic_subscribe("positions", self._on_positions_received)
-        
+        self.topic_subscribe("clusters", self._on_clusters_received)
+
+        # space_stats and observed_layers are each their own env var (set via
+        # env_set by whatever plugin computes them), not fields nested inside
+        # a bigger blob — so we keep them in sync directly via env_subscribe
+        # rather than pulling them out of the generic env_get()/update_vars
+        # flow in main(). env_subscribe also fires the callback immediately
+        # with the current value, so this covers the initial load too.
+        self.env_subscribe("space_stats", self._on_space_stats_changed)
+        self.env_subscribe("observed_layers", self._on_observed_layers_changed)
 
     def main(self) -> None:
         all_vars = self.env_get()
         self.ui.update_vars(all_vars=all_vars)
-        self.ui.save_state()
-        time.sleep(2.0)  # Allow other plugins to access this plugin's state
-        
+
+        time.sleep(10.0)  # Allow other plugins to access this plugin's state
+
     def on_stop(self) -> None:
-        self.ui.stop() 
+        self.ui.save_state()
+        self.ui.stop()
 
 
     def _on_metrics_received(self, data: Dict[str, Dict[str, List[float]]]) -> None:
@@ -80,7 +90,7 @@ class UIPlugin(BasePlugin):
             self.ui.add_metric_spaceloss(layer_id, metrics)
         elif name == 'training':
             self.ui.add_metric_training(metrics)
-        
+
         logger.debug(f"Metrics received: {metrics}")
 
     def _on_positions_received(self, data: Dict[str, List[torch.Tensor]]) -> None:
@@ -89,4 +99,25 @@ class UIPlugin(BasePlugin):
         self.ui.add_positions(layer_id, positions)
         logger.debug(f"Positions received: {positions}")
 
+    def _on_clusters_received(self, data: Dict[str, Any]) -> None:
+        """ClusterPlugin publishes here via topic_publish("clusters", {...})
+        with labels, layer_id, best_k, best_score, and centroids. Forwarded
+        straight to ModularUI, which PCA-transforms the centroids and syncs
+        the snapshot to a position_index (see ModularUI.add_cluster)."""
+        layer_id: str = data.get("layer_id", None)
+        self.ui.add_cluster(
+            layer_id=layer_id,
+            labels=data.get("labels"),
+            best_k=data.get("best_k"),
+            best_score=data.get("best_score"),
+            centroids=data.get("centroids"),
+        )
+        logger.debug(f"Cluster snapshot received for layer {layer_id}")
 
+    def _on_space_stats_changed(self, var_name: str) -> None:
+        value = self.env_get(var_name)
+        self.ui.set_space_stats(value)
+
+    def _on_observed_layers_changed(self, var_name: str) -> None:
+        value = self.env_get(var_name)
+        self.ui.set_observed_layers(value)

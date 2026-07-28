@@ -8,6 +8,7 @@ import torch
 from torch.cuda import Event
 
 from modularnet.modularspace.modularspace import ModularSpace
+from modularnet.plugin.plugin_transport import IpcEventCuda
 from modularnet.plugin.plugin_worker import PluginWorker
 from modularnet.trial.trial_config import TrialConfig
 from modularnet.plugin import BasePlugin, PluginDescriptor
@@ -86,12 +87,17 @@ class ModularSpacePlugin(BasePlugin):
     def _on_scores(self, data: Any):
         layer_id = data.get("layer_id")
         scores = data.get("scores")
-        event: Event = data.get("ready")
+        ready: IpcEventCuda = data.get("ready")
         
-        event.synchronize()  # wait for GPU, blocks only this subscriber
+        ready.wait()  # wait for GPU, blocks only this subscriber
 
         losses, positions, stats = self.space.process_scores(layer_id, scores)
+
+
+        ready.release()  # Signal that the scores have been processed
+          # Signal that the scores have been processed
         del scores  # Free memory
+
         self._on_position_update(layer_id, losses, positions)
 
 

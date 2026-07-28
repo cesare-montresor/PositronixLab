@@ -6,12 +6,12 @@ from modularnet.dataprovider.higgs_dataprovider import HIGGSDataProvider
 from modularnet.dataprovider.iris_dataprovider import IrisDataProvider
 from modularnet.dataprovider.mnist_dataprovider import MnistDataProvider
 from modularnet.metamodel.metatransform import MetaTransform
-
+from modularnet.dataprovider.base_dataprovider import BaseDataProvider
 
 class DataProvider:
 
     @staticmethod
-    def from_config(config: TrialConfig, split=None, num_workers=None):
+    def from_config(config: TrialConfig, split=None, num_workers=None) -> BaseDataProvider:
         name = config.dataset_name
         batch_size = config.batch_size
         flatten = config.model_type == 'fc'
@@ -35,3 +35,4 @@ class DataProvider:
         else:
             raise ValueError(f"Unknown dataset: {name}")
 
+        

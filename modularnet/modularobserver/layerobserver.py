@@ -23,6 +23,8 @@ class LayerObserver:
 
     def __init__(self, observer: 'ModularObserver', layer:nn.Module, layer_id:str, depth:int, num_units:int):
         self.observer = observer
+        self.name = None
+        self.param_ids = []
         self.layer_id = layer_id
         self.layer_type = LayerType.get_layer_type(layer)
         self.activation = None  # observed activation function, if any

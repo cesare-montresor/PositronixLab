@@ -1,6 +1,7 @@
 import logging
 import os
 from pathlib import Path
+import sys
 import time
 
 
@@ -31,7 +32,7 @@ class TrailModularNetV1(BaseTrial):
             UIPlugin.Descriptor({ "save_path": self.ui_save_path }),
             ObservableTrainPlugin.Descriptor(),
             ModularSpacePlugin.Descriptor(),
-            #ClusterPlugin.Descriptor(),
+            ClusterPlugin.Descriptor(),
             #OverspacePlugin.Descriptor()
         ]
         
@@ -40,13 +41,26 @@ class TrailModularNetV1(BaseTrial):
     def is_complete(self) -> bool:
         # For testing purposes, we can just check if the training plugin has finished
         statuses = self.plugin_manager.plugin_status_all()
-
+        
         alive = list(filter(lambda s: s.process_alive, statuses.values()))
-        if len(alive) == 0: return True
+        dead = list(filter(lambda s: not s.process_alive, statuses.values()))
+                
+        if len(alive) == 0: 
+            logger.error(f"All plugins have terminated:")
+            return True  
+            
+
+        if len(dead) > 0:
+            logger.error(f"Some plugins have terminated: {[s for s in dead]}")
+            return True  # Consider the trial complete if any plugin has died (train should die)
 
         return False
 
-
+    def shutdown(self):
+        logger.info("Shutting down trial...")
+        self.plugin_manager.stop_all_plugins()
+        self.plugin_manager.unload_all_plugins()
+        logger.info("Trial shutdown complete.")
 
 
 
@@ -61,7 +75,7 @@ def main():
 def test_train():
     """Test basic trial execution with setup and training plugins."""
     # clear_torch_compile_cache(verbose=True)  # Clear torch compile cache before starting the trial
-
+    verbose=False
     config = TrialConfig()
     config.dataset_name = 'mnist'  # Use mnist dataset for quick testing
     config.epochs = 3  # Use 3 epochs for quick test
@@ -89,7 +103,9 @@ def test_train():
         # Log status every 3 seconds
         current_time = time.time()
         if current_time - last_status_time >= 3:
-            logger.info(f"Plugin status check ({current_time - start_time:.1f}s):")
+            if verbose:
+                logger.info(f"Plugin status check ({current_time - start_time:.1f}s):")
+
             for plugin_id, status in statuses.items():
                 msg = f"[{plugin_id}] STATUS: "
                 if status.worker_status:
@@ -99,16 +115,21 @@ def test_train():
                         msg += f" STATE: {status.worker_status.state}"
                 else:
                     if status.process_alive:
+                        verbose = True
                         msg += " ALIVE but status unknown"
                     else:
                         msg += " Terminated."
-                logger.info(msg)
+
+                if verbose:
+                    logger.info(msg)
                 
                 # Check for errors immediately
                 if status.worker_status and status.worker_status.state == "error":
                     logger.error(f"Plugin {plugin_id} encountered error: {status.worker_status.errors}")
                     raise RuntimeError(f"Plugin {plugin_id} failed: {status.worker_status.errors}")
-            
+
+
+
             last_status_time = current_time
         
         # Check if complete
@@ -126,8 +147,11 @@ def test_train():
         for plugin_id, status in statuses.items():
             logger.error(f"  {plugin_id}: alive={status.process_alive}, status={status.worker_status}")
         raise TimeoutError(f"Test execution exceeded {max_wait}s timeout")
+
+    trial.shutdown()
     
     logger.info("Trial execution completed successfully")
+    sys.exit(0)
         
 
     

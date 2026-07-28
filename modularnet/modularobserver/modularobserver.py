@@ -1,124 +1,134 @@
-
-
 from typing import Dict, List
 
-import torch
 from torch import nn
+import torch
 
-from modularnet.spacemath.common import is_activation, is_layer
-from modularnet.modularobserver.layerobserver import LayerCallback, WeightCallback
+from modularnet.modularobserver.layerobserver import LayerCallback, WeightCallback, LayerObserver
+from modularnet.modularobserver.modelmapper import ModelMapper
+from modularnet.spacemath.common import is_layer, is_linear, is_conv
 from modularnet.trial.trial_config import TrialConfig
-from modularnet.modularobserver.layerobserver import LayerObserver
 
 
+# =====================================================================
+# 4. ModularObserver (Observation & Metric Manager)
+# =====================================================================
 
 class ModularObserver:
-    def __init__(self, config: TrialConfig, model: nn.Module=None, device:torch.device=None, useLayers=True, useActivations=True):
+    """Manages LayerObservers and metric collection, powered by ModelMapper."""
+    def __init__(
+        self, 
+        config: TrialConfig, 
+        model: nn.Module, 
+        device: torch.device = None,
+    ):
         self.config = config
-        self.device = device if device else model.device if model is not None else torch.device("cpu")
-        self.useLayers = useLayers
-        self.useActivations = useActivations
-        self.observers: List['LayerObserver'] = []
-        self.by_layer: Dict[nn.Module, 'LayerObserver'] = {}
-        self.model: nn.Module = None
-
-        self.forward_hook = None
-        self.backward_hook = None
-
-        if model is not None:
-            self.observe(model)
-
-
-    def on_forward(self, callback=None):
-        if self.model is None:
-            raise ValueError("Model not set. Call observe(model) first.")
-        if callback is None and self.forward_hook is not None:
-            self.forward_hook.remove()
-            self.forward_hook = None
-        elif callback is not None:
-            self.forward_hook = self.model.register_forward_hook( lambda module, input, output: callback(self, input, output) )
-
-    def on_backward(self, callback=None):
-        if self.model is None:
-            raise ValueError("Model not set. Call observe(model) first.")
-        if callback is None and self.backward_hook is not None:
-            self.backward_hook.remove()
-            self.backward_hook = None
-        elif callback is not None:
-            self.backward_hook = self.model.register_full_backward_hook(lambda module, input, output: callback(self, input, output))
-
-        
-    def on_forward_layer(self, callback: LayerCallback=None):
-        [observer.on_forward_layer(callback) for observer in self.observers]
-        
-    def on_backward_layer(self, callback: LayerCallback=None):
-        [observer.on_backward_layer(callback) for observer in self.observers]
-
-    def on_grad_weights(self, callback: WeightCallback=None):
-        [observer.on_grad_weights(callback) for observer in self.observers] 
-
-    def layer_id(self, lo: 'LayerObserver'):
-        for i, m in enumerate(self.observers):
-            if m == lo: return str(i)
-        return str(-1)
-
-    def get_layer(self, lo_id:str):
-        for i, m in enumerate(self.observers):
-            if str(i) == str(lo_id): return m
-        return None
-    
-    
-    def observe_activation(self, activation_fn:nn.Module):
-        if not self.useActivations: return False
-        if not is_activation(activation_fn): return False
-        self.observers[-1].set_activation(activation_fn)
-        return True
-        
-    def observe_layer(self, module: nn.Module, num_units:int, depth:int): 
-        if not self.useLayers: return False
-        if not is_layer(module): return False
-        lo = LayerObserver(self, module, str(len(self.observers)), depth, num_units)
-        self.observers.append(lo)
-        self.by_layer[module] = lo
-        return True
-    
-    def num_units(self, parent_module: nn.Module, child_module: nn.Module):
-        if hasattr(child_module,'out_features'): return child_module.out_features
-        elif hasattr(child_module,'out_channels'): return child_module.out_channels
-        elif hasattr(parent_module,'out_features'): return parent_module.out_features
-        elif hasattr(parent_module,'out_channels'): return parent_module.out_channels
-        
-        return None
-
-    def observe(self, model: nn.Module):
+        self.device = device or getattr(model, 'device', torch.device("cpu"))
         self.model = model
-        self.observers = []
-        self._observe(model)
-        return self.observers
-
-    def _observe(self, parent: nn.Module, num_units:int|None=None, depth=1,):
-        for _, child in parent.named_children():
-            # child.register_full_backward_hook(self.backward_hook)
-            num_units = self.num_units(parent, child) or num_units
-            
-            if self.observe_activation(child): pass 
-            elif self.observe_layer(child, num_units, depth):
-                depth +=1
-            else:
-                num_units = self._observe(child, num_units, depth)
         
-        return num_units
+        self.observers: List[LayerObserver] = []
+        self.by_name: Dict[str, LayerObserver] = {}
+        self.by_layer: Dict[nn.Module, LayerObserver] = {}
+        
+        self.latest_graph_dict = None
+
+        self.mapper = ModelMapper(
+            model=self.model,
+            is_suitable_layer=self._is_suitable_layer,
+            on_graph_changed=self._on_graph_discovered
+        )
+        
+        self._graph_update_callback = None  # Optional callback for external graph updates
+
+    def _is_suitable_layer(self, module: nn.Module, name: str) -> bool:
+        """Determines which modules are tracked as unique layers in the graph."""
+        # return is_layer(module)
+        # return is_linear(module) or is_conv(module)        
+        return is_linear(module) # todo: support all architectures
+
+    def _on_graph_discovered(self, mapper: ModelMapper):
+        """Called automatically when the mapper finds new structure."""
+        self._sync_observers_with_mapper()
+        self.latest_graph_dict = mapper.to_dict()
+        if self._graph_update_callback is None: return
+        self._graph_update_callback(self.latest_graph_dict)
+
+    def _sync_observers_with_mapper(self):
+        """Syncs the underlying topological nodes with metric-collecting LayerObservers."""
+        for name, node_data in self.mapper.nodes.items():
+            if name not in self.by_name:
+                module_ref = node_data['module_ref']
+                depth = node_data.get('depth', 0)
+                num_units = node_data['out_units']
+                
+                layer_id = str(len(self.observers))
+                lo = LayerObserver(self, module_ref, layer_id, depth, num_units)
+                lo.name = name
+                lo.param_ids = node_data['param_ids']
+                
+                self.observers.append(lo)
+                self.by_name[name] = lo
+                self.by_layer[module_ref] = lo
+            else:
+                # Keep depth perfectly synced in case dynamic tracing adjusted it
+                self.by_name[name].depth = node_data.get('depth', self.by_name[name].depth)
+            
+            # Sync functional activations
+            lo = self.by_name[name]
+            for act in node_data['functional_acts']:
+                if hasattr(lo, 'set_functional_activation'):
+                    lo.set_functional_activation(act)
+
+    def static_map(self, ) -> Dict[str, List]:
+        self.mapper.static_mapping()
+        return self.latest_graph_dict
+
+    def runtime_map(self, dummy_data: torch.Tensor, retrace: bool = False) -> Dict[str, List]:
+        """
+        Runs a traced forward pass to accurately construct edges and
+        discover functional activations, then returns the ready Cytoscape dictionary.
+
+        Args:
+            dummy_data: input tensor used to drive the traced forward pass.
+            retrace: if False (default), the mapper only traces dynamically on
+                the first call ("once") and subsequent calls are cheap no-ops
+                that reuse the previously discovered graph. If True, the
+                mapper re-traces on every call ("yes") -- use this only if
+                the model's control flow can change the graph shape between
+                calls (e.g. data-dependent branching), since re-tracing repeats
+                the hook + TorchFunctionMode overhead every time.
+        """
+        self.mapper.dynamic_mode = "yes" if retrace else "once"
+        with self.mapper.trace_context():
+            _ = self.model(dummy_data)
+        self.mapper.dynamic_mode = "no"
+
+        return self.latest_graph_dict
+
+    # =====================================================================
+    # Callbacks Forwarding
+    # =====================================================================
+    
+    def on_graph_update(self, callback):
+        """Sets a callback to be called whenever the graph is updated."""
+        self._graph_update_callback = callback
+
+    def on_forward_layer(self, callback: LayerCallback = None):
+        for observer in self.observers:
+            observer.on_forward_layer(callback)
+            
+    def on_backward_layer(self, callback: LayerCallback = None):
+        for observer in self.observers:
+            observer.on_backward_layer(callback)
+
+    def on_grad_weights(self, callback: WeightCallback = None):
+        for observer in self.observers:
+            observer.on_grad_weights(callback) 
 
     def clear(self):
+        """Removes all hooks and clears the mapped observers."""
         self.on_forward_layer(None)
         self.on_backward_layer(None)
-        
         self.on_grad_weights(None)
-        
-        self.on_forward(None)
-        self.on_backward(None)
-        
         self.observers = []
-        self.model = None
-        self.forward_hook = None
-        self.backward_hook = None
+        self.by_name = {}
+        self.by_layer = {}

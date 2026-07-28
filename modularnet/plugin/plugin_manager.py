@@ -300,7 +300,8 @@ class PluginManager:
         for plugin_id in list(self._plugins.keys()):
             self.stop_plugin(plugin_id)
 
-    def shutdown(self) -> None:
+    
+    def unload_all_plugins(self) -> None:
         """Shut down the plugin manager and all plugins."""
         self.stop_all_plugins()
         for plugin_id in list(self._plugins.keys()):
