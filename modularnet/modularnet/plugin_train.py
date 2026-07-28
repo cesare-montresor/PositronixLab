@@ -11,7 +11,7 @@ from modularnet.modularobserver.layerobserver import LayerObserver
 from modularnet.modularobserver.modularobserver import ModularObserver
 
 
-from modularnet.plugin.plugin_transport import _IpcEventPool, _IpcEventSlot, IpcEventCuda, IpcEventPoolManaged
+from modularnet.plugin.plugin_transport import IpcEventCuda, IpcEventPoolManaged
 from modularnet.plugin.plugin_worker import PluginWorker
 from modularnet.spacemath.spacemath import SpaceMath
 from modularnet.trial.trial_config import TrialConfig
