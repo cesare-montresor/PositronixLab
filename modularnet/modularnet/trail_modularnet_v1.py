@@ -29,10 +29,10 @@ class TrailModularNetV1(BaseTrial):
         self.ui_save_path = Path(self.workdir,"dump","data.pickle")
 
         self.plugins = [
-            UIPlugin.Descriptor({ "save_path": self.ui_save_path }),
+            #UIPlugin.Descriptor({ "save_path": self.ui_save_path }),
             ObservableTrainPlugin.Descriptor(),
             ModularSpacePlugin.Descriptor(),
-            ClusterPlugin.Descriptor(),
+            #ClusterPlugin.Descriptor(),
             #OverspacePlugin.Descriptor()
         ]
         

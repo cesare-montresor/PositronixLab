@@ -39,8 +39,13 @@ class ModularObserver:
         
         self._graph_update_callback = None  # Optional callback for external graph updates
 
+    def layers(self):
+        return self.mapper.nodes_to_dict()
+
     def _is_suitable_layer(self, module: nn.Module, name: str) -> bool:
         """Determines which modules are tracked as unique layers in the graph."""
+        if len(list(module.parameters())) == 0:
+            return False # only learnable layers
         # return is_layer(module)
         # return is_linear(module) or is_conv(module)        
         return is_linear(module) # todo: support all architectures
@@ -57,26 +62,10 @@ class ModularObserver:
         for name, node_data in self.mapper.nodes.items():
             if name not in self.by_name:
                 module_ref = node_data['module_ref']
-                depth = node_data.get('depth', 0)
-                num_units = node_data['out_units']
-                
-                layer_id = str(len(self.observers))
-                lo = LayerObserver(self, module_ref, layer_id, depth, num_units)
-                lo.name = name
-                lo.param_ids = node_data['param_ids']
-                
+                lo = LayerObserver(self, name, node_data)
                 self.observers.append(lo)
                 self.by_name[name] = lo
                 self.by_layer[module_ref] = lo
-            else:
-                # Keep depth perfectly synced in case dynamic tracing adjusted it
-                self.by_name[name].depth = node_data.get('depth', self.by_name[name].depth)
-            
-            # Sync functional activations
-            lo = self.by_name[name]
-            for act in node_data['functional_acts']:
-                if hasattr(lo, 'set_functional_activation'):
-                    lo.set_functional_activation(act)
 
     def static_map(self, ) -> Dict[str, List]:
         self.mapper.static_mapping()

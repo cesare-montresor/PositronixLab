@@ -6,6 +6,7 @@ from typing import Callable, Dict, List, Set, Optional, Any, Tuple
 
 # Assume these are imported from your existing project structure
 from modularnet.spacemath.common import is_activation, is_layer
+from modularnet.spacemath.spacemath import LayerType
 # =====================================================================
 # 1. Metric Extractor Utility
 # =====================================================================
@@ -52,7 +53,7 @@ class _MapperInterceptor(TorchFunctionMode):
         kwargs = kwargs or {}
         output = func(*args, **kwargs)
         if func in self.target_ops:
-            self.mapper._record_functional(func.__name__)
+            self.mapper._record_functional(func)
         return output
 
 
@@ -90,13 +91,12 @@ class ModelMapper:
         """Serializes the graph for Dash Cytoscape, including depths & capacities."""
         elements = []
         for name, data in self.nodes.items():
-            acts = ", ".join(data['functional_acts'])
             label_parts = [f"{name}\n({data['class_name']})"]
             
             if data['in_units'] is not None and data['out_units'] is not None:
                 label_parts.append(f"in: {data['in_units']} | out: {data['out_units']} {data['unit_type']}")
-            if acts: 
-                label_parts.append(f"[{acts}]")
+            if data['activation_fn'] is not None:
+                label_parts.append(f"[{data['activation_fn']}]")
             
             elements.append({
                 'data': {
@@ -113,7 +113,16 @@ class ModelMapper:
             
         return {'elements': elements}
 
-
+    def nodes_to_dict(self) -> Dict[str, Any]:
+        """Returns a single node's metadata as a dictionary."""
+        nodes = dict()
+        for name, data in self.nodes.items():
+            node = dict(data)
+            node['module_ref'] = str(node['module_ref'])  # Convert module reference to string for serialization
+            node['activation_fn'] = str(node['activation_fn']) if node['activation_fn'] is not None else ''
+            nodes[name] = node
+        return nodes
+        
     def static_mapping(self):
         """Builds initial nodes from the model definition with base integer depths."""
         self._graph_changed_in_pass = False
@@ -134,7 +143,8 @@ class ModelMapper:
                 'id': name,
                 'class_name': type(module).__name__,
                 'module_ref': module,
-                'functional_acts': [],
+                'layer_type': LayerType.get_layer_type(module),
+                'activation_fn': None,  # Will be filled in by functional interceptor if applicable
                 'in_units': io_metrics['in_units'],
                 'out_units': io_metrics['out_units'],
                 'unit_type': io_metrics['unit_type'],
@@ -155,12 +165,12 @@ class ModelMapper:
             self.edges.add((source, target))
             self._graph_changed_in_pass = True
 
-    def _record_functional(self, act_name: str):
+    def _record_functional(self, act_fn: Callable):
         if not self.sequence: return
         last_node = self.sequence[-1]
         
-        if last_node in self.nodes and act_name not in self.nodes[last_node]['functional_acts']:
-            self.nodes[last_node]['functional_acts'].append(act_name)
+        if last_node in self.nodes and self.nodes[last_node]['activation_fn'] is None:
+            self.nodes[last_node]['activation_fn'] = act_fn
             self._graph_changed_in_pass = True
 
     def _assign_dynamic_depths(self):

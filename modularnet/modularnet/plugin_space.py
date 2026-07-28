@@ -94,7 +94,7 @@ class ModularSpacePlugin(BasePlugin):
         losses, positions, stats = self.space.process_scores(layer_id, scores)
 
 
-        ready.release()  # Signal that the scores have been processed
+        ready.clear()  # Signal that the scores have been processed
           # Signal that the scores have been processed
         del scores  # Free memory
 

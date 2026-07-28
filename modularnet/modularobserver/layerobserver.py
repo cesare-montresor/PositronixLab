@@ -21,26 +21,11 @@ WeightCallback = Callable[['LayerObserver', torch.nn.Parameter, torch.Tensor], t
 class LayerObserver:
     
 
-    def __init__(self, observer: 'ModularObserver', layer:nn.Module, layer_id:str, depth:int, num_units:int):
+    def __init__(self, observer: 'ModularObserver', layer_id: str, node:dict):
         self.observer = observer
-        self.name = None
-        self.param_ids = []
+        self.node = node
         self.layer_id = layer_id
-        self.layer_type = LayerType.get_layer_type(layer)
-        self.activation = None  # observed activation function, if any
-        self.activation_type = None  # observed activation function, if any
-
-        self.depth = depth
-        self.num_units = num_units
-
-        # shape information
-        self.batch_size = None
-        self.input_shape = None
-        self.output_shape = None
-
-        #model layers
-        self.layer = layer
-
+        self.layer: nn.Module = node['module_ref']
 
         # hooks
         self.forward_layer_hook = None
@@ -49,25 +34,6 @@ class LayerObserver:
         self.forward_weights_hook = None
         self.backward_weights_hook = None
 
-    def to_dict(self):
-        return {
-            "layer_id": self.layer_id,
-            "layer_type": self.layer_type,
-            "activation_type": self.activation_type,
-            "depth": self.depth,
-            "num_units": self.num_units,
-            "batch_size": self.batch_size,
-            "input_shape": self.input_shape,
-            "output_shape": self.output_shape
-        }
-    
-    def set_activation(self, activation_fn: nn.Module = None):
-        if activation_fn is None:
-            self.activation = None
-            self.activation_type = None
-        else:
-            self.activation = activation_fn
-            self.activation_type = ActivationType.get_activation_type(activation_fn)
 
     def on_grad_weights(self, callback: WeightCallback = None):
         [param.register_hook(lambda grad: callback(self, param, grad)) for param in self.layer.parameters()]

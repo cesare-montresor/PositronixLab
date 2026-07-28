@@ -32,7 +32,7 @@ class ModularSpace():
 
     def _init_space(self):
         for layer_id, layer_info in self.observed_layers.items():
-            num_cus = layer_info["num_units"]
+            num_cus = layer_info["out_units"]
 
             # positions: [num_cus, modular_space_size]
             positions = torch.randn(num_cus, self.config.modular_space_size, device=self.device, requires_grad=True)
