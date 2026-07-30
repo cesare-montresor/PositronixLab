@@ -3,6 +3,7 @@ from pymoo.core import callback
 from torch import nn
 import torch
 
+from modularnet.modularobserver.modelmapper import Node
 from modularnet.spacemath.common import  is_activation, is_conv, is_linear, is_layer
 
 from typing import TYPE_CHECKING, Callable
@@ -21,11 +22,11 @@ WeightCallback = Callable[['LayerObserver', torch.nn.Parameter, torch.Tensor], t
 class LayerObserver:
     
 
-    def __init__(self, observer: 'ModularObserver', layer_id: str, node:dict):
+    def __init__(self, observer: 'ModularObserver', layer_id: str, node: 'Node'):
         self.observer = observer
         self.node = node
         self.layer_id = layer_id
-        self.layer: nn.Module = node['module_ref']
+        self.layer = node.module_ref
 
         # hooks
         self.forward_layer_hook = None

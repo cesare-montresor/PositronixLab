@@ -8,7 +8,8 @@ import torchinfo
 from modularnet.dataprovider.higgs_dataprovider import BaseDataProvider
 from modularnet.deeplearning import DeeplearningCommon
 from modularnet.modularobserver.layerobserver import LayerObserver
-from modularnet.modularobserver.modularobserver import ModularObserver
+from modularnet.modularobserver.modelmapper import GraphFormatter
+from modularnet.modularobserver.modularobserver import Graph, ModularObserver
 
 
 from modularnet.plugin.plugin_transport import IpcEventCuda, IpcEventPoolManaged
@@ -33,6 +34,7 @@ class ObservableTrainPlugin(BasePlugin):
             "compute_scores": True,
             "num_workers_data": 2,
             "ipc_event_pool_max_size": 8,
+            "ipc_event_stale_after_s": 5.0,
         }
  
     @classmethod
@@ -75,8 +77,8 @@ class ObservableTrainPlugin(BasePlugin):
         # time that layer reports scores. See _IpcEventPool for why this
         # replaces a single reused event / unbounded per-call allocation.
         self._ipc_event_pools: Dict[str, IpcEventPoolManaged] = {}
-        self.ipc_event_pool_size: int = options.get("ipc_event_pool_max_size", 8)
-        self.ipc_event_stale_after_s: float = options.get("ipc_event_stale_after_s", 5.0)  # seconds
+        self.ipc_event_pool_size: int = options.get("ipc_event_pool_max_size")
+        self.ipc_event_stale_after_s: float = options.get("ipc_event_stale_after_s")
  
  
     def on_start(self) -> None:
@@ -106,15 +108,9 @@ class ObservableTrainPlugin(BasePlugin):
         #self.env_set("dataprovider", self.dataprovider)
  
         self.modular_observer = ModularObserver(self.trial_config, self.model)
-        self.modular_observer.static_map()
-        self.modular_observer.runtime_map(x_sample.to(model_device))  # Pass only the input tensor to runtime_map
-
+        self.modular_observer.on_graph_update(self.on_graph_update)
+        self.modular_observer.map(x_sample)
         self.modular_observer.on_forward_layer(self.on_layer_forward)
-
-        self.env_set("observed_layers", self.modular_observer.layers())  # Make observed layers available to other plugins
-        self.env_set("model_summary", self.modular_observer.latest_graph_dict )  # Make model summary available to other plugins
-        
- 
  
         self.trainer = DeeplearningCommon(
             config=self.trial_config,
@@ -124,10 +120,11 @@ class ObservableTrainPlugin(BasePlugin):
  
         self.trainer.on_epoch_start(self.on_epoch_start)
         self.trainer.on_epoch_end(self.on_epoch_end)
+
  
-    def on_graph_update(self, graph_dict: Dict[str, Any]):
-        self.env_set("observed_layers", self.modular_observer.layers())  # Make observed layers available to other plugins
-        self.env_set("model_summary", self.modular_observer.latest_graph_dict )  # Make model summary available to other plugins
+    def on_graph_update(self, graph: Graph):
+        self.env_set("observed_layers", GraphFormatter.nodes_dict(graph))  # Make observed layers available to other plugins
+        self.env_set("model_graph", GraphFormatter.to_dict(graph))  # Make model summary available to other plugins
  
     def on_epoch_start(self, epoch: int, epochs: int):
         self.env_set("epoch", (epoch, epochs))
@@ -171,7 +168,7 @@ class ObservableTrainPlugin(BasePlugin):
         self.forward_stream.wait_stream(torch.cuda.current_stream())
         with torch.cuda.stream(self.forward_stream):
             scores = SpaceMath.activations_to_scores(
-                x_out.detach(), layer.node['layer_type'], layer.node['activation_fn'],
+                x_out.detach(), layer.node.layer_type, layer.node.activation_fn,
                 self.trial_config.modular_space_active_q, cnn_locality_weight=0.5
             )
             ipc_event_cuda = self._acquire_ipc_slot(layer.layer_id)

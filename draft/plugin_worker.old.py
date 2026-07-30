@@ -100,6 +100,7 @@ class PluginWorker:
         self.options = options
         self._is_running = False
         self._initialized: Event = initialized
+        logger.name = f"[{self.plugin_id}]"
         
         self.did_start = threading.Event()
         self.did_start.clear()
@@ -612,13 +613,13 @@ class PluginWorker:
         while True:
             
             if self._is_running is False:
-                logger.info(f"Plugin {self.plugin_id} worker stopping, exiting topic listener for '{topic}'")
+                logger.info(f"[{self.plugin_id}] worker stopping, exiting topic listener for '{topic}'")
                 break
 
             # check is subscription still active (in case unsubscribed while waiting for data)
             cur = self.topic_subscriptions.get(topic,None)
             if cur is None or cur != registered: 
-                logger.info(f"Subscription for topic '{topic}' no longer registered, stopping listener thread")
+                logger.info(f"[{self.plugin_id}] Subscription for topic '{topic}' no longer registered, stopping listener thread")
                 break
             
 
@@ -626,21 +627,21 @@ class PluginWorker:
             try:
                 data = registered.queue.get() # Blocking wait for new data
                 if data is None:
-                    logger.info(f"Plugin {self.plugin_id} received shutdown sentinel for topic '{topic}'")
+                    logger.info(f"[{self.plugin_id}] received shutdown sentinel for topic '{topic}'")
                     break
             except ValueError as e:
                 if registered.queue.closed():
-                    logger.info(f"Subscription for topic '{topic}' queue closed, stopping listener thread")
+                    logger.info(f"[{self.plugin_id}] Subscription for topic '{topic}' queue closed, stopping listener thread")
                     break
                 else:
-                    logger.error(f"Error getting data from topic '{topic}' queue: {e}")
+                    logger.error(f"[{self.plugin_id}] Error getting data from topic '{topic}' queue: {e}")
                     self.error_log.append(str(e))
                     continue
             except (EOFError, OSError) as e:
-                logger.info(f"Subscription for topic '{topic}' closed, stopping listener thread: {e}")
+                logger.info(f"[{self.plugin_id}] Subscription for topic '{topic}' closed, stopping listener thread: {e}")
                 break
             except Exception as e:
-                logger.error(f"Error in topic '{topic}' listener: {e}", exc_info=True)
+                logger.error(f"[{self.plugin_id}] Error in topic '{topic}' listener: {e}", exc_info=True)
                 self.error_log.append(str(e))
                 continue
 
@@ -648,7 +649,7 @@ class PluginWorker:
             try:
                 registered.callback(data)
             except Exception as e:
-                logger.error(f"Error in topic '{topic}' callback: {e}", exc_info=True)
+                logger.error(f"[{self.plugin_id}] Error in topic '{topic}' callback: {e}", exc_info=True)
                 self.error_log.append(str(e))
                 continue
     
@@ -679,7 +680,7 @@ class PluginWorker:
         try:
             sub.queue.close()
         except Exception as e:
-            logger.info(f"Error closing queue for topic '{topic}': {e}", exc_info=True)
+            logger.info(f"[{self.plugin_id}] Error closing queue for topic '{topic}': {e}", exc_info=True)
 
         return True
     
