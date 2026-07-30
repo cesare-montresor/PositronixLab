@@ -9,7 +9,7 @@ from modularnet.dataprovider.higgs_dataprovider import BaseDataProvider
 from modularnet.deeplearning import DeeplearningCommon
 from modularnet.modularobserver.layerobserver import LayerObserver
 from modularnet.modularobserver.modelmapper import GraphFormatter
-from modularnet.modularobserver.modularobserver import Graph, ModularObserver
+from modularnet.modularobserver.modularobserver import ModelGraph, ModularObserver
 
 
 from modularnet.plugin.plugin_transport import IpcEventCuda, IpcEventPoolManaged
@@ -122,7 +122,7 @@ class ObservableTrainPlugin(BasePlugin):
         self.trainer.on_epoch_end(self.on_epoch_end)
 
  
-    def on_graph_update(self, graph: Graph):
+    def on_graph_update(self, graph: ModelGraph):
         self.env_set("observed_layers", GraphFormatter.nodes_dict(graph))  # Make observed layers available to other plugins
         self.env_set("model_graph", GraphFormatter.to_dict(graph))  # Make model summary available to other plugins
  

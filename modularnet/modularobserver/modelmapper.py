@@ -55,7 +55,7 @@ def extract_layer_io_metrics(module: nn.Module) -> Dict[str, Any]:
 # =====================================================================
 
 @dataclass
-class Node:
+class ModelNode:
     id: str
     class_name: str
     module_ref: nn.Module
@@ -72,7 +72,7 @@ class Node:
     # identity separately below since nn.Module doesn't define __eq__.
     _STRUCTURAL_FIELDS = ('class_name', 'layer_type', 'in_units', 'out_units', 'unit_type', 'param_ids')
 
-    def update_from(self, new: 'Node') -> bool:
+    def update_from(self, new: 'ModelNode') -> bool:
         """
         Merges freshly-extracted metadata from `new` into self, in place.
         Returns True if anything actually changed.
@@ -122,7 +122,7 @@ class Node:
 
 
 @dataclass(frozen=True)
-class Edge:
+class ModelEdge:
     source: str
     target: str
 
@@ -140,18 +140,18 @@ class Edge:
         return hash(self.__key())
 
     def __eq__(self, other):
-        if isinstance(other, Edge):
+        if isinstance(other, ModelEdge):
             return self.__key() == other.__key()
         return NotImplemented
 
-class Graph:
+class ModelGraph:
     """Holds nodes/edges and owns their serialization."""
 
     def __init__(self):
-        self.nodes: Dict[str, Node] = {}
-        self.edges: Set[Edge] = set()
+        self.nodes: Dict[str, ModelNode] = {}
+        self.edges: Set[ModelEdge] = set()
 
-    def add_node(self, node: Node) -> bool:
+    def add_node(self, node: ModelNode) -> bool:
         """Adds a new node, or refreshes an existing one in place via
         Node.update_from(). Returns True if the node is new or changed
         (i.e. the graph needs a redraw)."""
@@ -170,7 +170,7 @@ class Graph:
             # A self-loop here would also corrupt depth assignment, which
             # derives a node's depth from its neighbors.
             return False
-        edge = Edge(source, target)
+        edge = ModelEdge(source, target)
         if edge in self.edges:
             return False
         self.edges.add(edge)
@@ -181,7 +181,7 @@ class GraphFormatter:
 
 
     @classmethod
-    def to_dict(cls, graph: Graph) -> Dict[str, List|Dict[str, Any]]:
+    def to_dict(cls, graph: ModelGraph) -> Dict[str, List|Dict[str, Any]]:
         """Returns a dict with 'nodes' and 'edges' lists for the graph."""
         return {
             "nodes": cls.nodes_dict(graph),
@@ -190,14 +190,14 @@ class GraphFormatter:
     
     
     @classmethod
-    def to_cytoscape(cls, graph: Graph) -> Dict[str, List]:
+    def to_cytoscape(cls, graph: ModelGraph) -> Dict[str, List]:
         """Serializes the full graph for Dash Cytoscape."""
         elements = [cls.node_to_cytoscape(node) for node in graph.nodes.values()]
         elements += [cls.edge_to_cytoscape(edge) for edge in graph.edges]
         return {'elements': elements}
 
     @classmethod
-    def node_to_cytoscape(cls, node: Node) -> Dict[str, Any]:
+    def node_to_cytoscape(cls, node: ModelNode) -> Dict[str, Any]:
         """Serializes a single node for Dash Cytoscape."""
         data = node.to_dict()
         label_keys = ['id', 'class_name', 'unit_type', 'in_units', 'out_units', 'activation_fn']
@@ -208,27 +208,27 @@ class GraphFormatter:
         return { 'data': data, 'classes': classes }
 
     @classmethod
-    def edge_to_cytoscape(cls, edge: Edge) -> Dict[str, Any]:
+    def edge_to_cytoscape(cls, edge: ModelEdge) -> Dict[str, Any]:
         """Serializes a single edge for Dash Cytoscape."""
         return {'data': edge.to_dict()}
 
     @classmethod
-    def nodes_dict(cls, graph: Graph) -> Dict[str, Any]:
+    def nodes_dict(cls, graph: ModelGraph) -> Dict[str, Any]:
         """Returns all node metadata, keyed by node id."""
         return {name: node.to_dict() for name, node in graph.nodes.items()}
 
     @classmethod
-    def nodes_list(cls, graph: Graph) -> List[Dict[str, Any]]:
+    def nodes_list(cls, graph: ModelGraph) -> List[Dict[str, Any]]:
         """Returns all node metadata, keyed by node id."""
         return [node.to_dict() for node in graph.nodes.values()]
 
     @classmethod
-    def edges_list(cls, graph: Graph) -> List[Dict[str, Any]]:
+    def edges_list(cls, graph: ModelGraph) -> List[Dict[str, Any]]:
         """Returns all edge metadata, keyed by edge."""
         return [edge.to_dict() for edge in graph.edges]
 
     @classmethod
-    def edges_dict(cls, graph: Graph) -> Dict[str, Any]:
+    def edges_dict(cls, graph: ModelGraph) -> Dict[str, Any]:
         """Returns all edge metadata, keyed by edge."""
         return {edge.name: edge.to_dict() for edge in graph.edges}
 
@@ -272,11 +272,11 @@ class ModelMapper:
                 )
         return value
 
-    def nodes(self) -> Dict[str, Node]:
+    def nodes(self) -> Dict[str, ModelNode]:
         """Returns all nodes' metadata as a dictionary keyed by node id."""
         return GraphFormatter.nodes_dict(self.graph)
 
-    def edges(self) -> List[Edge]:
+    def edges(self) -> List[ModelEdge]:
         """Returns all edges as a list of Edge objects."""
         return GraphFormatter.edges_list(self.graph)
 
@@ -299,7 +299,7 @@ class ModelMapper:
         self.on_graph_changed = on_graph_changed
 
         # Graph State
-        self.graph = Graph()
+        self.graph = ModelGraph()
 
         # Tracing State
         self.sequence: List[str] = []
@@ -397,7 +397,7 @@ class ModelMapper:
 
     def _add_node(self, name: str, module: nn.Module, default_depth: Optional[int] = None):
         io_metrics = extract_layer_io_metrics(module)
-        node = Node(
+        node = ModelNode(
             id=name,
             class_name=type(module).__name__,
             module_ref=module,

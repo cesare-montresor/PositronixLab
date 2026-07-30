@@ -4,7 +4,7 @@ from torch import nn
 import torch
 
 from modularnet.modularobserver.layerobserver import LayerCallback, WeightCallback, LayerObserver
-from modularnet.modularobserver.modelmapper import Graph, ModelMapper
+from modularnet.modularobserver.modelmapper import ModelGraph, ModelMapper
 from modularnet.spacemath.common import is_layer, is_linear, is_conv
 from modularnet.trial.trial_config import TrialConfig
 
@@ -39,7 +39,7 @@ class ModularObserver:
         
         self._graph_update_callback = None  # Optional callback for external graph updates
 
-    def graph(self) -> Graph:
+    def graph(self) -> ModelGraph:
         return self.mapper.graph
 
     def _is_suitable_layer(self, module: nn.Module, name: str) -> bool:
