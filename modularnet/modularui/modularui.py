@@ -60,7 +60,7 @@ class ModularUI:
         self.reloader = reloader
         self.save_path = save_path
         self.pca_dim = 2
-        self.pca_samples = 1000
+        self.pca_samples = 100
 
         # Initialize the frozen dataclass.
         # The default factories create a new Lock for each field automatically.
