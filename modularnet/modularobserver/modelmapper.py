@@ -116,10 +116,9 @@ class ModelNode:
             'in_units': self.in_units,
             'out_units': self.out_units,
             'unit_type': self.unit_type,
-            'param_ids': self.param_ids,
+            'param_ids': list(self.param_ids), 
             'depth': self.depth,
         }
-
 
 @dataclass(frozen=True)
 class ModelEdge:
