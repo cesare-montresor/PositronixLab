@@ -1,26 +1,18 @@
 const vscode = require('vscode');
-
-let _pattern = null;
+const net = require('net');
 
 function getConfig() {
     return vscode.workspace.getConfiguration('debugpySpawn');
 }
 
-function getPattern() {
-    if (!_pattern) {
-        _pattern = new RegExp(getConfig().get('portPattern'));
-    }
-    return _pattern;
-}
-
 const attachedPorts = new Set();
+let server = null;
+let ipcPort = 0;
 
 async function attachToWorker(port, name) {
     if (attachedPorts.has(port)) return;
     attachedPorts.add(port);
-
     const config = getConfig();
-    // vscode.window.showInformationMessage(`debugpy-spawn: worker detected on port ${port}, attaching...`);
     try {
         await vscode.debug.startDebugging(undefined, {
             type: "debugpy",
@@ -30,7 +22,6 @@ async function attachToWorker(port, name) {
             justMyCode: config.get('justMyCode')
         });
     } catch (e) {
-        // port gone — remove so it can retry if worker restarts
         attachedPorts.delete(port);
     }
 }
@@ -38,40 +29,52 @@ async function attachToWorker(port, name) {
 function activate(context) {
     console.log('debugpy-spawn: activated');
 
+    // 1. Start the IPC Server on a dynamic port
+    server = net.createServer((socket) => {
+        socket.on('data', (data) => {
+            const message = data.toString().trim();
+            const [portStr, name] = message.split(':');
+            const port = parseInt(portStr, 10);
+            if (!isNaN(port) && name) {
+                attachToWorker(port, name);
+            }
+        });
+    });
+
+    // Listen on port 0 to let the OS assign a free port
+    server.listen(0, '127.0.0.1', () => {
+        ipcPort = server.address().port;
+        console.log(`debugpy-spawn: IPC server listening on port ${ipcPort}`);
+    });
+
+    // 2. Inject the dynamic port into the Python environment
     context.subscriptions.push(
         vscode.debug.registerDebugConfigurationProvider('debugpy', {
             resolveDebugConfiguration(folder, config) {
                 if (config.request === 'launch') {
-                    config.redirectOutput = true;
+                    if (!config.env) {
+                        config.env = {};
+                    }
+                    if (ipcPort > 0) {
+                        config.env._DEBUG_SPAWN_EXT_PORT = ipcPort.toString();
+                    }
                 }
                 return config;
             }
         })
     );
 
-    // only start watching terminal when a debug session starts
     context.subscriptions.push(
-        vscode.debug.onDidStartDebugSession(session => {
-            if (session.type !== 'debugpy') return;
-            console.log('debugpy-spawn: debug session started, watching terminal');
-
-            const listener = vscode.window.onDidWriteTerminalData(e => {
-                const match = e.data.match(getPattern());
-                if (match) attachToWorker(parseInt(match[1]), match[2]);
-            });
-
-            // stop watching when session ends
-            vscode.debug.onDidTerminateDebugSession(terminated => {
-                if (terminated.id === session.id) {
-                    listener.dispose();
-                    attachedPorts.clear();
-                }
-            });
+        vscode.debug.onDidTerminateDebugSession(() => {
+            attachedPorts.clear();
         })
     );
 }
 
+function deactivate() {
+    if (server) {
+        server.close();
+    }
+}
 
-
-function deactivate() {}
 module.exports = { activate, deactivate };

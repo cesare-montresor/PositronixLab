@@ -23,17 +23,48 @@ logger = logging.getLogger(__name__)
 
 
 
+import os
+import socket
+import logging
+
+logger = logging.getLogger(__name__)
+
+def _notify_vscode_to_attach(port: int, process_name: str) -> None:
+    """
+    Checks if the VS Code extension provided an IPC port via environment variable.
+    If so, sends a ping to trigger an automatic debugger attachment.
+    """
+    ext_port_str = os.environ.get('_DEBUG_SPAWN_EXT_PORT')
+    
+    if not ext_port_str:
+        return
+        
+    try:
+        ext_port = int(ext_port_str)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1.0)
+            s.connect(('127.0.0.1', ext_port))
+            s.sendall(f"{port}:{process_name}".encode('utf-8'))
+    except Exception as e:
+        logger.warning(f"Failed to notify VS Code extension on port {ext_port_str}: {e}")
+
 def init_debugger(port: int, process_name: str = 'worker', wait_for_client: bool = False) -> None:
     try:
         import debugpy
         debugpy.listen(("localhost", port))
-        logger.info(f"Debugger listening on port {port}")  # extension sees this
         
-        print(f"Debugger listening on port {port} for {process_name} process", flush=True)  # belt and braces
+        # Kept for your standard logging/terminal output
+        logger.info(f"Debugger listening on port {port}")
+        print(f"Debugger listening on port {port} for {process_name} process", flush=True) 
+        
+        # New: Ping the extension silently bypassing stdout
+        _notify_vscode_to_attach(port, process_name)
+
         if wait_for_client:
             logger.info("Waiting for debugger to attach...")
-            debugpy.wait_for_client()        # blocks AFTER the log line is out
+            debugpy.wait_for_client()
             logger.info("Debugger attached")
+            
     except Exception as e:
         logger.warning(f"Failed to initialize debugger on port {port}: {e}")
 
