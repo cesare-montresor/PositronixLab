@@ -13,6 +13,8 @@ import json
 import yaml
 from hashlib import md5
 import multiprocessing as mp
+import socket
+
 
 debug = False
 
@@ -21,21 +23,8 @@ last_session_path = None
 
 logger = logging.getLogger(__name__)
 
-
-
-import os
-import socket
-import logging
-
-logger = logging.getLogger(__name__)
-
 def _notify_vscode_to_attach(port: int, process_name: str) -> None:
-    """
-    Checks if the VS Code extension provided an IPC port via environment variable.
-    If so, sends a ping to trigger an automatic debugger attachment.
-    """
     ext_port_str = os.environ.get('_DEBUG_SPAWN_EXT_PORT')
-    
     if not ext_port_str:
         return
         
@@ -48,17 +37,20 @@ def _notify_vscode_to_attach(port: int, process_name: str) -> None:
     except Exception as e:
         logger.warning(f"Failed to notify VS Code extension on port {ext_port_str}: {e}")
 
-def init_debugger(port: int, process_name: str = 'worker', wait_for_client: bool = False) -> None:
+# Notice: 'port: int' is completely gone from the arguments
+def init_debugger(process_name: str = 'worker', wait_for_client: bool = True) -> None:
     try:
         import debugpy
-        debugpy.listen(("localhost", port))
         
-        # Kept for your standard logging/terminal output
-        logger.info(f"Debugger listening on port {port}")
-        print(f"Debugger listening on port {port} for {process_name} process", flush=True) 
+        # Passing 0 tells the OS to assign a random free port.
+        # debugpy returns the actual port it bound to.
+        _, assigned_port = debugpy.listen(("localhost", 0))
         
-        # New: Ping the extension silently bypassing stdout
-        _notify_vscode_to_attach(port, process_name)
+        logger.info(f"Debugger listening on port {assigned_port}")
+        print(f"Debugger listening on port {assigned_port} for {process_name} process", flush=True) 
+        
+        # Ping the extension silently bypassing stdout
+        _notify_vscode_to_attach(assigned_port, process_name)
 
         if wait_for_client:
             logger.info("Waiting for debugger to attach...")
@@ -66,7 +58,7 @@ def init_debugger(port: int, process_name: str = 'worker', wait_for_client: bool
             logger.info("Debugger attached")
             
     except Exception as e:
-        logger.warning(f"Failed to initialize debugger on port {port}: {e}")
+        logger.warning(f"Failed to initialize debugger: {e}")
 
 
 def process_start_spawn(force=False):

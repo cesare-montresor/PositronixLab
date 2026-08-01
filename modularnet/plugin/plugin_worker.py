@@ -74,8 +74,8 @@ class PluginWorker:
         """
         if pydebug_port is not None:
             logger.setLevel(logging.DEBUG)
-            init_debugger(pydebug_port, process_name=plugin_id, wait_for_client=True)
-        
+            init_debugger(plugin_id)
+            
         worker = PluginWorker(
             plugin_id,
             descriptor_dict,
