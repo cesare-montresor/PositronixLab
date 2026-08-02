@@ -1,5 +1,5 @@
 
-from typing import List, TypeVar
+from typing import List, Self, TypeVar
 
 import torch
 
@@ -8,6 +8,19 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 
 class DataReader(DataLoader):
+    _registry: dict[str, type[Self]] = {}
+    
+    def __init_subclass__(cls, plugin_name: str | None = None, **kwargs):
+        super().__init_subclass__(**kwargs)
+        
+        # Determine registry key: custom plugin_name or default class name
+        key = plugin_name or cls.__name__
+        
+        if key in cls._registry:
+            raise ValueError(f"Plugin '{key}' is already registered.")
+            
+        cls._registry[key] = cls
+
     def __init__(self, 
         dataset: Dataset,
         batch_size: int = 32,
@@ -31,6 +44,20 @@ class DataReader(DataLoader):
         )
 
 class BaseDataProvider():
+    # Registry dictionary to store subclasses by their name
+    _registry: dict[str, type[Self]] = {}
+
+    def __init_subclass__(cls, plugin_name: str | None = None, **kwargs):
+        super().__init_subclass__(**kwargs)
+        
+        # Determine registry key: custom plugin_name or default class name
+        key = plugin_name or cls.__name__
+        
+        if key in cls._registry:
+            raise ValueError(f"Plugin '{key}' is already registered.")
+            
+        cls._registry[key] = cls
+
     def __init__(self, 
                  batch_size:int =32,
                  split: List[float]=None,
