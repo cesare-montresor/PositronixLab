@@ -53,7 +53,7 @@ class PluginManager:
         self,
         timeout_request: float = 5.0,
         timeout_start: float = 5.0,
-        worker_pydebug_port: Optional[int] = None
+        worker_pydebug: bool = None
     ):
         """
         Initialize plugin manager.
@@ -61,7 +61,7 @@ class PluginManager:
         Args:
             timeout_request: Default timeout for sync requests (seconds)
             timeout_start: Timeout for start command (seconds)
-            worker_pydebug_port: Port for the worker pydebug (optional, for debugging plugins)
+            worker_pydebug: Whether to enable pydebug for worker processes (optional, for debugging plugins)
         """
         self._plugins: Dict[str, PluginInfo] = {}  # plugin_id -> PluginInfo
         self._plugins_lock = threading.Lock()  # For thread-safe plugin management
@@ -74,8 +74,7 @@ class PluginManager:
         
         self.timeout_request = timeout_request
         self.timeout_start = timeout_start
-        self.worker_pydebug_port = worker_pydebug_port
-
+        self.worker_pydebug = False if worker_pydebug is None else bool(worker_pydebug)
 
 
     def load_plugins(self, descriptors: List[PluginDescriptor], parallel: bool = True) -> None:
@@ -126,11 +125,6 @@ class PluginManager:
         """
         plugin_id = descriptor.name
         options = options or descriptor.options or {}
-        worker_pydebug_port = self.worker_pydebug_port
-        if self.worker_pydebug_port is not None:
-            with self._plugins_lock:
-                self._plugins[plugin_id] = None
-                worker_pydebug_port +=  len(self._plugins)  # Assign unique debugger port for each plugin
         
         try:
             plugin_rpc = PluginRPC(plugin_id)
@@ -142,7 +136,7 @@ class PluginManager:
             # Spawn worker process
             process = mp.Process(
                 target=PluginWorker.run,
-                args=(plugin_id, descriptor.to_dict(), options, worker_channel, initialized, worker_pydebug_port),
+                args=(plugin_id, descriptor.to_dict(), options, worker_channel, initialized, self.worker_pydebug ),
                 name=f"plugin-{plugin_id}"
             )
             

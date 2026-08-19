@@ -14,8 +14,9 @@ if TYPE_CHECKING:
 
 
 
-LayerCallback = Callable[['LayerObserver', torch.Tensor, torch.Tensor], torch.Tensor | None]
-WeightCallback = Callable[['LayerObserver', torch.nn.Parameter, torch.Tensor], torch.Tensor | None]
+PreForwardCallback = Callable[[nn.Module, torch.Tensor], torch.Tensor | None]
+ForwardCallback = Callable[[nn.Module, torch.Tensor, torch.Tensor], torch.Tensor | None]
+WeightCallback = Callable[[nn.Module, torch.nn.Parameter, torch.Tensor], torch.Tensor | None]
 
 
 
@@ -29,6 +30,7 @@ class LayerObserver:
         self.layer = node.module_ref
 
         # hooks
+        self.pre_forward_layer_hook = None
         self.forward_layer_hook = None
         self.backward_layer_hook = None
 
@@ -37,20 +39,27 @@ class LayerObserver:
 
 
     def on_grad_weights(self, callback: WeightCallback = None):
-        [param.register_hook(lambda grad: callback(self, param, grad)) for param in self.layer.parameters()]
+        [param.register_hook(lambda grad: callback(self.layer, param, grad)) for param in self.layer.parameters()]
 
-    def on_forward_layer(self, callback: LayerCallback = None):
+    def on_pre_forward_layer(self, callback: PreForwardCallback = None):
+        if callback is None:
+            self.pre_forward_layer_hook.remove() if self.pre_forward_layer_hook else None
+            self.pre_forward_layer_hook = None
+        else:
+            self.pre_forward_layer_hook = self.layer.register_forward_pre_hook(callback)
+
+    def on_forward_layer(self, callback: ForwardCallback = None):
         if callback is None:
             self.forward_layer_hook.remove() if self.forward_layer_hook else None
             self.forward_layer_hook = None
         else:
-            self.forward_layer_hook = self.layer.register_forward_hook(lambda module, input, output: callback(self, input, output))
+            self.forward_layer_hook = self.layer.register_forward_hook(callback)
 
-    def on_backward_layer(self, callback: LayerCallback = None):
+    def on_backward_layer(self, callback: ForwardCallback = None):
         if callback is None:
             self.backward_layer_hook.remove() if self.backward_layer_hook else None
             self.backward_layer_hook = None
         else:
-            self.backward_layer_hook = self.layer.register_full_backward_hook(lambda module, input, output: callback(self, input, output))
+            self.backward_layer_hook = self.layer.register_full_backward_hook(callback)
     
 

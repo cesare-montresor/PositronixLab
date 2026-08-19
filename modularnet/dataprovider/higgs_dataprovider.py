@@ -55,10 +55,10 @@ import requests
 import torch
 from torch.utils.data import Dataset, random_split
 
-from modularnet.dataprovider.base_dataprovider import BaseDataProvider
+from modularnet.dataprovider.dataprovider import DataProvider
 
 
-class HIGGSDataProvider(BaseDataProvider):
+class HIGGSDataProvider(DataProvider):
     """
     HIGGS Dataset Provider for binary classification - optimized for large datasets.
 

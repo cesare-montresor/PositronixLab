@@ -2,9 +2,9 @@
 import torch
 import os
 from torch.utils.data import Dataset, random_split
-from modularnet.dataprovider.base_dataprovider import BaseDataProvider
+from modularnet.dataprovider.dataprovider import DataProvider
 
-class SynevalOddOneOutDataProvider(BaseDataProvider):
+class SynevalOddOneOutDataProvider(DataProvider):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.name = 'syneval_odd_one_out'

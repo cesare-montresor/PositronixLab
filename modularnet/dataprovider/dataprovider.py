@@ -1,62 +1,124 @@
-from modularnet.trial.trial_config import TrialConfig
-from modularnet.dataprovider.covertype_dataprovider import CovertypeDataProvider
-from modularnet.dataprovider.fmnist_dataprovider import FashionMnistDataProvider
-from modularnet.dataprovider.higgs_dataprovider import HIGGSDataProvider
-from modularnet.dataprovider.iris_dataprovider import IrisDataProvider
-from modularnet.dataprovider.mnist_dataprovider import MnistDataProvider
-from modularnet.dataprovider.cifar10_dataprovider import CIFAR10DataProvider
-from modularnet.dataprovider.cifar100_dataprovider import CIFAR100DataProvider
-from modularnet.dataprovider.scan_dataprovider import SCANDataProvider
-from modularnet.dataprovider.math_dataprovider import MathDataProvider
-from modularnet.dataprovider.cvr_oddoneout_dataprovider import CVROddOneOutDataProvider
-from modularnet.dataprovider.syneval_oddoneout_dataprovider import SynevalOddOneOutDataProvider
-from modularnet.metamodel.metatransform import MetaTransform
-from modularnet.dataprovider.base_dataprovider import BaseDataProvider
 
-class DataProvider:
+from typing import List, Self, TypeVar
 
-    @staticmethod
-    def from_config(config: TrialConfig, split=None, num_workers=None) -> BaseDataProvider:
-        name = config.dataset_name
-        batch_size = config.batch_size
-        flatten = config.model_type == 'fc'
+import torch
 
-        if name == 'iris':
-            return IrisDataProvider(batch_size=batch_size, split=split, num_workers=num_workers)
-        elif name == 'mnist':
-            transforms = [] 
-            if flatten: transforms.append('flatten')
-            t = MetaTransform(transforms)
-            return MnistDataProvider(batch_size=batch_size, split=split, transforms=t, num_workers=num_workers)
-        elif name == 'fashion_mnist':
-            transforms = [] 
-            if flatten: transforms.append('flatten')
-            t = MetaTransform(transforms)
-            return FashionMnistDataProvider(batch_size=batch_size, split=split, transforms=t, num_workers=num_workers)
-        elif name == 'covertype':
-            return CovertypeDataProvider(batch_size=batch_size, split=split, num_workers=num_workers)
-        elif name == 'higgs':
-            return HIGGSDataProvider(batch_size=batch_size, split=split, num_workers=num_workers)
-        elif name == 'cifar10':
-            transforms = []
-            if flatten: transforms.append('flatten')
-            t = MetaTransform(transforms)
-            return CIFAR10DataProvider(batch_size=batch_size, split=split, transforms=t, num_workers=num_workers)
-        elif name == 'cifar100':
-            transforms = []
-            if flatten: transforms.append('flatten')
-            t = MetaTransform(transforms)
-            return CIFAR100DataProvider(batch_size=batch_size, split=split, transforms=t, num_workers=num_workers)
-        elif name == 'scan':
-            return SCANDataProvider(batch_size=batch_size, split=split, num_workers=num_workers)
-        elif name == 'deepmind_math':
-            return MathDataProvider(batch_size=batch_size, split=split, num_workers=num_workers)
-        elif name == 'cvr_odd_one_out':
-            transforms = []
-            if flatten: transforms.append('flatten')
-            t = MetaTransform(transforms)
-            return CVROddOneOutDataProvider(batch_size=batch_size, split=split, transforms=t, num_workers=num_workers)
-        elif name == 'syneval_odd_one_out':
-            return SynevalOddOneOutDataProvider(batch_size=batch_size, split=split, num_workers=num_workers)
-        else:
-            raise ValueError(f"Unknown dataset: {name}")
+
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
+
+
+class IndexedDataset(Dataset):
+    def __init__(self, dataset: Dataset):
+        self.dataset = dataset
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        x,y = self.dataset[idx]
+        return x, y, idx
+
+
+class DataReader(DataLoader):
+    _registry: dict[str, type[Self]] = {}
+    
+    def __init_subclass__(cls, plugin_name: str | None = None, **kwargs):
+        super().__init_subclass__(**kwargs)
+        
+        # Determine registry key: custom plugin_name or default class name
+        key = plugin_name or cls.__name__
+        
+        if key in cls._registry:
+            raise ValueError(f"Plugin '{key}' is already registered.")
+            
+        cls._registry[key] = cls
+
+    def __init__(self, 
+        dataset: Dataset,
+        batch_size: int = 32,
+        num_workers: int = 2,
+        persistent_workers: bool = True,
+        multiprocessing_context: str = None,
+        drop_last=True,
+        indexed_dataset: bool = False,
+        **kwargs
+    ):
+        if multiprocessing_context is None and num_workers > 0:
+            multiprocessing_context = "fork" if not torch.cuda.is_initialized() else "spawn"
+
+        
+
+        super().__init__(
+            dataset=dataset if not indexed_dataset else IndexedDataset(dataset),
+            batch_size=batch_size,
+            persistent_workers=persistent_workers if num_workers > 0 else False,
+            multiprocessing_context=multiprocessing_context if num_workers > 0 else None,
+            drop_last=drop_last,
+            num_workers=num_workers,
+            **kwargs
+        )
+
+class DataProvider():
+    # Registry dictionary to store subclasses by their name
+    _registry: dict[str, type[Self]] = {}
+
+    def __init_subclass__(cls, plugin_name: str | None = None, **kwargs):
+        super().__init_subclass__(**kwargs)
+        
+        # Determine registry key: custom plugin_name or default class name
+        key = plugin_name or cls.__name__
+        
+        if key in cls._registry:
+            raise ValueError(f"Plugin '{key}' is already registered.")
+            
+        cls._registry[key] = cls
+
+    def __init__(self, 
+                 batch_size:int =32,
+                 split: List[float]=None,
+                 num_workers:int=None,
+                 transforms: transforms.Compose =None,
+                 indexed_dataset: bool = False,
+                 ):
+        self.dataset_split = split if split is not None else [0.7, 0.3]
+        self.num_features = None
+        self.num_classes = None
+        self.num_workers = 2 if num_workers is None else num_workers
+        self.transforms = transforms
+        self.indexed_dataset = indexed_dataset
+
+        self.x_shape = None
+        self.y_shape = None
+
+        self.dataset: Dataset = None
+        self.dataset_train: Dataset = None
+        self.dataset_val: Dataset = None
+        self.dataset_test: Dataset = None
+        
+
+        self.batch_size = batch_size
+        self._train:DataReader = None
+        self._val:DataReader = None
+        self._test:DataReader = None
+        
+        
+    @property
+    def train(self) -> DataReader:
+        if self._train is None and self.dataset_train is not None:
+            self._train = DataReader(self.dataset_train, batch_size=self.batch_size, num_workers=self.num_workers, indexed_dataset=self.indexed_dataset)
+        return self._train
+    
+    @property
+    def val(self) -> DataReader:
+        if self._val is None and self.dataset_val is not None:
+            self._val = DataReader(self.dataset_val, batch_size=self.batch_size, num_workers=self.num_workers, indexed_dataset=self.indexed_dataset)
+        return self._val
+    
+    @property
+    def test(self) -> DataReader:
+        if self._test is None and self.dataset_test is not None:
+            self._test = DataReader(self.dataset_test, batch_size=self.batch_size, num_workers=self.num_workers, indexed_dataset=self.indexed_dataset)
+        return self._test
+
+

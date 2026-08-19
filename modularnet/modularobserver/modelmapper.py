@@ -56,7 +56,7 @@ def extract_layer_io_metrics(module: nn.Module) -> Dict[str, Any]:
 
 @dataclass
 class ModelNode:
-    id: str
+    name: str
     class_name: str
     module_ref: nn.Module
     layer_type: Any
@@ -108,7 +108,7 @@ class ModelNode:
     def to_dict(self) -> Dict[str, Any]:
         """Serializes full node metadata (module_ref/activation_fn stringified)."""
         return {
-            'id': self.id,
+            'id': self.name,
             'class_name': self.class_name,
             'module_ref': str(self.module_ref),
             'layer_type': self.layer_type,
@@ -154,9 +154,9 @@ class ModelGraph:
         """Adds a new node, or refreshes an existing one in place via
         Node.update_from(). Returns True if the node is new or changed
         (i.e. the graph needs a redraw)."""
-        existing = self.nodes.get(node.id)
+        existing = self.nodes.get(node.name)
         if existing is None:
-            self.nodes[node.id] = node
+            self.nodes[node.name] = node
             return True
         return existing.update_from(node)
 
@@ -397,7 +397,7 @@ class ModelMapper:
     def _add_node(self, name: str, module: nn.Module, default_depth: Optional[int] = None):
         io_metrics = extract_layer_io_metrics(module)
         node = ModelNode(
-            id=name,
+            name=name,
             class_name=type(module).__name__,
             module_ref=module,
             layer_type=LayerType.get_layer_type(module),

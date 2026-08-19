@@ -1,4 +1,4 @@
-from modularnet.dataprovider.base_dataprovider import BaseDataProvider
+from modularnet.dataprovider.dataprovider import DataProvider
 from torch.utils.data import Dataset
 import torch
 from torch import nn
@@ -6,7 +6,7 @@ import sklearn.datasets as sklearn_datasets
 
 ### iris ###
 
-class IrisDataProvider(BaseDataProvider):
+class IrisDataProvider(DataProvider):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.name = 'iris'

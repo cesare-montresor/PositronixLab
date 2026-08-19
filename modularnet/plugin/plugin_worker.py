@@ -60,7 +60,7 @@ class PluginWorker:
         options: Dict[str, Any],
         queue_descriptor: QueueDescriptor,
         initialized: Event,
-        pydebug_port: int = None   
+        pydebug: bool = False 
     ) -> None:
         """
         Entry point for plugin subprocess.
@@ -72,7 +72,7 @@ class PluginWorker:
             queue_descriptor: Queue descriptor for communication
             initialized: Event to signal initialization completion
         """
-        if pydebug_port is not None:
+        if pydebug:
             logger.setLevel(logging.DEBUG)
             init_debugger(plugin_id)
             

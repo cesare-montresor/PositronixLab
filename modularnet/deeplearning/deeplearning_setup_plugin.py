@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, List
 
 from modularnet.plugin.plugin_worker import PluginWorker
 from modularnet.trial.trial_config import TrialConfig
-from modularnet.dataprovider.dataprovider import DataProvider
+from modularnet.dataprovider.dataprovider_factory import DataProviderFactory
 from modularnet.metamodel.metamodel import MetaModel
 from modularnet.plugin import BasePlugin, PluginDescriptor, Subscription
 
@@ -83,7 +83,7 @@ class DeeplearningSetupPlugin(BasePlugin):
             device = model.device
             
             # Pass model device to dataset
-            dataprovider = DataProvider.from_config(
+            dataprovider = DataProviderFactory.from_config(
                 self.trial_config, 
                 device=device, 
                 num_workers=self.num_workers_data

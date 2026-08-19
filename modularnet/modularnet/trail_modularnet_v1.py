@@ -10,6 +10,7 @@ from modularnet.modularnet.plugin_overspace import OverspacePlugin
 from modularnet.modularnet.plugin_space import ModularSpacePlugin
 from modularnet.modularnet.plugin_train import ObservableTrainPlugin
 from modularnet.modularnet.plugin_ui import UIPlugin
+from modularnet.modularnet.plugin_compositionality import CompositionalityPlugin
 from modularnet.spacemath.common import clear_torch_compile_cache
 from modularnet.trial import BaseTrial, TrialConfig, TrialManager
 from modularnet.utils.utils import is_debugpy_attached
@@ -22,21 +23,22 @@ class TrailModularNetV1(BaseTrial):
         self.error = False
 
         logger.setLevel(logging.DEBUG)
-        self.plugin_manager.worker_pydebug_port = 5678 if is_debugpy_attached() else None  # Set a debug port for worker processes (optional)
+        self.plugin_manager.worker_pydebug = True if is_debugpy_attached() else False  # Set a debug port for worker processes (optional)
         self.plugin_manager.env_set("trial_config", self.config)  # Make config available to plugins
         
         self.workdir = os.path.dirname(os.path.realpath(__file__))
         self.ui_save_path = Path(self.workdir,"dump","data.pickle")
 
         self.plugins = [
-            UIPlugin.Descriptor({ "save_path": self.ui_save_path }),
+            #UIPlugin.Descriptor({ "save_path": self.ui_save_path }),
             ObservableTrainPlugin.Descriptor(),
             ModularSpacePlugin.Descriptor(),
             ClusterPlugin.Descriptor(),
+            CompositionalityPlugin.Descriptor(),
             #OverspacePlugin.Descriptor()
         ]
         
-        self.plugin_manager.load_plugins(self.plugins, parallel=False)  # Load plugins in the main process for debugging purposes
+        self.plugin_manager.load_plugins(self.plugins, parallel=True)  # Load plugins in the main process for debugging purposes
 
     def is_complete(self) -> bool:
         # For testing purposes, we can just check if the training plugin has finished
@@ -48,11 +50,10 @@ class TrailModularNetV1(BaseTrial):
         if len(alive) == 0: 
             logger.error(f"All plugins have terminated:")
             return True  
-            
 
-        if len(dead) > 0:
-            logger.error(f"Some plugins have terminated: {[s for s in dead]}")
-            return True  # Consider the trial complete if any plugin has died (train should die)
+        if self.plugin_manager.env_get("compositionality_completed"):
+            logger.info("Compositionality plugin has completed.")
+            return True
 
         return False
 
@@ -74,11 +75,11 @@ def main():
 
 def test_train():
     """Test basic trial execution with setup and training plugins."""
-    # clear_torch_compile_cache(verbose=True)  # Clear torch compile cache before starting the trial
+    #clear_torch_compile_cache(verbose=True)  # Clear torch compile cache before starting the trial
     verbose=False
     config = TrialConfig()
     config.dataset_name = 'mnist'  # Use mnist dataset for quick testing
-    config.epochs = 3  # Use 3 epochs for quick test
+    config.epochs = 1  # Use 1 epoch for quick test
     trial_manager = TrialManager()
     trial = TrailModularNetV1(config, trial_manager)
     

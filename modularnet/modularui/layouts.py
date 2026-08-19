@@ -1,137 +1,166 @@
 import logging
 from typing import TYPE_CHECKING
 
-from dash import Dash, Input, Output, dcc, html
+import dash_bootstrap_components as dbc
+from dash import Dash, Input, Output, State, dcc, html, ALL, ctx
 
-from modularnet.modularui.components import ConfigDisplay, ModelDisplay, Title, VarsDisplay
-from modularnet.modularui.plots import (
-    LayerSpaceLossDisplay,
-    OverallSpaceLossDisplay,
-    PositionsDisplay,
-    TrainingMetricsDisplay,
-)
+from modularnet.modularui.components import ConfigOverlay, ModelDAGDisplay, Title, VarsDisplay
+from modularnet.modularui.docks import DashboardLayout, Panel
+from modularnet.modularui.plots import LayerBoardDisplay, SpaceLossRow, TrainingMetricsDisplay
 
 if TYPE_CHECKING:
     from modularnet.modularui.modularui import ModularUI
 
 logger = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------
-# Layout and Callbacks
-# ---------------------------------------------------------
 class HomeLayout:
 
     def __init__(self, ui: "ModularUI", theme: str = 'default', poll_interval_ms: int = 3000):
-        self.css = [f"themes/{theme}.css"]
+        self.css = [f"themes/{theme}.css", "themes/toggle-switches.css"]
         self.poll_interval_ms = poll_interval_ms
 
         self.title = Title("ModularNet UI")
         self.vars = VarsDisplay(css_id="modularnet-vars")
-        self.model = ModelDisplay(css_id="modularnet-model")
-        self.config = ConfigDisplay(css_id="modularnet-config")
+        self.config_overlay = ConfigOverlay()
 
         self.training_metrics = TrainingMetricsDisplay(css_id="modularnet-training-metrics")
-        self.overall_spaceloss = OverallSpaceLossDisplay(css_id="modularnet-overall-spaceloss")
-        self.layer_spaceloss = LayerSpaceLossDisplay(css_id="modularnet-layer-spaceloss")
-        # PositionsDisplay needs a live `ui` handle: it pulls PCA-collection
-        # progress, layer stats, and cluster-sync data on demand (from its own
-        # Interval + slider callbacks), rather than being fed a data blob by
-        # HomeLayout's generic poll callback like the other widgets.
-        self.positions = PositionsDisplay(ui=ui, css_id="modularnet-positions")
+        self.overall_spaceloss = SpaceLossRow(css_id="modularnet-overall-spaceloss")
 
-    def page_layout(self, ):
+        self.dag = ModelDAGDisplay(ui=ui, css_id="modularnet-dag", toggle_id="modularnet-dag-toggle")
+        self.layer_board = LayerBoardDisplay(ui=ui, css_id="modularnet-layerboard")
+
+        # 1. Initialize Panels
+        panels = {
+            "metrics-panel": Panel("metrics-panel", "Training Metrics", self.training_metrics),
+            "spaceloss-panel": Panel("spaceloss-panel", "Space Loss", self.overall_spaceloss),
+            "vars-panel": Panel("vars-panel", "Variables", self.vars),
+            "dag-panel": Panel("dag-panel", "Model DAG", self.dag),
+            "layer-board-panel": Panel("layer-board-panel", "Layer Board", self.layer_board),
+        }
+
+        # 2. Static dashboard layout: 3 stat cards on top, DAG sidebar +
+        # layer board below. No dragging or resizing.
+        self.dashboard_layout = DashboardLayout(
+            top_panels=[panels["metrics-panel"], panels["spaceloss-panel"], panels["vars-panel"]],
+            left_panel=panels["dag-panel"],
+            main_panel=panels["layer-board-panel"],
+        )
+
+        self.default_state = {pid: {"collapsed": False, "maximized": False, "title": p.title} for pid, p in panels.items()}
+
+    def page_layout(self):
         return self._layout_dashboard()
 
     def _layout_dashboard(self):
-        return html.Div([
-            self.title.render(),
-            dcc.Interval(id="modularnet-poll", interval=self.poll_interval_ms, n_intervals=0),
-
-            html.Div(className="dashboard-layout", children=[
-                html.Div(className="sidebar", children=[
-                    html.Div(id="vars-container", className="card", children=self.vars.render()),
-                    html.Div(id="model-container", className="card", children=self.model.render()),
-                ]),
-
-                html.Div(className="main-content", children=[
-                    html.Div(className="chart-grid", children=[
-                        html.Div(id="config-container", className="card", children=self.config.render()),
-                        html.Div(id="training-metrics-container", className="card", children=self.training_metrics.render()),
-                        html.Div(id="overall-spaceloss-container", className="card", children=self.overall_spaceloss.render()),
-                    ]),
-
-                    html.Div(id="layer-spaceloss-container", className="card", children=self.layer_spaceloss.render()),
-                    html.Div(id="positions-container", className="card", children=self.positions.render()),
-                ])
-            ])
-        ])
-
-    def _layout_simple(self):
-            return html.Div([
-                self.title.render(),
+        return dbc.Container(
+            fluid=True, className="dbc",
+            # No fixed height / overflow here on purpose: the page grows
+            # with its content and the browser's own scrollbar takes
+            # over, instead of clipping everything into a 100vh box.
+            style={"minHeight": "100vh", "display": "flex", "flexDirection": "column", "padding": "0"},
+            children=[
+                html.Div([self.title.render(), self.config_overlay.render_button()], style={"flex": "0 0 auto", "padding": "8px 16px", "display": "flex", "justifyContent": "space-between", "alignItems": "center"}),
                 dcc.Interval(id="modularnet-poll", interval=self.poll_interval_ms, n_intervals=0),
 
-                html.Div(id="vars-container", children=self.vars.render()),
-                html.Div(id="model-container", children=self.model.render()),
-                html.Div(id="config-container", children=self.config.render()),
+                # Tabs for collapsed panels
+                html.Div(id="collapsed-tabs-bar", style={"display": "flex", "gap": "8px", "padding": "0 16px", "flexWrap": "wrap", "marginBottom": "4px", "flexShrink": 0}),
 
-                html.Hr(),
+                dcc.Store(id="panel-state", data=self.default_state),
 
-                html.Div(id="training-metrics-container", children=self.training_metrics.render()),
-                html.Div(id="overall-spaceloss-container", children=self.overall_spaceloss.render()),
-                html.Div(id="layer-spaceloss-container", children=self.layer_spaceloss.render()),
-                html.Div(id="positions-container", children=self.positions.render()),
-            ])
+                # The Grid Wrapper
+                html.Div(
+                    id="grid-root",
+                    style={"width": "100%", "padding": "0 16px 16px"},
+                    children=[self.dashboard_layout.render(self.default_state)]
+                ),
+                self.config_overlay.render_overlay(),
+            ]
+        )
+
+    @staticmethod
+    def _format_epoch(epoch_value):
+        if not epoch_value:
+            text = "epoch: —"
+        else:
+            epoch, epochs = epoch_value
+            text = f"epoch: {epoch} / {epochs}"
+        return html.Div(text, style={"fontFamily": "var(--font-mono, monospace)", "fontSize": "0.9em"})
 
     def register_callbacks(self, app: Dash, ui: "ModularUI") -> None:
+        @app.callback(
+            Output("panel-state", "data"),
+            Input({"type": "btn-collapse", "index": ALL}, "n_clicks"),
+            Input({"type": "btn-expand", "index": ALL}, "n_clicks"),
+            Input({"type": "btn-maximize", "index": ALL}, "n_clicks"),
+            State("panel-state", "data"),
+            prevent_initial_call=True
+        )
+        def _update_panel_state(col_clicks, exp_clicks, max_clicks, current_state):
+            trigger = ctx.triggered_id
+            if not current_state:
+                current_state = self.default_state
 
-        @app.callback(Output("vars-container", "children"), Input("modularnet-poll", "n_intervals"))
-        def _render_vars(_n):
-            with ui.locks.vars:
-                # `trial_config`, etc. are already removed in `update_vars`
-                all_vars = dict(ui.all_vars)
-            return self.vars.render(all_vars)
+            if isinstance(trigger, dict):
+                pid = trigger.get("index")
+                if pid in current_state:
+                    action = trigger.get("type")
+                    if action == "btn-collapse":
+                        current_state[pid]["collapsed"] = True
+                    elif action == "btn-expand":
+                        current_state[pid]["collapsed"] = False
+                    elif action == "btn-maximize":
+                        current_state[pid]["maximized"] = not current_state[pid].get("maximized", False)
+            return current_state
 
-        @app.callback(Output("model-container", "children"), Input("modularnet-poll", "n_intervals"))
-        def _render_model(_n):
-            with ui.locks.model:
-                model_summary = ui.model_summary
-            return self.model.render(model_summary)
+        @app.callback(
+            Output("grid-root", "children"),
+            Output("collapsed-tabs-bar", "children"),
+            Input("panel-state", "data")
+        )
+        def _render_layout(state):
+            if not state:
+                state = self.default_state
 
-        @app.callback(Output("config-container", "children"), Input("modularnet-poll", "n_intervals"))
-        def _render_config(_n):
-            with ui.locks.config:
-                config = dict(ui.trial_config) if ui.trial_config else {}
-            return self.config.render(config)
+            tabs = []
+            for pid, p_state in state.items():
+                if p_state.get("collapsed"):
+                    tabs.append(
+                        html.Div(
+                            className="collapsed-tab",
+                            style={"display": "flex", "alignItems": "center", "backgroundColor": "rgba(255,255,255,0.05)", "padding": "4px 8px", "borderRadius": "4px", "border": "1px solid rgba(255,255,255,0.1)", "cursor": "pointer", "fontSize": "0.75em"},
+                            children=[
+                                html.Span(p_state["title"], style={"marginRight": "8px"}),
+                                html.Button("□", id={"type": "btn-expand", "index": pid}, style={"background": "none", "border": "none", "color": "inherit", "padding": "0", "cursor": "pointer", "opacity": 0.6})
+                            ]
+                        )
+                    )
 
-        # --- Chart Callbacks ---
+            return [self.dashboard_layout.render(state)], tabs
+
+        @app.callback(Output("epoch-container", "children"), Input("modularnet-poll", "n_intervals"))
+        def _render_epoch(_n):
+            return self._format_epoch(ui.get_var("epoch"))
 
         @app.callback(Output("training-metrics-container", "children"), Input("modularnet-poll", "n_intervals"))
         def _render_training_metrics(_n):
-            with ui.locks.metrics:
-                metrics = {k: list(v) for k, v in ui.training_metrics.items()}
-            return self.training_metrics.render(metrics)
+            return self.training_metrics.render(ui.get_training_metrics())
 
         @app.callback(Output("overall-spaceloss-container", "children"), Input("modularnet-poll", "n_intervals"))
         def _render_overall_spaceloss(_n):
-            # No manual lock needed here! The property manages `locks.spaceloss` internally.
-            metrics = {k: list(v) for k, v in ui.overall_spaceloss.items()}
-            return self.overall_spaceloss.render(metrics)
+            return self.overall_spaceloss.render(ui.overall_spaceloss)
 
-        @app.callback(Output("layer-spaceloss-container", "children"), Input("modularnet-poll", "n_intervals"))
-        def _render_layer_spaceloss(_n):
-            with ui.locks.spaceloss:
-                metrics = {
-                    layer_id: {k: list(v) for k, v in layer_metrics.items()}
-                    for layer_id, layer_metrics in ui.layer_spaceloss.items()
-                }
-            return self.layer_spaceloss.render(metrics)
+        @app.callback(Output("vars-container", "children"), Input("modularnet-poll", "n_intervals"))
+        def _render_vars(_n):
+            return self.vars.render(ui.get_all_vars_snapshot())
 
-        # NOTE: positions no longer has a generic "poll -> push a data blob"
-        # callback here. PositionsDisplay owns its own dcc.Interval and its
-        # own pattern-matching slider callbacks (per-layer PCA-collection
-        # state, cluster-sync lookups, and scrub position all live behind
-        # `ui`, which it already holds a reference to). We just need to
-        # register them against the same `app`.
-        self.positions.register_callbacks(app)
+        @app.callback(
+            Output("config-selected-container", "children"),
+            Input("modularnet-poll", "n_intervals"),
+            Input(self.config_overlay.picker_id, "value"),
+        )
+        def _render_config_selected(_n, selected_keys):
+            return self.config_overlay.render_selected(ui.get_config(), selected_keys)
+
+        self.dag.register_callbacks(app)
+        self.layer_board.register_callbacks(app, dag_toggle_id=self.dag.toggle_id)
+        self.config_overlay.register_callbacks(app, ui)

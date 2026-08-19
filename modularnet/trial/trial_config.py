@@ -50,7 +50,8 @@ class TrialConfig:
     output_dropout_every: int = 0
     output_batch_norm: bool = True
     output_residual: bool = True
-    
+
+    optimizer: str = "adamw"
     activation: str = "relu"
     dropout: float = 0.5
     learning_rate: float = 0.001

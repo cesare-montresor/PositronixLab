@@ -6,7 +6,7 @@ plugins must implement or can override.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING, Self
 from enum import Enum
 
 from modularnet.utils.utils import camel_to_kebab
@@ -109,6 +109,20 @@ class BasePlugin:
         self.env_set("status", "ready")
         self.topic_publish("topic", data)
     """
+
+    _registry: dict[str, type[Self]] = {}
+        
+    def __init_subclass__(cls, plugin_name: str | None = None, **kwargs):
+        super().__init_subclass__(**kwargs)
+        
+        # Determine registry key: custom plugin_name or default class name
+        key = plugin_name or cls.__name__
+        
+        if key in cls._registry:
+            raise ValueError(f"Plugin '{key}' is already registered.")
+            
+        cls._registry[key] = cls
+
 
     @classmethod
     def default_options(cls) -> Dict[str, Any]:

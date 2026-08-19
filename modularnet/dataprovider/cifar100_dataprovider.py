@@ -2,9 +2,9 @@
 import torch
 from torchvision import datasets
 from torch.utils.data import Dataset, random_split
-from modularnet.dataprovider.base_dataprovider import BaseDataProvider
+from modularnet.dataprovider.dataprovider import DataProvider
 
-class CIFAR100DataProvider(BaseDataProvider):
+class CIFAR100DataProvider(DataProvider):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.name = 'cifar100'

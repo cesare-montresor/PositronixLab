@@ -16,7 +16,7 @@ from typing import Any, Dict, Optional
 
 from modularnet.plugin.plugin_worker import PluginWorker
 from modularnet.trial.trial_config import TrialConfig
-from modularnet.dataprovider.dataprovider import DataProvider
+from modularnet.dataprovider.dataprovider_factory import DataProviderFactory
 from modularnet.metamodel.metamodel import MetaModel
 from modularnet.deeplearning.deeplearning_common import DeeplearningCommon
 from modularnet.plugin import BasePlugin, PluginDescriptor, Subscription
@@ -74,7 +74,7 @@ class DeeplearningTrainPlugin(BasePlugin):
         self.autoencoder = options.get("autoencoder", False)
         
         self.model: Optional[MetaModel] = None
-        self.dataprovider: Optional[DataProvider] = None
+        self.dataprovider: Optional[DataProviderFactory] = None
         self.space: Optional[Any] = None
 
 

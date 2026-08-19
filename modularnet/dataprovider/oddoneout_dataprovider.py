@@ -1,9 +1,9 @@
 import torch
 import os
 from torch.utils.data import Dataset, random_split
-from modularnet.dataprovider.base_dataprovider import BaseDataProvider
+from modularnet.dataprovider.dataprovider import DataProvider
 
-class OddOneOutDataProvider(BaseDataProvider):
+class OddOneOutDataProvider(DataProvider):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.name = 'odd_one_out'

@@ -3,7 +3,7 @@ import logging
 import os
 from pathlib import Path
 import time
-from typing import TYPE_CHECKING, Any, Dict, Optional, List
+from typing import TYPE_CHECKING, Any, Dict, Optional, List, Set
 
 import torch
 
@@ -18,6 +18,16 @@ logger = logging.getLogger(__name__)
 
 class UIPlugin(BasePlugin):
 
+    # Discovery cadence for main()'s key-scan loop -- NOT a data refresh
+    # rate. Once a key is subscribed, its actual UI refresh rate is however
+    # often its source calls env_set() on it (via env_subscribe's push),
+    # completely decoupled from this sleep().
+    DISCOVERY_INTERVAL_S = 10.0
+
+    # Env vars with a dedicated handler + dedicated storage on ModularUI.
+    # Anything else discovered lands in the generic dynamic-var store via
+    # ui.set_var() instead (see _make_generic_var_handler).
+    _DEDICATED_KEYS = {"space_stats", "observed_layers", "model_graph", "trial_config"}
 
     @classmethod
     def default_options(cls) -> Dict[str, Any]:
@@ -51,6 +61,10 @@ class UIPlugin(BasePlugin):
         self.port = options.get("port")
         self.save_path = options.get("save_path")
 
+        # Keys we've already called env_subscribe() on -- both the dedicated
+        # ones (registered in on_start) and any generic ones main() finds.
+        self._subscribed_keys: Set[str] = set()
+
     def on_start(self) -> None:
         self.trial_config = self.env_get("trial_config")
         self.ui = ModularUI(host=self.host, port=self.port, save_path=self.save_path)
@@ -61,25 +75,54 @@ class UIPlugin(BasePlugin):
         self.topic_subscribe("positions", self._on_positions_received)
         self.topic_subscribe("clusters", self._on_clusters_received)
 
-        # space_stats and observed_layers are each their own env var (set via
-        # env_set by whatever plugin computes them), not fields nested inside
-        # a bigger blob — so we keep them in sync directly via env_subscribe
-        # rather than pulling them out of the generic env_get()/update_vars
-        # flow in main(). env_subscribe also fires the callback immediately
-        # with the current value, so this covers the initial load too.
+        # space_stats, observed_layers, model_graph and trial_config are
+        # each their own env var (set via env_set by whichever plugin
+        # computes them) rather than fields nested inside a bigger blob --
+        # so we keep each in sync directly via env_subscribe, with its own
+        # setter/storage on ModularUI, rather than pulling them out of a
+        # generic env_get()/update_vars() flow. env_subscribe also fires the
+        # callback immediately with the current value, so this covers the
+        # initial load too.
         self.env_subscribe("space_stats", self._on_space_stats_changed)
         self.env_subscribe("observed_layers", self._on_observed_layers_changed)
+        self.env_subscribe("model_graph", self._on_model_graph_changed)
+        self.env_subscribe("trial_config", self._on_config_changed)
+        self._subscribed_keys |= self._DEDICATED_KEYS
 
     def main(self) -> None:
-        all_vars = self.env_get()
-        self.ui.update_vars(all_vars=all_vars)
+        """Periodically discovers *new* env var keys and wires a dedicated
+        env_subscribe for each one found, instead of pulling the entire env
+        dict every tick (the old `env_get() + ui.update_vars(all_vars=...)`
+        pattern, which forced every var -- fast or barely-changing -- through
+        the same fixed cadence as this loop's sleep()).
 
-        time.sleep(10.0)  # Allow other plugins to access this plugin's state
+        Keys with a dedicated handler (see on_start / _DEDICATED_KEYS) are
+        skipped here since they're already subscribed with their own
+        storage on ModularUI; everything else lands in the generic
+        dynamic-var store via ui.set_var(), refreshing the UI at whatever
+        rate its actual source updates it -- e.g. "epoch" ends up pushing a
+        handful of times over a whole trial, instead of being re-fetched
+        (and re-rendered) on every single poll tick regardless.
+        """
+        current_keys = set(self.env_get().keys())
+        for key in current_keys - self._subscribed_keys:
+            self.env_subscribe(key, self._make_generic_var_handler(key))
+            self._subscribed_keys.add(key)
+
+        time.sleep(self.DISCOVERY_INTERVAL_S)
 
     def on_stop(self) -> None:
         self.ui.save_state()
         self.ui.stop()
 
+    def _make_generic_var_handler(self, key: str):
+        """Closes over `key` explicitly (rather than relying on the loop
+        variable in main()) to avoid the classic late-binding closure bug --
+        every handler wired from that loop needs to keep pointing at the key
+        it was created for."""
+        def _handler(var_name: str) -> None:
+            self.ui.set_var(var_name, self.env_get(var_name))
+        return _handler
 
     def _on_metrics_received(self, data: Dict[str, Dict[str, List[float]]]) -> None:
         layer_id: str = data.get("layer_id", None)
@@ -121,3 +164,11 @@ class UIPlugin(BasePlugin):
     def _on_observed_layers_changed(self, var_name: str) -> None:
         value = self.env_get(var_name)
         self.ui.set_observed_layers(value)
+
+    def _on_model_graph_changed(self, var_name: str) -> None:
+        value = self.env_get(var_name)
+        self.ui.set_model_graph(value)
+
+    def _on_config_changed(self, var_name: str) -> None:
+        value = self.env_get(var_name)
+        self.ui.set_config(value)

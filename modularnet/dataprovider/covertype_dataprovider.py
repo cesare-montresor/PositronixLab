@@ -3,13 +3,13 @@
 # Covertype Dataset
 # =============================================================================
 
-from modularnet.dataprovider.base_dataprovider import BaseDataProvider
+from modularnet.dataprovider.dataprovider import DataProvider
 from torch.utils.data import Dataset, DataLoader, random_split
 import torch
 import numpy as np
 from pathlib import Path
 
-class CovertypeDataProvider(BaseDataProvider):
+class CovertypeDataProvider(DataProvider):
     """
     Covertype (Forest Cover Type) Dataset Provider for multi-class classification.
     

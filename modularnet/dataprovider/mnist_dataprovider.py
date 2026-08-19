@@ -1,6 +1,6 @@
 from torchvision import datasets
 
-from modularnet.dataprovider.base_dataprovider import BaseDataProvider
+from modularnet.dataprovider.dataprovider import DataProvider
 from torch.utils.data import Dataset, random_split
 import torch
 
@@ -9,7 +9,7 @@ from torch import nn
 ### mnist ###
 
 
-class MnistDataProvider(BaseDataProvider):
+class MnistDataProvider(DataProvider):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 

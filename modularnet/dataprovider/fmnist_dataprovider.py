@@ -1,13 +1,13 @@
 
 from torchvision import datasets
 
-from modularnet.dataprovider.base_dataprovider import BaseDataProvider
+from modularnet.dataprovider.dataprovider import DataProvider
 from torch.utils.data import Dataset, random_split
 import torch
 
 ### fashion mnist ###
 
-class FashionMnistDataProvider(BaseDataProvider):
+class FashionMnistDataProvider(DataProvider):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.name = 'fmnist'
