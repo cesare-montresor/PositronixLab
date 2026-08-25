@@ -1,61 +1,69 @@
 
+import time
+from typing import List
+
+import torch
+
+
+from modularnet.downstream_tasks.compositionality.compositionality import CompositionalityCheck, CompositionalityPipeline
+from modularnet.utils import utils 
+from modularnet.dataprovider.dataprovider_factory import DataProviderFactory
 from modularnet.downstream_tasks.compositionality.atlas_check import AtlasCheck
 from modularnet.downstream_tasks.compositionality.weightmask_check import WeightmaskCheck
 from modularnet.metamodel.metamodel import MetaModel
+from modularnet.trial.trial_config import TrialConfig
 
+import logging
+logger = logging.getLogger(__name__)
 
 class AtlasCompositionalityExample():
 
-    def __init__(self):
-        super().__init__(worker, plugin_id, options )
-        # Pass model device to dataset
-        self.device = options.get("device")
-        self.debug = options.get("debug")
-        self.num_workers_data: int = options.get("num_workers_data")
-        self.methods: List[str] = options.get("methods")
+    def __init__(self, model_path: str = None, vars_path: str = None, methods: List[str] = None):
+        self.methods: List[str] = ["atlas", "weightmask"] if methods is None else methods
         self.cluster_stats = {}
-        self.checks = []
 
         self.dataprovider  = None
         self.model = None
         self.dp = None
 
-    def on_start(self) -> None:
-        self.trial_config: TrialConfig = self.env_get("trial_config")
+        self.trial_config = TrialConfig()
         
         self.dp = DataProviderFactory.from_config(
             self.trial_config,
-            num_workers=self.num_workers_data
         )
 
-        self.env_set("compositionality_completed", False)
+        self.model_path = 'trained_model.pth' if model_path is None else model_path
+        self.model = MetaModel( "model", self.trial_config)
+        self.model.load(self.model_path)
+
+        self.vars_path = 'all_vars.pkl' if vars_path is None else vars_path
+        self.all_vars = utils.load_data(self.vars_path) if self.vars_path is not None else None
+        self.cluster_stats = self.all_vars.get("cluster_stats")
+        self.clusters = {key: torch.tensor(val['labels'], device=self.model.device) for key, val in self.cluster_stats.items()}
+
+        print(self.clusters)
 
 
     def main(self) -> None:
+  
 
-        while self.model is None:
-            model_path = self.env_get("trained_model")
-            if model_path is not None:
-                self.model = MetaModel.load(model_path, name="trained_model", config=self.trial_config)
-            else:
-                logger.info("Waiting for trained model to be available...")
-                time.sleep(5)  # Wait for 5 seconds before checking again
-                
-        
-        if "atlas" in self.methods:
-            atlas_check = AtlasCheck(self.trial_config, self.model, self.dp, self.cluster_stats)
-            atlas_check.run()
-        
-        if "weightmask" in self.methods:
-            weightmask_check = WeightmaskCheck(self.model, self.dp)
-            weightmask_check.run()
+        # Assuming your model, dataprovider, config, clusters, and target_layers are already initialized
+        runner = CompositionalityPipeline(model=self.model, dataprovider=self.dp, config=self.trial_config)
 
-        self.env_set("compositionality_completed", True)
+        # Generates masks for both paradigms and runs inference evaluation
+        results = runner.run_full_evaluation(
+            clusters=self.clusters, 
+            atlas_threshold=0.05,  # Tune your activation distribution threshold
+            csordas_epochs=10      # Tune Csordas gradient optimization cycles
+        )
 
-        pass
+        print("Compositionality Evaluation Results:")
+        print(results)
+        print("Atlas Cluster Stats:")
+        print(self.cluster_stats)
+
 
 
 if __name__ == "__main__":
     atlas_example = AtlasCompositionalityExample()
-    atlas_example.on_start()
     atlas_example.main()

@@ -4,7 +4,13 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-    
+        {
+            "name": "Example: Atlas Check",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "modularnet/downstream_tasks/compositionality/examples/example_atlas.py",
+            "console": "integratedTerminal"
+        },
         {
             "name": "Example: UI",
             "type": "debugpy",

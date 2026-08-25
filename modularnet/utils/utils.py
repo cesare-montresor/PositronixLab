@@ -230,7 +230,7 @@ def signature_settings(data:dict) -> str:
 
 
 def save_data(path:str, data):
-    path = str(path)
+    path = os.path.abspath(str(path))
     os.makedirs(os.path.dirname(path), exist_ok=True)
     ext = os.path.splitext(path)[1]
     if ext == '.json':
@@ -242,6 +242,8 @@ def save_data(path:str, data):
     elif ext in ['.pkl', '.pickle']:
         with open(path, 'wb') as f: 
             pickle.dump(data, f)
+    elif ext in ['.pt', '.pth']:
+        torch.save(data, path)
     else:
         logging.error(f"Unsupported extension: {ext}")
         return False
@@ -249,7 +251,7 @@ def save_data(path:str, data):
 
 
 def load_data(path:str):
-    path = str(path)
+    path = os.path.abspath(str(path))
     if not os.path.exists(path): return None
     ext = os.path.splitext(path)[1].strip()
     
@@ -262,6 +264,8 @@ def load_data(path:str):
     elif ext in ['.pkl', '.pickle']:
         with open(path, 'rb') as f:
             return pickle.load(f)
+    elif ext in ['.pt', '.pth']:
+        return torch.load(path, weights_only=True)
     else:
         logging.error(f"Unsupported extension: {ext}")
     return None

@@ -5,6 +5,7 @@ import sys
 import time
 
 
+from modularnet.utils import utils
 from modularnet.modularnet.plugin_cluster import ClusterPlugin
 from modularnet.modularnet.plugin_overspace import OverspacePlugin
 from modularnet.modularnet.plugin_space import ModularSpacePlugin
@@ -58,6 +59,10 @@ class TrailModularNetV1(BaseTrial):
         return False
 
     def shutdown(self):
+        all_vars = self.plugin_manager.env_get()
+        logger.info(f"Trial environment variables: {all_vars}")
+        utils.save_data('all_vars.pkl', all_vars)
+
         logger.info("Shutting down trial...")
         self.plugin_manager.stop_all_plugins()
         self.plugin_manager.unload_all_plugins()

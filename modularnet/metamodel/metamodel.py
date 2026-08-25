@@ -38,13 +38,8 @@ class BaseModel(nn.Module):
         torch.save(self.state_dict(), path)
         return path
 
-    @classmethod
-    def load(cls, path, *args, **kwargs):
-        model = cls(*args, **kwargs)
-        model._load(path)
-        return model
     
-    def _load(self, path):
+    def load(self, path):
         path = self.model_path(path)
         if not os.path.exists(path): return
         self.load_state_dict(torch.load(path, weights_only=True))

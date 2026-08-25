@@ -8,6 +8,7 @@ import torch
 from modularnet.dataprovider.covertype_dataprovider import DataProvider
 from modularnet.dataprovider.dataprovider_factory import DataProviderFactory
 from modularnet.deeplearning import DeeplearningCommon
+from modularnet.downstream_tasks.compositionality import atlas_check
 from modularnet.downstream_tasks.compositionality.atlas_check import AtlasCheck
 from modularnet.downstream_tasks.compositionality.weightmask_check import WeightmaskCheck
 from modularnet.metamodel.metamodel import MetaModel
@@ -83,7 +84,12 @@ class CompositionalityPlugin(BasePlugin):
         if "atlas" in self.methods:
             atlas_check = AtlasCheck(self.trial_config, self.model, self.dp, self.cluster_stats)
             atlas_check.run()
-        
+            mod_score = atlas_check.modularity_score()
+            weightmasks = atlas_check.extract_weightmasks()
+            print(f"Modularity Score: {mod_score}")
+            print(f"Weightmasks: {weightmasks}")
+
+            
         if "weightmask" in self.methods:
             weightmask_check = WeightmaskCheck(self.model, self.dp)
             weightmask_check.run()
