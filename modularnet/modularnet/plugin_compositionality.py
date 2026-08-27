@@ -1,17 +1,11 @@
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from torch import nn
 import torch
 
-from modularnet.dataprovider.covertype_dataprovider import DataProvider
 from modularnet.dataprovider.dataprovider_factory import DataProviderFactory
-from modularnet.deeplearning import DeeplearningCommon
-from modularnet.downstream_tasks.compositionality import atlas_check
-from modularnet.downstream_tasks.compositionality.atlas_check import AtlasCheck
 from modularnet.downstream_tasks.compositionality.compositionality import CompositionalityPipeline
-from modularnet.downstream_tasks.compositionality.weightmask_check import WeightmaskCheck
 from modularnet.metamodel.metamodel import MetaModel
 from modularnet.plugin.plugin_worker import PluginWorker
 from modularnet.trial.trial_config import TrialConfig
@@ -98,12 +92,8 @@ class CompositionalityPlugin(BasePlugin):
 
         print("Compositionality Evaluation Results:")
         print(results)
-        print("Atlas Cluster Stats:")
-        print(self.cluster_stats)
 
         
         self.env_set("compositionality_completed", True)
-
-        pass
 
 
