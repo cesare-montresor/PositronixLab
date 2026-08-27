@@ -38,16 +38,6 @@ class DiscreteDistribution(Distribution):
         self.counts = torch.zeros(num_classes, dtype=torch.float32)
         self.total_count = 0
 
-    # PREV:
-    # def update(self, class_labels: Tensor, counts: Tensor=None):
-    #     if counts is None:
-    #         counts = torch.ones_like(class_labels, dtype=torch.float32)
-    #     for label in class_labels:
-    #         self.counts[label] += counts[label]
-    #         self.total_count += counts[label]
-    # <- indexed `counts` by class label instead of by loop position (wrong once counts isn't all-ones),
-    #    and didn't support the scalar (label:int, count:int) calls made from class_cluster_attribution /
-    #    output_cluster_attribution, where `for label in class_labels` would fail on a plain int.
     def update(self, class_labels, counts: Tensor = None):
         if isinstance(class_labels, int) or (torch.is_tensor(class_labels) and class_labels.dim() == 0):
             label = int(class_labels)
@@ -110,9 +100,6 @@ class AtlasCheck:
         self.clusters = clusters
         self.output_shape = None
         
-        # PREV: self.cluster_class_stats: Dict[str, Dict[str, DiscreteDistribution]] # layer, cluster, class, count
-        # <- bare type annotation with no assignment; the attribute never existed at runtime, so the first
-        #    `if layer_name not in self.cluster_class_stats` in _on_prediction raised AttributeError.
         self.cluster_class_stats: Dict[str, Dict[str, DiscreteDistribution]] = {}  # layer, cluster, class, count
     
         self.observer = ModularObserver(config=self.config, model=self.model ) 
@@ -190,7 +177,7 @@ class AtlasCheck:
     
     
     def _cluster_class_attribution(self, scores: Tensor, clusters: Tensor, ys: Tensor):
-        idxs_on = scores > 0.0                          # [bs, num_features]
+        idxs_on = ( scores > 0.0 )                     # [bs, num_features]
         bs, num_features = idxs_on.shape
 
         batch_clustering = clusters.unsqueeze(0).expand(bs, -1)      # [bs, num_features]
@@ -282,13 +269,7 @@ class AtlasCheck:
                 
                 if cluster_size == 0:
                     continue
-
-                # PREV:
-                # kld = kl_divergence(prob_dist, target_dist)
-                # kld_exp = 1-torch.exp(-kld) #exponential projection
-                # <- kl_divergence() requires torch.distributions.Distribution objects (e.g. Categorical), not
-                #    raw probability tensors; this raised NotImplementedError. Computing KL manually instead,
-                #    with the same epsilon smoothing used for entropy below to avoid log(0)/div-by-0.
+                
                 epsilon = 1e-9 # Prevent log(0) / div-by-0
                 kld = torch.sum(prob_dist * torch.log((prob_dist + epsilon) / (target_dist + epsilon))).item()
                 kld_exp = 1 - math.exp(-kld) #exponential projection

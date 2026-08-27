@@ -10,6 +10,7 @@ from modularnet.dataprovider.dataprovider_factory import DataProviderFactory
 from modularnet.deeplearning import DeeplearningCommon
 from modularnet.downstream_tasks.compositionality import atlas_check
 from modularnet.downstream_tasks.compositionality.atlas_check import AtlasCheck
+from modularnet.downstream_tasks.compositionality.compositionality import CompositionalityPipeline
 from modularnet.downstream_tasks.compositionality.weightmask_check import WeightmaskCheck
 from modularnet.metamodel.metamodel import MetaModel
 from modularnet.plugin.plugin_worker import PluginWorker
@@ -53,6 +54,7 @@ class CompositionalityPlugin(BasePlugin):
         self.num_workers_data: int = options.get("num_workers_data")
         self.methods: List[str] = options.get("methods")
         self.cluster_stats = {}
+        self.clusters = None
         self.checks = []
 
         self.dataprovider  = None
@@ -66,34 +68,40 @@ class CompositionalityPlugin(BasePlugin):
             self.trial_config,
             num_workers=self.num_workers_data
         )
-
         self.env_set("compositionality_completed", False)
-
+        
 
     def main(self) -> None:
 
         while self.model is None:
             model_path = self.env_get("trained_model")
             if model_path is not None:
-                self.model = MetaModel.load(model_path, name="trained_model", config=self.trial_config)
+                self.model = MetaModel(name="trained_model", config=self.trial_config)
+                self.model.load(model_path)
+                self.model.to(self.device)
             else:
                 logger.info("Waiting for trained model to be available...")
                 time.sleep(5)  # Wait for 5 seconds before checking again
-                
+
+        self.cluster_stats = self.env_get("cluster_stats")      
+        self.clusters = {key:torch.tensor(val['labels'], device=self.model.device) for key,val in self.cluster_stats.items() }
         
-        if "atlas" in self.methods:
-            atlas_check = AtlasCheck(self.trial_config, self.model, self.dp, self.cluster_stats)
-            atlas_check.run()
-            mod_score = atlas_check.modularity_score()
-            weightmasks = atlas_check.extract_weightmasks()
-            print(f"Modularity Score: {mod_score}")
-            print(f"Weightmasks: {weightmasks}")
+        # Assuming your model, dataprovider, config, clusters, and target_layers are already initialized
+        runner = CompositionalityPipeline(model=self.model, dataprovider=self.dp, config=self.trial_config)
 
-            
-        if "weightmask" in self.methods:
-            weightmask_check = WeightmaskCheck(self.model, self.dp)
-            weightmask_check.run()
+        # Generates masks for both paradigms and runs inference evaluation
+        results = runner.run_full_evaluation(
+            clusters=self.clusters, 
+            atlas_threshold=0.05,  # Tune your activation distribution threshold
+            csordas_epochs=10      # Tune Csordas gradient optimization cycles
+        )
 
+        print("Compositionality Evaluation Results:")
+        print(results)
+        print("Atlas Cluster Stats:")
+        print(self.cluster_stats)
+
+        
         self.env_set("compositionality_completed", True)
 
         pass

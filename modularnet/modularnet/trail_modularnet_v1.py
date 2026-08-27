@@ -12,7 +12,6 @@ from modularnet.modularnet.plugin_space import ModularSpacePlugin
 from modularnet.modularnet.plugin_train import ObservableTrainPlugin
 from modularnet.modularnet.plugin_ui import UIPlugin
 from modularnet.modularnet.plugin_compositionality import CompositionalityPlugin
-from modularnet.spacemath.common import clear_torch_compile_cache
 from modularnet.trial import BaseTrial, TrialConfig, TrialManager
 from modularnet.utils.utils import is_debugpy_attached
 
@@ -46,7 +45,6 @@ class TrailModularNetV1(BaseTrial):
         statuses = self.plugin_manager.plugin_status_all()
         
         alive = list(filter(lambda s: s.process_alive, statuses.values()))
-        dead = list(filter(lambda s: not s.process_alive, statuses.values()))
                 
         if len(alive) == 0: 
             logger.error(f"All plugins have terminated:")
@@ -84,7 +82,7 @@ def test_train():
     verbose=False
     config = TrialConfig()
     config.dataset_name = 'mnist'  # Use mnist dataset for quick testing
-    config.epochs = 1  # Use 1 epoch for quick test
+    config.epochs = 1  # Use 3 epochs for quick test
     trial_manager = TrialManager()
     trial = TrailModularNetV1(config, trial_manager)
     

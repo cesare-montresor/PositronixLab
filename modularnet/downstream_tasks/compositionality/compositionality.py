@@ -140,7 +140,9 @@ class CompositionalityCheck:
 
         return results
 
-    def run(
+    
+
+    def run_(
         self,
         atlas_masks: Dict[int, Dict[str, torch.Tensor]],
         csordas_masks: Dict[int, Dict[str, torch.Tensor]]

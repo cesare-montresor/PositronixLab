@@ -18,97 +18,112 @@ class WeightmaskCheck:
     def run(self, target_layers: Dict[str, nn.Module], num_epochs: int = 5, lr: float = 1e-2) -> Dict[int, Dict[str, torch.Tensor]]:
         """
         Optimizes and exports differentiable Gumbel-Sigmoid weight masks per class.
-        Returns Dict[class_id, Dict[layer_name, binary_mask_tensor]].
+        Uses gradient accumulation over class subsets to process the dataset in a single pass.
         """
-        class_masks = {}
+        num_classes = self.dataprovider.num_classes
         criterion = WeightMaskCriterion()
         
-        for c in range(self.dataprovider.num_classes):
-            logger.info(f"Optimizing Csordas baseline masks for Class {c}")
-            mask_mgr = WeightmaskManager(self.model, target_layers)
-            optimizer = torch.optim.Adam(mask_mgr.masks.parameters(), lr=lr)
+        # Single manager and optimizer. The num_classes dimension inside MultiClassWeightmaskManager 
+        # prevents hook conflicts and handles all parameters.
+        mask_mgr = MultiClassWeightmaskManager(self.model, target_layers, num_classes)
+        optimizer = torch.optim.Adam(mask_mgr.masks.parameters(), lr=lr)
+        
+        mask_mgr.train()
+        device = next(self.model.parameters()).device
+        for batch in tqdm(self.dataprovider.train, desc="Batch Processing", leave=False):
+            if len(batch) == 2:
+                x, y = batch
+            elif len(batch) == 3:
+                x, y, idxs = batch
             
-            mask_mgr.train()
-            for epoch in tqdm(range(num_epochs), desc=f"Epoch", leave=False):
-                for batch in tqdm(self.dataprovider.train, desc=f"Csordas. Class {c} Batch Processing", leave=False):
-                    if len(batch) == 2:
-                        x, y = batch
-                    elif len(batch) == 3:
-                        x, y, idxs = batch
-                    
-                        # Filter batch strictly for the current isolated task/class
-                        mask = (y == c)
-                        if torch.sum(mask) <= 1:
-                            continue
-                        
-                    x_c = x[mask].to(self.model.device) 
-                    y_c = y[mask].to(self.model.device)
-                    
-                    optimizer.zero_grad()
-                    logits = mask_mgr(x_c)
-                    loss_dict = criterion(logits, y_c, mask_mgr.active_layer_masks)
-                    loss_dict["total_loss"].backward()
-                    optimizer.step()
-                logger.info(f"Epoch {epoch+1}/{num_epochs} - Class {c} Loss: {loss_dict['total_loss'].item():.4f}, Task Loss: {loss_dict['task_loss'].item():.4f}, Weightmask Loss: {loss_dict['overall_weightmaskloss'].item():.4f}")
-            logger.info(f"Completed optimization for Class {c}. Extracting binary masks...")
+            optimizer.zero_grad()
+            
+            for c in range(num_classes):
+                mask = (y == c)
+                
+                x_c = x[mask].to(device) 
+                y_c = y[mask].to(device)
+                
+                # Route the hook to apply the correct mask slice for this class
+                mask_mgr.current_class = c
+                
+                logits = mask_mgr(x_c)
+                
+                loss_dict = criterion(logits, y_c, mask_mgr.active_layer_masks)
+                loss_dict["total_loss"].backward()
+                
+            # Step the optimizer once per batch after all classes have accumulated their gradients
+            optimizer.step()
 
-            mask_mgr.eval()
-            with torch.no_grad():
-                class_masks[c] = {
-                    name: (param > 0).float() 
-                    for name, param in mask_mgr.masks.items()
-                }
-            mask_mgr.remove_hooks()
+        logger.info("Completed optimization for all classes. Extracting binary masks...")
+        
+        mask_mgr.eval()
+        class_masks = {}
+        with torch.no_grad():
+            for c in range(num_classes):
+                class_masks[c] = {}
+                for name, param in mask_mgr.masks.items():
+                    class_masks[c][name] = (param[c] > 0).float()
+                    
+        mask_mgr.remove_hooks()
             
         return class_masks
 
-class WeightmaskManager(nn.Module):
-    def __init__(self, model: nn.Module, target_layers: Dict[str, nn.Module], temp: float = 1.0):
+class MultiClassWeightmaskManager(nn.Module):
+    def __init__(self, model: nn.Module, target_layers: Dict[str, nn.Module], num_classes: int, temp: float = 1.0):
         super().__init__()
         self.model = model
+        self.target_layers = target_layers 
         self.temp = temp
+        self.num_classes = num_classes
+        self.current_class = 0 
         
         self.masks = nn.ParameterDict()
         for name, module in target_layers.items():
             if hasattr(module, 'weight'):
                 safe_name = name.replace('.', '_')
-                self.masks[safe_name] = nn.Parameter(torch.ones_like(module.weight))
+                # Grab the device directly from the original weight tensor
+                self.masks[safe_name] = nn.Parameter(
+                    torch.zeros((num_classes, *module.weight.shape), device=module.weight.device)
+                )
 
         self.active_layer_masks: List[torch.Tensor] = []
         self._hook_handles = []
-        self._setup_hooks_and_freezing(target_layers)
+        self._setup_hooks_and_freezing()
 
-    def _setup_hooks_and_freezing(self, target_layers: Dict[str, nn.Module]):
+    def _setup_hooks_and_freezing(self):
         for param in self.model.parameters():
             param.requires_grad = False
 
-        for name, module in target_layers.items():
+        for name, module in self.target_layers.items():
             safe_name = name.replace('.', '_')
             
+            # 1. Stash the parameter ONCE during setup and delete it from the module
+            if hasattr(module, 'weight'):
+                module._original_weight_param = module.weight
+                delattr(module, 'weight')
+            
             def pre_hook(mod, inputs, s_name=safe_name):
-                if hasattr(mod, 'weight'):
-                    mod._original_weight = mod.weight
-                    mask = self._get_computed_mask(s_name, mod.training)
-                    self.active_layer_masks.append(self.masks[s_name])
-                    
-                    delattr(mod, 'weight')
-                    mod.weight = mod._original_weight * mask
-
-            def post_hook(mod, inputs, outputs):
-                if hasattr(mod, '_original_weight'):
-                    delattr(mod, 'weight')
-                    mod.weight = mod._original_weight
-                    delattr(mod, '_original_weight')
+                # 2. Slice the mask for the current class
+                class_mask_logits = self.masks[s_name][self.current_class]
+                mask = self._get_computed_mask(class_mask_logits, mod.training)
+                
+                self.active_layer_masks.append(class_mask_logits)
+                
+                # 3. Dynamically assign the masked tensor for this forward pass.
+                # Because we don't delete it afterward, it's always safely available.
+                mod.weight = mod._original_weight_param * mask
 
             self._hook_handles.append(module.register_forward_pre_hook(pre_hook))
-            self._hook_handles.append(module.register_forward_hook(post_hook))
+            # Notice: The fragile post_hook is completely removed.
 
-    def _get_computed_mask(self, safe_name: str, training: bool) -> torch.Tensor:
-        mask_scores = self.masks[safe_name]
+    def _get_computed_mask(self, mask_scores: torch.Tensor, training: bool) -> torch.Tensor:
         if training:
             u = torch.rand_like(mask_scores)
             gumbel = -torch.log(-torch.log(u + 1e-8) + 1e-8)
-            return torch.sigmoid((mask_scores + gumbel) / self.temp)
+            soft_mask = torch.sigmoid((mask_scores + gumbel) / self.temp)
+            hard_mask = (soft_mask > 0.5).float()
+            return hard_mask - soft_mask.detach() + soft_mask
         else:
             return (mask_scores > 0).float()
 
@@ -127,9 +142,20 @@ class WeightmaskManager(nn.Module):
         return self.model(*args, **kwargs)
 
     def remove_hooks(self):
+        # 1. Remove the hooks
         for h in self._hook_handles:
             h.remove()
         self._hook_handles.clear()
+        
+        # 2. Safely restore the original parameters to the model
+        for name, module in self.target_layers.items():
+            if hasattr(module, '_original_weight_param'):
+                # Delete the dynamically assigned tensor if it exists
+                if hasattr(module, 'weight'):
+                    delattr(module, 'weight')
+                # Restore the original parameter
+                module.weight = module._original_weight_param
+                delattr(module, '_original_weight_param')
 
 class WeightMaskCriterion(nn.Module):
     def __init__(self, lambda_l1: float = 1e-4):
