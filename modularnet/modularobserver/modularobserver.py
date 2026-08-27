@@ -1,103 +1,172 @@
+from typing import Callable, Dict, List
 
-import re
-from typing import List, TYPE_CHECKING
-
-import torch
 from torch import nn
+import torch
 
-from modularnet.common.utils import is_activation, is_conv, is_layer
+from modularnet.modularobserver.modelmapper import ModelGraph, ModelMapper, ModelNode, ModelEdge
+from modularnet.spacemath.common import is_layer, is_linear, is_conv
 from modularnet.trial.trial_config import TrialConfig
+from torch.utils.hooks import RemovableHandle
 
-if TYPE_CHECKING:
-    from modularnet.modularobserver.layerobserver_pubsub import LayerObserver
 
+
+PreForwardCallback = Callable[[nn.Module, torch.Tensor], torch.Tensor | None]
+ForwardCallback = Callable[[nn.Module, torch.Tensor, torch.Tensor], torch.Tensor | None]
+WeightCallback = Callable[[nn.Module, torch.nn.Parameter, torch.Tensor], torch.Tensor | None]
+
+
+
+# =====================================================================
+# 4. ModularObserver (Observation & Metric Manager)
+# =====================================================================
 
 class ModularObserver:
-    def __init__(self, config: TrialConfig, device:torch.device=None, useLayers=True, useActivations=True):
+    """Manages LayerObservers and metric collection, powered by ModelMapper."""
+    def __init__(
+        self, 
+        config: TrialConfig, 
+        model: nn.Module, 
+        device: torch.device = None,
+    ):
         self.config = config
-        self.device = device if device else torch.device('cpu')
-        self.useLayers = useLayers
-        self.useActivations = useActivations
-        self.observers = []
+        self.device = device or getattr(model, 'device', torch.device("cpu"))
+        self.model = model
+        
+        self.nodes_list: List[ModelNode] = []
+        self.nodes_by_name: Dict[str, ModelNode] = {}
+        self.nodes_by_layer: Dict[nn.Module, ModelNode] = {}
+        
+        self.latest_graph_dict = None
 
-       
-    def mos_id(self, mo: 'LayerObserver'):
-        for i, m in enumerate(self.observers):
-            if m == mo: return str(i)
-        return str(-1)
+        self.mapper = ModelMapper(
+            model=self.model,
+            is_suitable_layer=self._is_suitable_layer,
+            on_graph_changed=self._on_graph_discovered
+        )
+        self.hooks: Dict[str, RemovableHandle] = {}
+        self._graph_update_callback = None  # Optional callback for external graph updates
 
-    def mos_get(self, mos_id:str):
-        for i, m in enumerate(self.observers):
-            if str(i) == mos_id: return m
-        return None
+    def graph(self) -> ModelGraph:
+        return self.mapper.graph
     
-
+    def _is_suitable_layer(self, module: nn.Module, name: str) -> bool:
+        """Determines which modules are tracked as unique layers in the graph."""
+        return is_layer(module)
         
-    # DEPS: modularobserver
-    def set_pruning_masks(self, masks:List[torch.Tensor]=None):
-        if masks is None: masks = []
-        
-        for mo, mask in zip(self.mos, masks):
-            if mo == self.mos[-1]: continue #print("set_pruning_masks: skip last layer"); continue
-            if mask is None: print("set_pruning_masks: empty mask"); continue
-            if not isinstance(mask, torch.Tensor): print("set_pruning_masks: not a tensor!"); continue
-            mos_id = self.mos.index(mo)
-            if len(mask) != len(self.positions[mos_id]): print("set_pruning_masks: size mismatch!"); continue
-            mo.set_pruning_mask(mask)
+    def _is_observable_layer(self, module: nn.Module, name: str) -> bool:
+        """Determines which modules are tracked as unique layers in the graph."""
+        if len(list(module.parameters())) == 0:
+            return False # only learnable layers
+        # return is_layer(module)
+        # return is_linear(module) or is_conv(module)        
+        return is_linear(module) # todo: support all architectures
 
+
+    def _on_graph_discovered(self, mapper: ModelMapper):
+        """Called automatically when the mapper finds new structure."""
+        self._sync_observers_with_mapper()
+        if self._graph_update_callback is None: return
+        self._graph_update_callback(self.mapper.graph)
+
+    def _sync_observers_with_mapper(self):
+        """Syncs the underlying topological nodes with metric-collecting LayerObservers."""
+        for name, node in self.mapper.graph.nodes.items():
+            if not self._is_observable_layer(node.module_ref, name):
+                continue
+            if node.name not in self.nodes_by_name:
+                module_ref = node.module_ref
+                self.nodes_list.append(node)
+                self.nodes_by_name[node.name] = node
+                self.nodes_by_layer[node.module_ref] = node
+
+    def layer_names(self) -> List[str]:
+        """Returns a list of all observable layer names."""
+        return list(self.nodes_by_name.keys())
+
+    def by_name(self, name: str) -> ModelNode:
+        """Returns the LayerObserver for a given layer name."""
+        return self.nodes_by_name.get(name, None)
+
+    def by_layer(self, layer: nn.Module) -> ModelNode:
+        """Returns the LayerObserver for a given layer module."""
+        return self.nodes_by_layer.get(layer, None)
     
-    def observe_activation(self, module:nn.Module):
-        if not self.useActivations: return False
-        if not is_activation(module): return False
-        self.observers[-1].observed_activation = module
-        return True
-        
-    def observe_layer(self, module: nn.Module, num_units:int, depth:int): 
-        if not self.useLayers: return False
-        if not is_layer(module): return False
-        lo = LayerObserver(self, num_units, module, depth, self.device)
-        self.observers.append(lo)
-        return True
+    def map(self, dummy_data: torch.Tensor=None, trace_samples: int = 1) -> Dict[str, List]:
+        """
+        Runs a traced forward pass to accurately construct edges and
+        discover functional activations, then returns the ready Cytoscape dictionary.
+
+        Args:
+            dummy_data: input tensor used to drive the traced forward pass.
+            trace_samples: number of samples to use for tracing.
+        """
+        self.mapper.map(self.model, dummy_data, trace_samples=trace_samples)
+
+    # =====================================================================
+    # Callbacks Forwarding
+    # =====================================================================
     
-    def num_units(self, parent_module: nn.Module, child_module: nn.Module):
-        if hasattr(child_module,'out_features'): return child_module.out_features
-        elif hasattr(child_module,'out_channels'): return child_module.out_channels
-        elif hasattr(parent_module,'out_features'): return parent_module.out_features
-        elif hasattr(parent_module,'out_channels'): return parent_module.out_channels
-        
-        return None
+    def on_graph_update(self, callback):
+        """Sets a callback to be called whenever the graph is updated."""
+        self._graph_update_callback = callback
 
-    def watch(self, parent: nn.Module):
-        self.observers = []
-        self._watch(parent)
-        return self.observers
 
-    def _watch(self, parent: nn.Module, num_units:int|None=None, depth=1,):
-        for name, child in parent.named_children():
-            # child.register_full_backward_hook(self.backward_hook)
-            num_units = self.num_units(parent, child) or num_units
-            
-            if self.observe_activation(child): pass 
-            elif self.observe_layer(child, num_units, depth):
-                depth +=1
+
+    def on_grad_weights(self, callback: WeightCallback = None):
+        for node in self.nodes_list:
+            hook_name = f"{node.name}_weights"
+            module_ref = node.module_ref
+            if callback is None:
+                if hook_name in self.hooks:
+                    for hook in self.hooks[hook_name]:
+                        hook.remove()
+                    del self.hooks[hook_name]
             else:
-                num_units = self._watch(child, num_units, depth)
-        
-        return num_units
+                hooks = [param.register_hook(lambda grad: callback(module_ref, param, grad)) for param in module_ref.parameters()]
+                self.hooks[hook_name] = hooks
 
-    def find_activation_layer(self, module: nn.Module):
-        """ Recursively searches for an activation layer in the given module's children. """
-        for _, child in module.named_children():
-            if is_activation(child): return child
-            result = self.find_activation_layer(child)  # Recursive search
-            if result: return result
-                
-        return None  # No activation found
+    def on_pre_forward_layer(self, callback: PreForwardCallback = None):
+        for node in self.nodes_list:
+            hook_name = f"{node.name}_pre_forward"
+            module_ref = node.module_ref
+            if callback is None:
+                if hook_name in self.hooks:
+                    self.hooks[hook_name].remove() if self.hooks[hook_name] else None
+                    del self.hooks[hook_name]
+            else:
+                hook = module_ref.register_forward_pre_hook(callback)
+                self.hooks[hook_name] = hook
+
+    def on_forward_layer(self, callback: ForwardCallback = None):
+        for node in self.nodes_list:
+            module_ref = node.module_ref
+            hook_name = f"{node.name}_forward"
+            if callback is None:
+                if hook_name in self.hooks:
+                    self.hooks[hook_name].remove() if self.hooks[hook_name] else None
+                    del self.hooks[hook_name]
+            else:
+                hook = module_ref.register_forward_hook(callback)
+                self.hooks[hook_name] = hook
+
+    def on_backward_layer(self, callback: ForwardCallback = None):
+        for node in self.nodes_list:
+            module_ref = node.module_ref
+            hook_name = f"{node.name}_backward"
+            if callback is None:
+                if hook_name in self.hooks:
+                    self.hooks[hook_name].remove() if self.hooks[hook_name] else None
+                    del self.hooks[hook_name]
+            else:
+                hook = module_ref.register_full_backward_hook(callback)
+                self.hooks[hook_name] = hook
+
     
-    def add_observer(self, observed:nn.Module, depth:int):
-        num_units = observed.out_features if isinstance(observed, nn.Linear) else observed.out_channels
-        observer = ModularObserver(self.space, num_units, observed, depth, self.device)
-        self.observers.append(observer)
-        return observer
-
-        
+    def clear(self):
+        """Removes all hooks and clears the mapped observers."""
+        self.on_forward_layer(None)
+        self.on_backward_layer(None)
+        self.on_grad_weights(None)
+        self.nodes_list = []
+        self.nodes_by_name = {}
+        self.nodes_by_layer = {}

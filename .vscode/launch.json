@@ -5,6 +5,51 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Example: Atlas Check",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "modularnet/downstream_tasks/compositionality/examples/example_atlas.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Example: UI",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "modularnet/modularui/examples/example_ui.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Trial: ModularNet",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "modularnet/modularnet/trail_modularnet_v1.py",
+            "console": "integratedTerminal",
+            "subProcess": false
+        },
+        {
+            "name": "Example: Train",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "modularnet/deeplearning/examples/example_train.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Example: PubSub",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "modularnet/plugin/examples/example_pubsub.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+        },
+        {
+            "name": "Example: Count",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "modularnet/plugin/examples/example_count.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+        },
+        {
             "name": "Run: File",
             "type": "debugpy",
             "request": "launch",
@@ -13,25 +58,25 @@
             "justMyCode": false,
         },
         {
-            "name": "Run current tests",
+            "name": "Test: Current File",
             "type": "debugpy",
             "request": "launch",
             "module": "pytest",
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": [
-            "${file}"
+                "${file}"
             ]
         },
         {
-            "name": "Run All Tests",
+            "name": "Test: All",
             "type": "debugpy",
             "request": "launch",
             "module": "pytest",
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": [
-            "."
+                "."
             ]
         },
         {

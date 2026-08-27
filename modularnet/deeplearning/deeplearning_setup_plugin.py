@@ -7,40 +7,16 @@ then sets them in the environment for other plugins to use.
 """
 
 import logging
-from typing import Any, Dict, Optional, List
-import torch
+from typing import TYPE_CHECKING, Any, Dict, Optional, List
 
+from modularnet.plugin.plugin_worker import PluginWorker
 from modularnet.trial.trial_config import TrialConfig
-from modularnet.dataprovider.dataprovider import DataProvider
+from modularnet.dataprovider.dataprovider_factory import DataProviderFactory
 from modularnet.metamodel.metamodel import MetaModel
-from modularnet.deeplearning.deeplearning_common import DeeplearningCommon
 from modularnet.plugin import BasePlugin, PluginDescriptor, Subscription
 
+
 logger = logging.getLogger(__name__)
-
-
-
-class DeeplearningSetupPluginDescriptor(PluginDescriptor):
-    """
-    Descriptor for the DeeplearningSetupPlugin.
-    
-    Provides metadata for plugin registration and instantiation.
-    """
-    def __init__(
-        self,
-        name: str = "deeplearning-setup",
-        config: Optional[Dict[str, Any]] = None,
-        version: str = "1.0",
-        metadata: Optional[Dict[str, Any]] = None
-    ):
-        super().__init__(
-            package="modularnet.deeplearning.deeplearning_setup_plugin",
-            class_name="DeeplearningSetupPlugin",
-            name=name,
-            options=config or {},
-            version=version,
-            metadata=metadata or {}
-        )
 
 
 class DeeplearningSetupPlugin(BasePlugin):
@@ -53,12 +29,21 @@ class DeeplearningSetupPlugin(BasePlugin):
     3. Sets both in the environment for other plugins
     4. Exits after setup is complete
     """
-   
+
+    @classmethod
+    def Descriptor(cls, options: Dict[str, Any] = None) -> PluginDescriptor:
+        return super().Descriptor(
+            version="1.0.0",
+            author="ModularNet Team",
+            description="Plugin that sets up the model and data provider for deep learning trials.",
+            options=options
+        )
+
     def __init__(
         self,
+        worker: PluginWorker,
         plugin_id: str,
-        config: Dict[str, Any],
-        orchestrator_handle: Optional[Any] = None,
+        options: Dict[str, Any],        
     ):
         """
         Initialize the setup plugin.
@@ -70,19 +55,22 @@ class DeeplearningSetupPlugin(BasePlugin):
                 - device: Optional torch device
                 - num_workers_data: Number of data workers
                 - debug: Enable debug logging
-            orchestrator_handle: Ray handle to orchestrator
+            manager: Optional ManagerChannel for direct manager access
         """
-        super().__init__(plugin_id, config, orchestrator_handle)
+        super().__init__(worker, plugin_id, options )
         
-        self.trial_config: Optional[TrialConfig] = config.get("trial_config")
-        self.device = config.get("device")
-        self.num_workers_data = config.get("num_workers_data", 0)
-        self.debug = config.get("debug", False)
+        
+        self.device = options.get("device")
+        self.num_workers_data = options.get("num_workers_data", 0)
+        self.debug = options.get("debug", False)
+        self.trial_config: TrialConfig = None  # Will be set in on_start via env_get("trial_config")
 
     def on_start(self) -> None:
         """Create model and dataprovider, then set them in environment."""
+        self.trial_config: TrialConfig = self.env_get("trial_config")
+
+        logger.info(f"[{self.plugin_id}] Starting deeplearning setup...")
         try:
-            logger.info(f"[{self.plugin_id}] Starting deeplearning setup...")
             
             if not self.trial_config:
                 raise ValueError("trial_config not provided in config")
@@ -95,19 +83,18 @@ class DeeplearningSetupPlugin(BasePlugin):
             device = model.device
             
             # Pass model device to dataset
-            dataset = DataProvider.from_config(
+            dataprovider = DataProviderFactory.from_config(
                 self.trial_config, 
                 device=device, 
                 num_workers=self.num_workers_data
             )
+
+            self.env_set("model", model)
+            self.env_set("dataprovider", dataprovider)
             
-            # Set in environment using orchestrator
-            if self._orchestrator:
-                self._orchestrator.set_env_variable.remote("model", model)
-                self._orchestrator.set_env_variable.remote("dataprovider", dataset)
-                logger.info(f"[{self.plugin_id}] Model and dataprovider set in environment")
-            else:
-                logger.warning(f"[{self.plugin_id}] No orchestrator available, cannot set env variables")
+            # Note: Environment variables are set by PluginManager via set_env_variable()
+            # This plugin provides setup results; manager handles environment distribution
+            logger.info(f"[{self.plugin_id}] Model and dataprovider ready for distribution")
             
             logger.info(f"[{self.plugin_id}] Setup complete")
             
@@ -120,20 +107,3 @@ class DeeplearningSetupPlugin(BasePlugin):
         """Cleanup."""
         logger.info(f"[{self.plugin_id}] Setup plugin stopped")
 
-    def on_update(self, config: Dict[str, Any]) -> None:
-        """Handle configuration updates."""
-        super().on_update(config)
-        # After setup, additional updates are not expected
-        logger.debug(f"[{self.plugin_id}] Config updated: {config}")
-
-    def get_subscriptions(self) -> List[Subscription]:
-        """Setup plugin doesn't subscribe to any topics."""
-        return []
-
-    def get_env_subscriptions(self) -> List[Subscription]:
-        """Setup plugin doesn't watch environment variables."""
-        return []
-
-    def get_services(self) -> List[str]:
-        """Setup plugin provides no services."""
-        return []

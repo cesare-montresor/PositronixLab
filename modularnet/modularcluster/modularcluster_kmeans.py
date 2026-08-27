@@ -13,7 +13,7 @@ from sklearn.metrics import silhouette_score
 
 from faiss import Kmeans as FAISS_KMeans
 
-from modularnet.common.utils import suppress_output
+from modularnet.utils.utils import suppress_output
 
 
 
@@ -118,6 +118,7 @@ class ModularClusterKmeans:
                 spherical=spherical, 
                 verbose=self.verbose,
                 nredo=self.n_init
+                #gpu=True
             )
             
             kmeans.train(x)

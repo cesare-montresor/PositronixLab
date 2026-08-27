@@ -1,29 +1,42 @@
 """
-ModularNet Plugin System: Ray-based modular plugin architecture.
+ModularNet Plugin System: Lightweight multiprocessing-based plugin architecture.
 
-This package provides a lean, high-performance plugin system built on Ray
-for distributed, multi-process plugin execution with pub/sub, environment
-variables, and service invocation.
+Provides modular plugin execution with pub/sub messaging, environment variables,
+and service invocation.
 
 Main Components:
 - PluginDescriptor: Serializable plugin metadata
 - BasePlugin: Abstract base class for plugins
-- PluginManager: High-level plugin management interface
-- PluginOrchestrator: Low-level Ray orchestrator
+- PluginManager: Plugin orchestration and management
+- PluginWorker: Plugin subprocess worker
+- PluginMessages: Unified IPC message protocol (Request, Response)
+- DataExchange: Unified subscription model (topics + env vars)
+- ManagerProxy: Client-side proxy for direct manager access from plugins
 """
 
-from .plugin_descriptor import PluginDescriptor
-from .plugin_base import BasePlugin, PluginState, Subscription
-from .environment_manager import EnvironmentManager, EnvUpdate
-from .plugin_manager import PluginManager, PluginOrchestrator
+from modularnet.plugin.plugin_base import BasePlugin, PluginState, PluginDescriptor
+from modularnet.plugin.environment_manager import EnvironmentManager
+from modularnet.plugin.plugin_manager import PluginManager
+from modularnet.plugin.plugin_data import (
+    Request, Response,
+    Subscription, 
+    PluginStatus, ProcessStatus
+)
+from modularnet.plugin.plugin_rpc import PluginRPC
 
 __all__ = [
     "PluginDescriptor",
     "BasePlugin",
     "PluginState",
-    "Subscription",
     "EnvironmentManager",
     "EnvUpdate",
     "PluginManager",
-    "PluginOrchestrator",
+    "Request",
+    "Response",
+    "Channel",
+    "Subscription",
+    "SubscriptionType",
+    "PluginStatus",
+    "ProcessStatus",
+    "PluginRPC",
 ]

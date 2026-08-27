@@ -5,7 +5,7 @@ from typing import Callable, Dict
 
 from modularnet.plugin_old.plugin_base import PluginBase
 from modularnet.plugin_old.plugin_manager import PluginManagerBase
-from modularnet.task.task import Task
+from draft.task.task import Task
 
 class PluginTopic:
     """Manages a single pub/sub topic with multiprocessing queues."""

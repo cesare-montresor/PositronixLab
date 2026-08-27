@@ -3,13 +3,13 @@
 # Covertype Dataset
 # =============================================================================
 
-from modularnet.dataprovider.base_dataprovider import BaseDataProvider
+from modularnet.dataprovider.dataprovider import DataProvider
 from torch.utils.data import Dataset, DataLoader, random_split
 import torch
 import numpy as np
 from pathlib import Path
 
-class CovertypeDataProvider(BaseDataProvider):
+class CovertypeDataProvider(DataProvider):
     """
     Covertype (Forest Cover Type) Dataset Provider for multi-class classification.
     
@@ -30,19 +30,14 @@ class CovertypeDataProvider(BaseDataProvider):
         root: Root directory for data
     """
     def __init__(self,
-                 batch_size=32,
-                 split=None,
-                 device=None,
-                 num_workers=None,
-                 transforms=None,
+                 root='./data',
+                 split= [0.7, 0.15, 0.15],
                  normalize=True,
-                 root='./data'):
+                 **kwargs,
+                 ):
         super().__init__(
-            batch_size=batch_size,
-            split=split if split is not None else [0.7, 0.15, 0.15],
-            device=device,
-            num_workers=num_workers,
-            transforms=transforms
+            split=split,
+            **kwargs
         )
         
         self.name = 'covertype'
@@ -57,8 +52,7 @@ class CovertypeDataProvider(BaseDataProvider):
         self.dataset = CovertypeDataset(
             root=root,
             normalize=normalize,
-            device=device,
-            transforms=transforms
+            transforms=self.transforms
         )
         
         # Split dataset
@@ -92,30 +86,6 @@ class CovertypeDataProvider(BaseDataProvider):
                 self.dataset_val.apply_normalization(self.dataset_train.mean, self.dataset_train.std)
             self.dataset_test = None
         
-        # Create dataloaders
-        self.train = DataLoader(
-            self.dataset_train,
-            batch_size,
-            shuffle=True,
-            num_workers=num_workers,
-            drop_last=True
-        )
-        self.val = DataLoader(
-            self.dataset_val,
-            batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-            drop_last=True
-        )
-        
-        if self.dataset_test is not None:
-            self.test = DataLoader(
-                self.dataset_test,
-                batch_size,
-                shuffle=False,
-                num_workers=num_workers,
-                drop_last=True
-            )
     
     def get_feature_groups(self):
         """Returns feature groups by semantic meaning"""
@@ -138,7 +108,6 @@ class CovertypeDataset(Dataset):
     def __init__(self,
                  root='./data',
                  normalize=True,
-                 device=None,
                  indices=None,
                  transforms=None):
         super().__init__()
@@ -149,11 +118,7 @@ class CovertypeDataset(Dataset):
         self.indices = indices
         self.transforms = transforms
         
-        if device is None:
-            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        else:
-            self.device = device
-        
+
         # Load data
         self._load_data()
         
@@ -196,7 +161,6 @@ class CovertypeDataset(Dataset):
         return CovertypeDataset(
             root=str(self.root),
             normalize=self.normalize,
-            device=self.device,
             indices=indices,
             transforms=self.transforms
         )

@@ -1,92 +1,88 @@
+from dataclasses import dataclass, asdict
+from modularnet.utils.utils import load_data, save_data, signature_settings
 
-import yaml
-
-from modularnet.common.utils import signature_settings
-
-
+@dataclass
 class TrialConfig:
     """
     A class to hold options for the MetaModel.
-    This class can be extended to include various configuration parameters.
+    Using dataclass removes __init__ boilerplate and provides type safety.
     """
-    def __init__(self, options=None):
-        if options is None: options = {}
-        self.options = options 
+    name: str = "default_config"
 
-        self.exp_metric_modularity = options.get('exp_metric_modularity', True)
-        self.exp_modularizer = options.get('exp_modularizer', True)
+    exp_metric_modularity: bool = True
+    exp_modularizer: bool = True
 
-        
-        self.task = options.get('task', "classification")  # Default task is classificationù
-        self.criterion_type = options.get('criterion_type', "mse")  # Default task is classification
-        self.model_type = options.get('model_type', "fc")  # Default model type is fully connected (fc)
-        self.train_epochs = options.get('train_epochs', 10)  # Default number of training epochs
-        self.space_epochs = options.get('space_epochs', 1)  # no training. Default number of space epochs ( optimized for unchaning model weights)
+    task: str = "classification"
+    criterion_type: str = "cross_entropy"
+    model_type: str = "fc"
+    train_epochs: int = 10
+    space_epochs: int = 1
 
-        self.dataset_name = options.get('dataset_name', 'fashion_mnist')  # Default input data shape for MNIST
-        self.modular_space_name = options.get('modular_space_name', 'fashion_mnist_cnn')  # Default modular space name
-        self.modular_space_size = options.get('modular_space_size', 6)  # Default modular space size
-        self.modular_space_lr = options.get('modular_space_lr', 0.01)
-        self.modular_space_active_q = options.get('modular_space_active_q', 0.80) # Default modular space size
-        self.modular_space_distance = options.get('modular_space_distance', 'cosine')  # Default modular space size
-        self.modular_modularize_decay = options.get('modular_modularize_decay', 0.95)  # Default modular space size
-        
+    dataset_name: str = "fashion_mnist"
+    modular_space_name: str = "fashion_mnist_cnn"
+    modular_space_size: int = 6
+    modular_space_lr: float = 0.01
+    modular_space_active_q: float = 0.80
+    modular_space_distance: str = "cosine"
+    modular_modularize_decay: float = 0.95
+    
+    modular_overspace_size: int = 10
 
-        self.modular_space_loss_on = options.get('modular_space_loss_on', 1)
-        self.modular_space_loss_off = options.get('modular_space_loss_off', 1)
-        self.modular_space_loss_centers = options.get('modular_space_loss_centers', 1)  
-        self.modular_space_loss_batch = options.get('modular_space_loss_batch', 1)  
-        self.modular_space_loss_alignment = options.get('modular_space_loss_alignment', 1) 
-        
-        self.input_data_shape = options.get('input_data_shape', 784) 
-        self.input_hidden_dim = options.get('input_hidden_dim', 32) 
+    modular_space_loss_on: float = 1
+    modular_space_loss_off: float = 1
+    modular_space_loss_centers: float = 1
+    modular_space_loss_batch: float = 1
+    modular_space_loss_alignment: float = 1
+    
+    input_data_shape: int = 784
+    input_hidden_dim: int = 32
 
-        self.input_num_layers = options.get('input_num_layers', 2)
-        self.input_reduce_every = options.get('input_reduce_every', 0)  # Default input size reduced every N layer. <1 no reduction
-        self.input_dropout_every = options.get('input_dropout_every', 0) # 0 first only, -1 none, N>0 every N layer)
-        self.input_batch_norm = options.get('input_batch_norm', True)
-        self.input_residual = options.get('input_residual', True)
+    input_num_layers: int = 2
+    input_reduce_every: int = 0
+    input_dropout_every: int = 0
+    input_batch_norm: bool = True
+    input_residual: bool = True
 
+    output_data_shape: int = 10
+    output_hidden_dim: int = 32
+    output_num_layers: int = 2
+    output_reduce_every: int = -1
+    output_dropout_every: int = 0
+    output_batch_norm: bool = True
+    output_residual: bool = True
 
-        self.output_data_shape = options.get('output_data_shape', 10) # -1: auto
-        self.output_hidden_dim = options.get('output_hidden_dim', 32) # -1: auto
-        self.output_num_layers = options.get('output_num_layers', 2) # -1: auto
-        self.output_reduce_every = options.get('output_reduce_every', -1)  # Default input size reduced every N layer. <1 no reduction
-        self.output_dropout_every = options.get('output_dropout_every', 0) # 0 first only, -1 none, N>0 every N layer)
-        self.output_batch_norm = options.get('output_batch_norm', True)
-        self.output_residual = options.get('output_residual', True)
+    optimizer: str = "adamw"
+    activation: str = "relu"
+    dropout: float = 0.5
+    learning_rate: float = 0.001
+    batch_size: int = 32
+    epochs: int = 10
 
-
-        
-        self.activation = options.get('activation', 'relu')
-        self.dropout = options.get('dropout', 0.5)
-        self.learning_rate = options.get('learning_rate', 0.001)
-        self.batch_size = options.get('batch_size', 32)
-        self.epochs = options.get('epochs', 10)
-
-
-        self.nas_min_acc = options.get('nas_min_acc', 0.8)
-        self.nas_min_mod_score = options.get('nas_min_mod_score', 0.2)
-        #self.optimizer = options.get('optimizer', 'adam')
-        self.cnn_kernel_size = options.get('cnn_kernel_size', 3)
+    nas_min_acc: float = 0.8
+    nas_min_mod_score: float = 0.2
+    cnn_kernel_size: int = 3
 
     def signature(self):
-        sign = signature_settings(self)
-        return sign
+        return signature_settings(self)
+
+    def to_dict(self):
+        """
+        Convert the dataclass to a dictionary.
+        """
+        return asdict(self)
 
     def save(self, filepath):
         """
         Save the options to a YAML file.
+        asdict(self) converts the dataclass to a dictionary automatically.
         """
-        with open(filepath, 'w') as f:
-            yaml.dump(self.options, f, sort_keys=True)
+        save_data(filepath, self.to_dict() )
 
     @classmethod
     def load(cls, filepath):
         """
-        Load options from a YAML file and return a MetaModelOptions instance.
+        Load options from a YAML file and return a TrialConfig instance.
         """
-        with open(filepath, 'r') as f:
-            options = yaml.safe_load(f)
+        options = load_data(filepath)
+        # We use **options to unpack the dictionary into the dataclass kwargs
         return cls(**options)
-    

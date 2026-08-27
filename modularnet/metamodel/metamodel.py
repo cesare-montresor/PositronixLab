@@ -27,17 +27,23 @@ class BaseModel(nn.Module):
             path = f'./checkpoint/{self.name}.pth'
         elif path is None:
             path = os.path.join(self.basepath,f'{self.name}.pth')
+        
+        path = os.path.abspath(path)
         return path
 
     def save(self, path=None):
         path = self.model_path(path)
         if os.path.exists(path): os.remove(path)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         torch.save(self.state_dict(), path)
+        return path
 
+    
     def load(self, path):
         path = self.model_path(path)
         if not os.path.exists(path): return
         self.load_state_dict(torch.load(path, weights_only=True))
+        return path
 
 
     

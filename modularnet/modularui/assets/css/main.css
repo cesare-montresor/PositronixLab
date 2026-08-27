@@ -1,0 +1,79 @@
+/* Belt-and-braces: if any theme stylesheet sets overflow:hidden on
+   html/body (common for old fixed-viewport layouts), this overrides it
+   so the global scrollbar is guaranteed to work. */
+html, body {
+  overflow-y: auto !important;
+  min-height: 100%;
+}
+
+.dashboard-card {
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+/* Make card content stretch to fill the card instead of sitting at its
+   own intrinsic size. Targets Dash's most common content wrappers;
+   harmless no-op for anything that doesn't match. */
+.card-body {
+  display: flex;
+  flex-direction: column;
+}
+.card-body > * {
+  flex: 1 1 auto;
+  width: 100%;
+}
+.card-body .js-plotly-plot,
+.card-body .plot-container,
+.card-body .dash-graph {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 260px;
+}
+.dashboard-card:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.card-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.5;
+  cursor: pointer;
+  font-size: 0.85em;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+.card-btn:hover {
+  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Collapsed-panel tabs */
+.collapsed-tab {
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.collapsed-tab:hover {
+  background-color: rgba(255, 255, 255, 0.09) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Reflow to a single column on narrow viewports instead of squishing
+   three stat cards and a sidebar into an unreadable strip. */
+@media (max-width: 900px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: repeat(5, auto) !important;
+    grid-template-areas:
+      "top-a"
+      "top-b"
+      "top-c"
+      "sidebar"
+      "main" !important;
+  }
+  .dashboard-grid > [style*="grid-area: sidebar"],
+  .dashboard-grid > [style*="grid-area: main"] {
+    min-height: 320px;
+  }
+}
