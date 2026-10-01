@@ -30,11 +30,11 @@ class TrailModularNetV1(BaseTrial):
         self.ui_save_path = Path(self.workdir,"dump","data.pickle")
 
         self.plugins = [
-            #UIPlugin.Descriptor({ "save_path": self.ui_save_path }),
+            UIPlugin.Descriptor({ "save_path": self.ui_save_path }),
             ObservableTrainPlugin.Descriptor(),
             ModularSpacePlugin.Descriptor(),
             ClusterPlugin.Descriptor(),
-            CompositionalityPlugin.Descriptor(),
+            #CompositionalityPlugin.Descriptor(),
             #OverspacePlugin.Descriptor()
         ]
         
@@ -82,7 +82,7 @@ def test_train():
     verbose=False
     config = TrialConfig()
     config.dataset_name = 'mnist'  # Use mnist dataset for quick testing
-    config.epochs = 1  # Use 3 epochs for quick test
+    #config.epochs = 1  # Use 3 epochs for quick test
     trial_manager = TrialManager()
     trial = TrailModularNetV1(config, trial_manager)
     

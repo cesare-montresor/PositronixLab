@@ -5,6 +5,7 @@ from torch import Tensor
 import torch.nn.functional as F
 
 
+
 from modularnet.spacemath.common import is_conv, is_linear, zclamp
 
 
@@ -271,6 +272,3 @@ class SpaceMath():
 
         return top_k_indices, top_k_scores #, top_k_features
     
-
-
-

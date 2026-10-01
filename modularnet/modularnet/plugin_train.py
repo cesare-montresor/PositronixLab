@@ -163,6 +163,7 @@ class ObservableTrainPlugin(BasePlugin):
             'layer_id': node.name,
             "activations": x_out.detach().clone()
         }
+        
         self.topic_publish("activations", data)
         
     

@@ -6,8 +6,8 @@ from torch.utils.data import DataLoader
 
 from modularnet.trial.trial_config import TrialConfig
 from modularnet.dataprovider.dataprovider import DataProvider
-from .atlas_check import AtlasCheck
-from .weightmask_check import WeightmaskCheck
+from modularnet.downstream_tasks.compositionality.weightmask_check import WeightmaskCheck
+from modularnet.downstream_tasks.compositionality.atlas_check import AtlasCheck
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +142,7 @@ class CompositionalityCheck:
 
     
 
-    def run_(
+    def run(
         self,
         atlas_masks: Dict[int, Dict[str, torch.Tensor]],
         csordas_masks: Dict[int, Dict[str, torch.Tensor]]
