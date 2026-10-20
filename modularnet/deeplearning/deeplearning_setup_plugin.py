@@ -13,7 +13,7 @@ from parallelazy.plugin_worker import PluginWorker
 from modularnet.trial.trial_config import TrialConfig
 from modularnet.dataprovider.dataprovider_factory import DataProviderFactory
 from modularnet.metamodel.metamodel import MetaModel
-from parallelazy.plugin import Plugin, PluginDescriptor, Subscription
+from parallelazy.plugin import Plugin, PluginDescriptor
 
 
 logger = logging.getLogger(__name__)

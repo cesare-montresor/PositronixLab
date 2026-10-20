@@ -7,8 +7,7 @@ import numpy as np
 import faiss
 
 from modularnet.modularcluster.streaming_cluster_tracker import StreamingClusterTracker
-from parallelazy.plugin_worker import PluginWorker
-from parallelazy.plugin import Plugin, PluginDescriptor
+from parallelazy import Plugin, PluginDescriptor, PluginWorker
 
 logger = logging.getLogger(__name__)
 

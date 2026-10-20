@@ -12,13 +12,11 @@ from modularnet.modularobserver.modelmapper import GraphFormatter, ModelNode
 from modularnet.modularobserver.modularobserver import ModelGraph, ModularObserver
 
 
-from modularnet.plugin.plugin_transport import IpcEventCuda, IpcEventPoolManaged
-from parallelazy.plugin_worker import PluginWorker
+from parallelazy import Plugin, PluginDescriptor, PluginWorker, IpcEventCuda, IpcEventPoolManaged
 from modularnet.spacemath.spacemath import SpaceMath
 from modularnet.trial.trial_config import TrialConfig
 from modularnet.dataprovider.dataprovider_factory import DataProviderFactory
 from modularnet.metamodel.metamodel import MetaCriterion, MetaModel
-from parallelazy.plugin import Plugin, PluginDescriptor
 
 logger = logging.getLogger(__name__)
 

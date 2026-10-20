@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional
 
 from modularnet.trial.trial_config import TrialConfig
 from modularnet.trial.trial_manager import TrialManager
-from modularnet.plugin import PluginManager, PluginDescriptor
+from parallelazy import PluginManager, PluginDescriptor
 
 logger = logging.getLogger(__name__)
 

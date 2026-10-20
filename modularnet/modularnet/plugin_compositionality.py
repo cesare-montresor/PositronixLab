@@ -8,8 +8,7 @@ from modularnet.dataprovider.dataprovider_factory import DataProviderFactory
 from modularnet.downstream_tasks.compositionality.compositionality import CompositionalityPipeline
 from modularnet.metamodel.metamodel import MetaModel
 from modularnet.trial.trial_config import TrialConfig
-from parallelazy.plugin_worker import PluginWorker
-from parallelazy.plugin import Plugin, PluginDescriptor
+from parallelazy import Plugin, PluginDescriptor, PluginWorker
 
 
 logger = logging.getLogger(__name__)

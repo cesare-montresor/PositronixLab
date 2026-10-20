@@ -8,10 +8,9 @@ import torch
 from torch.cuda import Event
 
 from modularnet.modularspace.modularspace import ModularSpace
-from modularnet.plugin.plugin_transport import IpcEventCuda
 from parallelazy.plugin_worker import PluginWorker
 from modularnet.trial.trial_config import TrialConfig
-from parallelazy.plugin import Plugin, PluginDescriptor
+from parallelazy import Plugin, PluginDescriptor, PluginWorker, IpcEventCuda
 
 
 logger = logging.getLogger(__name__)

@@ -3,8 +3,8 @@ import time
 from typing import Any, Dict, Set
 
 from modularnet.modularui.modularui import ModularUI
-from parallelazy.plugin_worker import PluginWorker
-from parallelazy.plugin import Plugin, PluginDescriptor
+
+from parallelazy import Plugin, PluginDescriptor, PluginWorker
 
 
 logger = logging.getLogger(__name__)

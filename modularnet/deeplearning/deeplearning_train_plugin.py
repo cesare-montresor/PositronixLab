@@ -19,7 +19,7 @@ from modularnet.trial.trial_config import TrialConfig
 from modularnet.dataprovider.dataprovider_factory import DataProviderFactory
 from modularnet.metamodel.metamodel import MetaModel
 from modularnet.deeplearning.deeplearning_common import DeeplearningCommon
-from parallelazy.plugin import Plugin, PluginDescriptor, Subscription
+from parallelazy import Plugin, PluginDescriptor
 
 logger = logging.getLogger(__name__)
 

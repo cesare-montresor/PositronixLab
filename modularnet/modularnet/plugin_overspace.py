@@ -2,9 +2,8 @@ import logging
 from typing import Any, Dict, Optional
 
 from modularnet.modularspace.modularoverspace import ModularOverSpace
-from parallelazy.plugin_worker import PluginWorker
 from modularnet.trial.trial_config import TrialConfig
-from parallelazy.plugin import Plugin, PluginDescriptor
+from parallelazy import Plugin, PluginDescriptor, PluginWorker
 
 
 logger = logging.getLogger(__name__)
