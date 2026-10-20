@@ -3,14 +3,14 @@ import time
 from typing import Any, Dict, Set
 
 from modularnet.modularui.modularui import ModularUI
-from modularnet.plugin.plugin_worker import PluginWorker
-from modularnet.plugin import BasePlugin, PluginDescriptor
+from parallelazy.plugin_worker import PluginWorker
+from parallelazy.plugin import Plugin, PluginDescriptor
 
 
 logger = logging.getLogger(__name__)
 
 
-class UIPlugin(BasePlugin):
+class UIPlugin(Plugin):
     """Pure view layer. Raw data ingestion, decimation, PCA/UMAP, cluster sync,
     history and persistence all live in StatsPlugin; this plugin only
     consumes its aggregated output (the `stats_*` topics / env vars) plus the

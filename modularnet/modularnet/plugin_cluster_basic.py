@@ -6,13 +6,13 @@ import numpy as np
 import torch
 
 from modularnet.modularcluster.modularcluster_kmeans import ModularClusterKmeans
-from modularnet.plugin.plugin_worker import PluginWorker
-from modularnet.plugin import BasePlugin, PluginDescriptor
+from parallelazy.plugin_worker import PluginWorker
+from parallelazy.plugin import Plugin, PluginDescriptor
 
 logger = logging.getLogger(__name__)
 
 
-class ClusterPluginBasic(BasePlugin):
+class ClusterPluginBasic(Plugin):
 
     @classmethod
     def Descriptor(cls, options: Dict[str, Any] = None) -> PluginDescriptor:

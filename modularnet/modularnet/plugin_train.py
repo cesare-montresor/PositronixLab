@@ -13,18 +13,18 @@ from modularnet.modularobserver.modularobserver import ModelGraph, ModularObserv
 
 
 from modularnet.plugin.plugin_transport import IpcEventCuda, IpcEventPoolManaged
-from modularnet.plugin.plugin_worker import PluginWorker
+from parallelazy.plugin_worker import PluginWorker
 from modularnet.spacemath.spacemath import SpaceMath
 from modularnet.trial.trial_config import TrialConfig
 from modularnet.dataprovider.dataprovider_factory import DataProviderFactory
 from modularnet.metamodel.metamodel import MetaCriterion, MetaModel
-from modularnet.plugin import BasePlugin, PluginDescriptor
+from parallelazy.plugin import Plugin, PluginDescriptor
 
 logger = logging.getLogger(__name__)
 
 
 
-class ObservableTrainPlugin(BasePlugin):
+class ObservableTrainPlugin(Plugin):
     
     @classmethod
     def default_options(cls) -> Dict[str, Any]:

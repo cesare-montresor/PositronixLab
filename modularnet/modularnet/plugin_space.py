@@ -9,15 +9,15 @@ from torch.cuda import Event
 
 from modularnet.modularspace.modularspace import ModularSpace
 from modularnet.plugin.plugin_transport import IpcEventCuda
-from modularnet.plugin.plugin_worker import PluginWorker
+from parallelazy.plugin_worker import PluginWorker
 from modularnet.trial.trial_config import TrialConfig
-from modularnet.plugin import BasePlugin, PluginDescriptor
+from parallelazy.plugin import Plugin, PluginDescriptor
 
 
 logger = logging.getLogger(__name__)
 
 
-class ModularSpacePlugin(BasePlugin):
+class ModularSpacePlugin(Plugin):
     
     @classmethod
     def default_options(cls) -> Dict[str, Any]:

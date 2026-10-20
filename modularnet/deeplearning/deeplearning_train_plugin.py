@@ -14,18 +14,18 @@ import time
 from typing import Any, Dict, Optional 
 
 
-from modularnet.plugin.plugin_worker import PluginWorker
+from parallelazy.plugin_worker import PluginWorker
 from modularnet.trial.trial_config import TrialConfig
 from modularnet.dataprovider.dataprovider_factory import DataProviderFactory
 from modularnet.metamodel.metamodel import MetaModel
 from modularnet.deeplearning.deeplearning_common import DeeplearningCommon
-from modularnet.plugin import BasePlugin, PluginDescriptor, Subscription
+from parallelazy.plugin import Plugin, PluginDescriptor, Subscription
 
 logger = logging.getLogger(__name__)
 
 
 
-class DeeplearningTrainPlugin(BasePlugin):
+class DeeplearningTrainPlugin(Plugin):
     """
     Plugin that runs training after model and dataprovider are available.
     

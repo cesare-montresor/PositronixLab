@@ -2,15 +2,15 @@ import logging
 from typing import Any, Dict, Optional
 
 from modularnet.modularspace.modularoverspace import ModularOverSpace
-from modularnet.plugin.plugin_worker import PluginWorker
+from parallelazy.plugin_worker import PluginWorker
 from modularnet.trial.trial_config import TrialConfig
-from modularnet.plugin import BasePlugin, PluginDescriptor
+from parallelazy.plugin import Plugin, PluginDescriptor
 
 
 logger = logging.getLogger(__name__)
 
 
-class OverspacePlugin(BasePlugin):
+class OverspacePlugin(Plugin):
     
     @classmethod
     def Descriptor(cls, options: Dict[str, Any] = None) -> PluginDescriptor:

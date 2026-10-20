@@ -7,15 +7,15 @@ import torch
 from modularnet.dataprovider.dataprovider_factory import DataProviderFactory
 from modularnet.downstream_tasks.compositionality.compositionality import CompositionalityPipeline
 from modularnet.metamodel.metamodel import MetaModel
-from modularnet.plugin.plugin_worker import PluginWorker
 from modularnet.trial.trial_config import TrialConfig
-from modularnet.plugin import BasePlugin, PluginDescriptor
+from parallelazy.plugin_worker import PluginWorker
+from parallelazy.plugin import Plugin, PluginDescriptor
 
 
 logger = logging.getLogger(__name__)
 
 
-class CompositionalityPlugin(BasePlugin):
+class CompositionalityPlugin(Plugin):
 
     @classmethod
     def default_options(cls) -> Dict[str, Any]:

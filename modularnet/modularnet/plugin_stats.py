@@ -32,8 +32,8 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 import numpy as np
 import torch
 
-from modularnet.plugin.plugin_worker import PluginWorker
-from modularnet.plugin import BasePlugin, PluginDescriptor
+from parallelazy.plugin_worker import PluginWorker
+from parallelazy.plugin import Plugin, PluginDescriptor
 from modularnet.stats.common import _to_np
 from modularnet.stats.processor import Processor, PcaProcessor, UmapProcessor
 from modularnet.stats.stream import Stream
@@ -91,7 +91,7 @@ DEFAULT_STREAMS: Dict[str, Dict[str, Any]] = {
 }
 
 
-class StatsPlugin(BasePlugin):
+class StatsPlugin(Plugin):
 
     @classmethod
     def default_options(cls) -> Dict[str, Any]:

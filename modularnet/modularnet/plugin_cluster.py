@@ -7,13 +7,13 @@ import numpy as np
 import faiss
 
 from modularnet.modularcluster.streaming_cluster_tracker import StreamingClusterTracker
-from modularnet.plugin.plugin_worker import PluginWorker
-from modularnet.plugin import BasePlugin, PluginDescriptor
+from parallelazy.plugin_worker import PluginWorker
+from parallelazy.plugin import Plugin, PluginDescriptor
 
 logger = logging.getLogger(__name__)
 
 
-class ClusterPlugin(BasePlugin):
+class ClusterPlugin(Plugin):
     """
     Thin orchestration layer: owns one StreamingClusterTracker per layer_id
     and handles pub/sub + threading. All clustering, drift-gating,

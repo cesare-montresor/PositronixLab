@@ -3,6 +3,7 @@
 	"recommendations": [
         "littlefoxteam.vscode-python-test-adapter",
         "ms-python.python",
+        "CesareMontresor.parallelazy-vscode"
     ],
 	"unwantedRecommendations": []
     

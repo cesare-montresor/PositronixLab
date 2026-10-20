@@ -9,17 +9,17 @@ then sets them in the environment for other plugins to use.
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional, List
 
-from modularnet.plugin.plugin_worker import PluginWorker
+from parallelazy.plugin_worker import PluginWorker
 from modularnet.trial.trial_config import TrialConfig
 from modularnet.dataprovider.dataprovider_factory import DataProviderFactory
 from modularnet.metamodel.metamodel import MetaModel
-from modularnet.plugin import BasePlugin, PluginDescriptor, Subscription
+from parallelazy.plugin import Plugin, PluginDescriptor, Subscription
 
 
 logger = logging.getLogger(__name__)
 
 
-class DeeplearningSetupPlugin(BasePlugin):
+class DeeplearningSetupPlugin(Plugin):
     """
     Plugin that creates and sets up the model and data provider.
     

@@ -38,7 +38,8 @@ dependencies = [
     "dash-draggable",
     "cuml-cu12",
     "parametric_umap",
-    "ax-platform"
+    "ax-platform",
+    "parallelazy"
 ]
 
 
