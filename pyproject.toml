@@ -3,12 +3,12 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "modularnet"
+name = "positronixlab"
 dynamic = ["version"]
-description = "A complete framework to explore functional modularity for neural networks"
+description = "A comprehensive framework to explore modularity of neural networks"
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.11"
+requires-python = "~=3.12"
 dependencies = [
     "torch",
     "torchvision",
@@ -31,23 +31,22 @@ dependencies = [
     "kaleido",
     "tabulate",
     "faiss-cpu",
-    "ax-platform"
+    "ax-platform",
     "dash_bootstrap_components",
     "dash_bootstrap_templates",
     "dash-cytoscape",
     "dash-draggable",
     "cuml-cu12",
     "parametric_umap",
-    "ax-platform",
     "parallelazy"
 ]
 
 
 [tool.setuptools.dynamic]
-version = {attr = "modularnet.__version__"}
+version = {attr = "positronixlab.__version__"}
 
 
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["modularnet*"]
+include = ["positronixlab*"]
