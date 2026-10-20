@@ -23,6 +23,17 @@ class Widget(ABC):
         return self.render(*args, **kwargs)
 
 
+class Container(Widget):
+    """Wraps another widget's render() in a div with a stable id, so a poll
+    callback can target it (the Output ids used in HomeLayout.register_callbacks)."""
+    def __init__(self, container_id: str, inner: Widget):
+        self.container_id = container_id
+        self.inner = inner
+
+    def render(self):
+        return html.Div(self.inner.render(), id=self.container_id)
+
+
 class Title(Widget):
     def __init__(self, text: str):
         self.text = text

@@ -35,7 +35,10 @@ dependencies = [
     "dash_bootstrap_components",
     "dash_bootstrap_templates",
     "dash-cytoscape",
-    "dash-draggable"
+    "dash-draggable",
+    "cuml-cu12",
+    "parametric_umap",
+    "ax-platform"
 ]
 
 

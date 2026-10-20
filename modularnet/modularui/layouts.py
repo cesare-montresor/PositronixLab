@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 import dash_bootstrap_components as dbc
 from dash import Dash, Input, Output, State, dcc, html, ALL, ctx
 
-from modularnet.modularui.components import ConfigOverlay, ModelDAGDisplay, Title, VarsDisplay
+from modularnet.modularui.components import ConfigOverlay, Container, ModelDAGDisplay, Title, VarsDisplay
 from modularnet.modularui.docks import DashboardLayout, Panel
 from modularnet.modularui.plots import LayerBoardDisplay, SpaceLossRow, TrainingMetricsDisplay
 
@@ -31,9 +31,9 @@ class HomeLayout:
 
         # 1. Initialize Panels
         panels = {
-            "metrics-panel": Panel("metrics-panel", "Training Metrics", self.training_metrics),
-            "spaceloss-panel": Panel("spaceloss-panel", "Space Loss", self.overall_spaceloss),
-            "vars-panel": Panel("vars-panel", "Variables", self.vars),
+            "metrics-panel": Panel("metrics-panel", "Training Metrics", Container("training-metrics-container", self.training_metrics)),
+            "spaceloss-panel": Panel("spaceloss-panel", "Space Loss", Container("overall-spaceloss-container", self.overall_spaceloss)),
+            "vars-panel": Panel("vars-panel", "Variables", Container("vars-container", self.vars)),
             "dag-panel": Panel("dag-panel", "Model DAG", self.dag),
             "layer-board-panel": Panel("layer-board-panel", "Layer Board", self.layer_board),
         }
@@ -59,7 +59,7 @@ class HomeLayout:
             # over, instead of clipping everything into a 100vh box.
             style={"minHeight": "100vh", "display": "flex", "flexDirection": "column", "padding": "0"},
             children=[
-                html.Div([self.title.render(), self.config_overlay.render_button()], style={"flex": "0 0 auto", "padding": "8px 16px", "display": "flex", "justifyContent": "space-between", "alignItems": "center"}),
+                html.Div([self.title.render(), html.Div(id="epoch-container"), html.Div(id="config-selected-container"), self.config_overlay.render_button()], style={"flex": "0 0 auto", "padding": "8px 16px", "display": "flex", "justifyContent": "space-between", "alignItems": "center"}),
                 dcc.Interval(id="modularnet-poll", interval=self.poll_interval_ms, n_intervals=0),
 
                 # Tabs for collapsed panels

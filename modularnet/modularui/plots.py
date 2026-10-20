@@ -122,10 +122,7 @@ class LayerBoardDisplay(Widget):
         ])
 
     def _known_layer_ids(self) -> List[str]:
-        observed = set(self.ui.get_observed_layer_ids())
-        with self.ui.locks.positions:
-            seen = set(self.ui.positions_plot.keys()) | set(self.ui.pca_history.keys())
-        return sorted(observed | seen)
+        return self.ui.get_known_layer_ids()
 
     def _filtered_layer_ids(self, visible_layers: Optional[List[str]]) -> List[str]:
         all_ids = self._known_layer_ids()
@@ -268,7 +265,7 @@ class LayerBoardDisplay(Widget):
                 ))
 
         fig.update_layout(
-            title=f"Positions: {layer_id} (step {position_index})",
+            title=f"Positions: {layer_id} (step {position_index + self.ui.get_position_offset(layer_id)})",
             margin=dict(l=20, r=20, t=40, b=20),
             height=450,
             template=PLOTLY_TEMPLATE,

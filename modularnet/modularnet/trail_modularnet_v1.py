@@ -5,6 +5,7 @@ import sys
 import time
 
 
+from modularnet.modularnet.plugin_stats import StatsPlugin
 from modularnet.utils import utils
 from modularnet.modularnet.plugin_cluster import ClusterPlugin
 from modularnet.modularnet.plugin_overspace import OverspacePlugin
@@ -34,6 +35,8 @@ class TrailModularNetV1(BaseTrial):
             ObservableTrainPlugin.Descriptor(),
             ModularSpacePlugin.Descriptor(),
             ClusterPlugin.Descriptor(),
+            StatsPlugin.Descriptor(),
+            
             #CompositionalityPlugin.Descriptor(),
             #OverspacePlugin.Descriptor()
         ]
