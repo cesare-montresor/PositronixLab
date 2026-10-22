@@ -23,14 +23,14 @@ from positronixlab.trial.trial_manager import TrialManager
 
 from positronixlab.deeplearning.deeplearning_train_plugin import DeeplearningTrainPlugin
 from positronixlab.deeplearning.deeplearning_setup_plugin import DeeplearningSetupPlugin
-from positronixlab.trial import BaseTrial, TrialConfig, TrialManager
+from positronixlab.trial import TrialBase, TrialConfig, TrialManager
 
 
 class TestTrialDeepLearning:
     def test_base_integration(self):
         self.config = TrialConfig()
         self.trial_manager = TrialManager()
-        self.trial = BaseTrial(self.config, self.trial_manager)
+        self.trial = TrialBase(self.config, self.trial_manager)
         
 
         dl_setup = DeeplearningSetupPlugin.Descriptor(options={"trial_config": self.config})

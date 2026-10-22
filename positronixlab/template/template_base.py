@@ -39,8 +39,8 @@ class TemplateBase:
         self.add_range('modular_modularize_decay', [0.8, 0.99], "float") # Default modular space size
 
 
-        self.add_range('modular_space_loss_active', [0, 1], "float")
-        self.add_range('modular_space_loss_inactive', [0, 1], "float")
+        self.add_range('modular_space_loss_on', [0, 1], "float")
+        self.add_range('modular_space_loss_off', [0, 1], "float")
         self.add_range('modular_space_loss_centers', [0, 1], "float")
         self.add_range('modular_space_loss_batch', [0, 1], "float")
         self.add_range('modular_space_loss_alignment', [0, 1], "float")

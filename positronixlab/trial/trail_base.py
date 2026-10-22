@@ -10,7 +10,7 @@ from parallelazy import PluginManager, PluginDescriptor
 logger = logging.getLogger(__name__)
 
 
-class BaseTrial(ABC):
+class TrialBase(ABC):
     """Base trial class."""
     
     def __init__(self, config: TrialConfig, trial_manager: TrialManager = None ):

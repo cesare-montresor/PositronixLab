@@ -24,13 +24,13 @@ class Template:
     
 
     @classmethod
-    def FromName(cls, experiment:str):
+    def FromName(cls, experiment:str, name:str=None) -> TemplateBase:
         template_class = Template.EXPERIMENTS.get(experiment, None)
         
         if template_class is None:
             raise ValueError(f"Unknown experiment: {experiment}")
         
-        template = template_class()
+        template = template_class(name=name)
 
         return template()
         

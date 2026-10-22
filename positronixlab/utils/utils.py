@@ -14,7 +14,6 @@ import json
 import yaml
 from hashlib import md5
 import multiprocessing as mp
-import socket
 
 
 debug = False
@@ -24,51 +23,12 @@ last_session_path = None
 
 logger = logging.getLogger(__name__)
 
-def _notify_vscode_to_attach(port: int, process_name: str) -> None:
-    ext_port_str = os.environ.get('_DEBUG_SPAWN_EXT_PORT')
-    if not ext_port_str:
-        return
-        
-    try:
-        ext_port = int(ext_port_str)
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(1.0)
-            s.connect(('127.0.0.1', ext_port))
-            s.sendall(f"{port}:{process_name}".encode('utf-8'))
-    except Exception as e:
-        logger.warning(f"Failed to notify VS Code extension on port {ext_port_str}: {e}")
-
-# Notice: 'port: int' is completely gone from the arguments
-def init_debugger(process_name: str = 'worker', wait_for_client: bool = True) -> None:
-    try:
-        import debugpy
-        
-        # Passing 0 tells the OS to assign a random free port.
-        # debugpy returns the actual port it bound to.
-        _, assigned_port = debugpy.listen(("localhost", 0))
-        
-        logger.info(f"Debugger listening on port {assigned_port}")
-        print(f"Debugger listening on port {assigned_port} for {process_name} process", flush=True) 
-        
-        # Ping the extension silently bypassing stdout
-        _notify_vscode_to_attach(assigned_port, process_name)
-
-        if wait_for_client:
-            logger.info("Waiting for debugger to attach...")
-            debugpy.wait_for_client()
-            logger.info("Debugger attached")
-            
-    except Exception as e:
-        logger.warning(f"Failed to initialize debugger: {e}")
-
-
 def process_start_spawn(force=False):
     current = mp.get_start_method(allow_none=True)
     if current not in ('spawn', None):
         warnings.warn(f"Expected spawn start method, got '{current}'. CUDA may be unreliable.")
     elif current is None:
         mp.set_start_method('spawn', force=force)
-
 
 @contextlib.contextmanager
 def suppress_output(stderr: bool = True):
@@ -83,8 +43,6 @@ def suppress_output(stderr: bool = True):
         os.close(devnull)
         os.close(old_stderr)
 
-
-
 def session_path(name, uid=None, createDirectory = True, force=False):   
     global last_session_path 
     if last_session_path is not None and not force: return last_session_path
@@ -95,11 +53,6 @@ def session_path(name, uid=None, createDirectory = True, force=False):
     last_session_path = path
     if createDirectory: os.makedirs(path, exist_ok=True)
     return path
-
-
-
-
-
 
 def camel_to_kebab(text):
     # Find transitions from lowercase/number to uppercase

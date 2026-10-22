@@ -1,4 +1,4 @@
-import logging
+
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -8,6 +8,7 @@ from sklearn.metrics import adjusted_rand_score
 
 from positronixlab.modularcluster.modularcluster_kmeans_stream import ModularClusterKmeansStream
 
+import logging
 logger = logging.getLogger(__name__)
 
 

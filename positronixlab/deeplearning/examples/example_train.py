@@ -6,7 +6,7 @@ import time
 
 from positronixlab.deeplearning.deeplearning_train_plugin import DeeplearningTrainPlugin
 from positronixlab.deeplearning.deeplearning_setup_plugin import DeeplearningSetupPlugin
-from positronixlab.trial import BaseTrial, TrialConfig, TrialManager
+from positronixlab.trial import TrialBase, TrialConfig, TrialManager
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ def main():
 
 
 
-class TrialTrainSimple(BaseTrial):
+class TrialTrainSimple(TrialBase):
     def __init__(self, config: TrialConfig, trial_manager: TrialManager):
         super().__init__(config, trial_manager)
         options = {
