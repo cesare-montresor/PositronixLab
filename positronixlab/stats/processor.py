@@ -76,11 +76,10 @@ class UmapProcessor(Processor):
     def _create_mapper(self):
         """Factory to instantiate the correct UMAP backend."""
         if UMAP_BACKEND == "parametric":
-            # Parametric UMAP needs a device target
+            # parametric_umap exposes a/b instead of the min_dist parameter.
             return UMAP(
                 n_components=self.n_components,
                 n_neighbors=self.n_neighbors,
-                min_dist=self.min_dist,
                 device="cuda:0" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
             )
         else:

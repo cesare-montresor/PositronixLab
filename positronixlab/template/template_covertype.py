@@ -38,7 +38,3 @@ class TemplateCovertype(TemplateFC):
 
 
 
-
-        #self.add_fixed('modular_space_name', self.name, "str")  # Default modular space name
-
-

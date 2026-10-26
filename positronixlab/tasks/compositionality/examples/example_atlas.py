@@ -5,11 +5,11 @@ from typing import List
 import torch
 
 
-from positronixlab.downstream_tasks.compositionality.compositionality import CompositionalityCheck, CompositionalityPipeline
+from positronixlab.tasks.compositionality.compositionality import CompositionalityCheck, CompositionalityPipeline
 from positronixlab.utils import utils 
 from positronixlab.dataprovider.dataprovider_factory import DataProviderFactory
-from positronixlab.downstream_tasks.compositionality.atlas_check import AtlasCheck
-from positronixlab.downstream_tasks.compositionality.weightmask_check import WeightmaskCheck
+from positronixlab.tasks.compositionality.atlas_check import AtlasCheck
+from positronixlab.tasks.compositionality.weightmask_check import WeightmaskCheck
 from positronixlab.metamodel.metamodel import MetaModel
 from positronixlab.trial.trial_config import TrialConfig
 

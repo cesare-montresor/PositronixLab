@@ -6,8 +6,8 @@ from torch.utils.data import DataLoader
 
 from positronixlab.trial.trial_config import TrialConfig
 from positronixlab.dataprovider.dataprovider import DataProvider
-from positronixlab.downstream_tasks.compositionality.weightmask_check import WeightmaskCheck
-from positronixlab.downstream_tasks.compositionality.atlas_check import AtlasCheck
+from positronixlab.tasks.compositionality.weightmask_check import WeightmaskCheck
+from positronixlab.tasks.compositionality.atlas_check import AtlasCheck
 
 logger = logging.getLogger(__name__)
 

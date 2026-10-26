@@ -16,11 +16,6 @@ the full integration of setup + training pipeline.
 
 import pytest
 
-from positronixlab.trial.trial_config import TrialConfig
-from positronixlab.trial.trial_manager import TrialManager
-
-
-
 from positronixlab.deeplearning.deeplearning_train_plugin import DeeplearningTrainPlugin
 from positronixlab.deeplearning.deeplearning_setup_plugin import DeeplearningSetupPlugin
 from positronixlab.trial import TrialBase, TrialConfig, TrialManager

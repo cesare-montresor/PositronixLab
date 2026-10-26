@@ -1,25 +1,32 @@
-from dataclasses import dataclass, asdict
-from positronixlab.utils.utils import load_data, save_data, signature_settings
+from dataclasses import dataclass, asdict, fields
+import hashlib
+import json
+import os
+from typing import Any, Dict, Optional
+import yaml
+
 
 @dataclass
 class TrialConfig:
     """
-    A class to hold options for the MetaModel.
-    Using dataclass removes __init__ boilerplate and provides type safety.
+    Configuration parameters for a single NAS trial.
+    Can be initialized directly with both params and fixed dictionaries.
     """
     name: str = "default_config"
 
+    # Modularity flags
     exp_metric_modularity: bool = True
     exp_modularizer: bool = True
 
+    # General task & model architecture
     task: str = "classification"
     criterion_type: str = "cross_entropy"
     model_type: str = "fc"
     train_epochs: int = 10
     space_epochs: int = 1
 
+    # Dataset & modular space settings
     dataset_name: str = "fashion_mnist"
-    modular_space_name: str = "fashion_mnist_cnn"
     modular_space_size: int = 6
     modular_space_lr: float = 0.01
     modular_space_active_q: float = 0.80
@@ -28,21 +35,22 @@ class TrialConfig:
     
     modular_overspace_size: int = 10
 
-    modular_space_loss_on: float = 1
-    modular_space_loss_off: float = 1
-    modular_space_loss_centers: float = 1
-    modular_space_loss_batch: float = 1
-    modular_space_loss_alignment: float = 1
+    modular_space_loss_on: float = 1.0
+    modular_space_loss_off: float = 1.0
+    modular_space_loss_centers: float = 1.0
+    modular_space_loss_batch: float = 1.0
+    modular_space_loss_alignment: float = 1.0
     
+    # Input layer hierarchy
     input_data_shape: int = 784
     input_hidden_dim: int = 32
-
     input_num_layers: int = 2
     input_reduce_every: int = 0
     input_dropout_every: int = 0
     input_batch_norm: bool = True
     input_residual: bool = True
 
+    # Output layer hierarchy
     output_data_shape: int = 10
     output_hidden_dim: int = 32
     output_num_layers: int = 2
@@ -51,6 +59,7 @@ class TrialConfig:
     output_batch_norm: bool = True
     output_residual: bool = True
 
+    # Optimization & training hyperparameters
     optimizer: str = "adamw"
     activation: str = "relu"
     dropout: float = 0.5
@@ -58,31 +67,117 @@ class TrialConfig:
     batch_size: int = 32
     epochs: int = 10
 
+    # Multi-objective thresholds & CNN features
     nas_min_acc: float = 0.8
     nas_min_mod_score: float = 0.2
     cnn_kernel_size: int = 3
 
-    def signature(self):
-        return signature_settings(self)
+    # Variant tracking
+    variant_name: Optional[str] = None
+    trial_index: Optional[int] = None
 
-    def to_dict(self):
-        """
-        Convert the dataclass to a dictionary.
-        """
+    def signature(self) -> str:
+        content = json.dumps(self.to_dict(), sort_keys=True, default=str)
+        return hashlib.md5(content.encode("utf-8")).hexdigest()
+
+    def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
-    def save(self, filepath):
-        """
-        Save the options to a YAML file.
-        asdict(self) converts the dataclass to a dictionary automatically.
-        """
-        save_data(filepath, self.to_dict() )
+    def to_yaml(self) -> str:
+        return yaml.dump(self.to_dict(), sort_keys=False)
+
+    def save(self, filepath: str) -> None:
+        os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+        with open(filepath, "w", encoding="utf-8") as f:
+            if filepath.endswith(".json"):
+                json.dump(self.to_dict(), f, indent=2, sort_keys=True)
+            else:
+                yaml.dump(self.to_dict(), f, sort_keys=False)
 
     @classmethod
-    def load(cls, filepath):
+    def load(cls, filepath: str) -> "TrialConfig":
+        with open(filepath, "r", encoding="utf-8") as f:
+            if filepath.endswith(".json"):
+                data = json.load(f)
+            else:
+                data = yaml.safe_load(f)
+        return cls.from_dict(data)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TrialConfig":
+        valid_fields = {f.name: f.type for f in fields(cls)}
+        filtered = {}
+        for k, v in data.items():
+            if k in valid_fields:
+                expected_type = valid_fields[k]
+                try:
+                    if expected_type in (int, "int"):
+                        filtered[k] = int(v)
+                    elif expected_type in (float, "float"):
+                        filtered[k] = float(v)
+                    elif expected_type in (bool, "bool"):
+                        filtered[k] = bool(v)
+                    elif expected_type in (str, "str"):
+                        filtered[k] = str(v)
+                    else:
+                        filtered[k] = v
+                except (ValueError, TypeError):
+                    filtered[k] = v
+        return cls(**filtered)
+
+    @classmethod
+    def from_params_and_fixed(
+        cls,
+        params: Dict[str, Any],
+        fixed: Optional[Dict[str, Any]] = None,
+        variant_name: Optional[str] = None,
+        trial_index: Optional[int] = None,
+        trial_name: Optional[str] = None,
+    ) -> "TrialConfig":
         """
-        Load options from a YAML file and return a TrialConfig instance.
+        Initializes a TrialConfig combining:
+        1. Fixed non-searchable constants from template (fixed)
+        2. Parameters generated by Ax (params), which already include any frozen fixed_features
         """
-        options = load_data(filepath)
-        # We use **options to unpack the dictionary into the dataclass kwargs
-        return cls(**options)
+        merged: Dict[str, Any] = {}
+
+        if fixed:
+            merged.update(fixed)
+
+        if params:
+            merged.update(params)
+
+        merged["variant_name"] = variant_name
+        merged["trial_index"] = trial_index
+        if trial_name:
+            merged["name"] = trial_name
+        elif trial_index is not None:
+            prefix = f"{variant_name}_" if variant_name else "trial_"
+            merged["name"] = f"{prefix}t{trial_index}"
+
+        return cls.from_dict(merged)
+
+    @classmethod
+    def from_template(
+        cls,
+        parameters: Dict[str, Any],
+        template: Optional[Any] = None,
+        variant_name: Optional[str] = None,
+        trial_index: Optional[int] = None,
+        trial_name: Optional[str] = None,
+    ) -> "TrialConfig":
+        """Convenience method pulling template.get_fixed() and merging with parameters."""
+        fixed = {}
+        if template is not None:
+            if hasattr(template, "get_fixed"):
+                fixed = template.get_fixed()
+            elif hasattr(template, "fixed"):
+                fixed = dict(template.fixed)
+
+        return cls.from_params_and_fixed(
+            params=parameters,
+            fixed=fixed,
+            variant_name=variant_name,
+            trial_index=trial_index,
+            trial_name=trial_name,
+        )

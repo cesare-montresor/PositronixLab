@@ -3,7 +3,7 @@
 
 
 from positronixlab.template.template_base import TemplateBase
-from positronixlab.template.template import Template
+from positronixlab.template.template_factory import TemplateFactory
 
 
 class TrialManager:

@@ -1,542 +1,342 @@
-
-import glob
 import json
-import os
-import threading
-
-import traceback
-import time
-
 import logging
+import os
+import time
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
-import torch
-
-
-from ax.adapter import Generators
-from ax.analysis.analysis import GenerationStrategy
-from ax.generation_strategy.generation_node import GenerationStep
-from ax.service.ax_client import AxClient, ObjectiveProperties
-
+from ax.api.client import Client
 
 from positronixlab.template import TemplateBase
-from positronixlab.utils.utils import load_data, save_data, signature_settings, process_start_spawn
-
-
-from positronixlab.nas.phase import ExperimentPhase
+from positronixlab.template.template_variant import TemplateVariant, TemplateVariantList
+from positronixlab.trial import TrialConfig
+from .storage import get_or_create_client
+from .parallel_runner import run_trials_parallel, run_variants_parallel
 
 logger = logging.getLogger(__name__)
 
 
-process_start_spawn(force=True) 
+class NasExperiment:
+    """
+    Multi-objective Neural Architecture Search using Meta's modern Ax Client (Ax 1.3+),
+    SQLite persistence, and 2-phase variant bootstrapping:
+    1. Phase 1: Parallel exploration across common unconstrained template space.
+    2. Phase 2: Concurrent variant Bayesian optimizations, each with its own SQLite database,
+       passing variant fixed_features to client.get_next_trials to freeze those search space dimensions.
+    3. Resumability: Checks existing databases and resumes uninterrupted from the last completed trial.
+    4. Pareto Frontier: Extracts best trade-offs using Ax's native get_best_parameterization().
+    5. Folder Structure (always rooted at output/):
+       output/<exp_name>/
+       ├── common/
+       │   ├── trials/
+       │   └── best/
+       ├── <variant_name>/
+       │   ├── trials/
+       │   └── best/
+       └── databases/
+    """
 
+    def __init__(
+        self,
+        name: str,
+        template: TemplateBase,
+        eval_fn: Callable[[TrialConfig], Dict[str, float]],
+        objectives: str = "val_acc, -model_size, modularity_score",
+        outcome_constraints: Optional[Sequence[str]] = None,
+        variants: Optional[TemplateVariantList] = None,
+        n_common_trials: int = 8,
+        n_variant_trials: int = 6,
+        parallel_common: int = 4,
+        parallel_variants: int = 4,
+        output_dir: str = "output"
+    ):
+        self.name = name
+        self.template = template
+        self.eval_fn = eval_fn
+        self.objectives = objectives
+        self.outcome_constraints = list(outcome_constraints or [])
+        self.n_common_trials = n_common_trials
+        self.n_variant_trials = n_variant_trials
+        self.parallel_common = parallel_common
+        self.parallel_variants = parallel_variants
 
+        # Structured output directories: output/<exp_name>/<variant>/[trials, best]
+        self.exp_root_dir = os.path.abspath(os.path.join(output_dir, self.name))
+        self.db_dir = os.path.abspath(os.path.join(self.exp_root_dir, "databases"))
+        os.makedirs(self.exp_root_dir, exist_ok=True)
+        os.makedirs(self.db_dir, exist_ok=True)
 
+        self.variants = variants if variants is not None else self.template.variants
+        self.variants.validate_all(self.template)
 
-    
+        self.common_client: Optional[Client] = None
+        self.variant_clients: Dict[str, Client] = {}
 
-class Experiment:
-    OUTPUT_DIR = 'output/'
-    TRIAL_DIR = 'trials/'
-    CONFIG_DIR = 'config/'
-    PHASE_DIR = 'phase/'
-    LOG_DIR = 'logs/'
-    REPORT_DIR = 'reports/'
-    
-    @classmethod
-    def list_experiments(cls, path=OUTPUT_DIR):
-        paths = glob.glob( f'{path}*' )
-        valid_paths = []
-        for path in paths:
-            if not os.path.isdir( path ): continue
-            exp_path =  cls.get_experiment_path(path)
-            if exp_path is None: continue
-            valid_paths.append( path )
-        return valid_paths
-    
-    @classmethod
-    def from_path(cls, path):
-        config_path = cls.get_experiment_path(path)
-        if config_path is None:
-            print(f"Error: experiment folder {path} has no experiment file:")
-            return None
-        
-        with open( config_path ) as cfg: config = json.load( cfg )
-        if config is None:
-            print(f"Error: config is not a valid JSON file {config_path}")
-            return None
-        
-        exp = Experiment(config=config)
-        if exp.load():
-            print(f"Success: experiment {exp.name}")
-        else:
-            print(f"Error: experiment could not be loaded {path} ")
-            return None
-
-        return exp
-    
-    @classmethod
-    def get_experiment_path(cls, path):
-        config_path = os.path.join(path, 'config', 'experiment.json')
-        if not os.path.exists( config_path ):
-            #print(f"Error: experiment folder {path} has no experiment file: {config_path}")
-            return None
-        return config_path
-    
-    def worker_num(self, num):
-        num = min( num, os.cpu_count()-1 )
-        num = max( 1, num )
-        return num
-
-
-    def __init__(self, 
-            config:dict=None, 
-            name:str=None, 
-            experiment:str= None, 
-            variants:list[str]=None, 
-            seed = None, 
-            debug=False,
-            trials_prior=30, 
-            trials_search=30, 
-            parallel_trials=None,
-            draft=False, 
-            device='cuda', 
-            save_video_space=False,
-            save_history=False,
-            num_workers_data=None,
-        ):
-        
-        if config is not None:
-            self.from_dict( config )
-        else:
-            self.experiment = experiment if experiment is not None else MetaModelTemplate.EXPERIMENTS[0]
-            self.variants = variants if variants is not None else MetaModelTemplate.VARIANTS
-            self.name = name if name is not None else f"TEST_RUN_{int(time.time())}"
-
-            #self.base_path = session_path(name, uid=self.signature, force=True)
-
-            #self.templates = [ MetaModelTemplate.get_experiment_variant( self.experiment, var ) for var in self.variants ]
-            
-            self.seed = seed if seed is not None else int(time.time()) % (2**32 - 1) # random seed by default
-            
-            
-            
-            self.debug = debug
-            self.trials_prior = trials_prior
-            self.trials_search = trials_search
-
-            self.parallel_trials = parallel_trials if parallel_trials is not None else len(self.variants)
-            
-            self.draft = draft
-            self.device = device
-            self.save_video_space = save_video_space
-            self.save_history = save_history
-            self.num_workers_data = 0 if num_workers_data is None else num_workers_data
-            
-            #self.num_workers_data = self.worker_num( self.num_workers_data )
-            self.parallel_trials = self.worker_num( self.parallel_trials )
-            
-            self.phases = {} #type: dict[str, ExperimentPhase]
-
-        threading.current_thread().name = f"exp_{self.name}"
-        self.logger = Logger()
-
-        if self.load():
-            print(f"Loaded existing experiment {self.name} from {self.path_home()}")
-        else:
-            print(f"Initialized new experiment {self.name} at {self.path_home()}")
-            self.init_phases()
-
-
-        self.save()
-        
-    def add_phase(self, name:str, client:AxClient, template:TemplateBase, import_phase:str=None):
-        phase_path = self.path_phase(name)
-        phase = ExperimentPhase( name, client, template, base_path=phase_path, import_phase=import_phase )
-        self.phases[name] = phase
-        phase.save()
-        return phase    
-        
-    def signature(self):
-        fixed_fields = self.to_dict()
-        #fixed_fields['template'] = self.template.signature()
-        sign = signature_settings(fixed_fields)
-        print(f"Experiment signature: {sign}\n{fixed_fields}")
-        return sign
-
-
-    def to_dict(self):
+    def _get_variant_dirs(self, variant_name: str) -> Dict[str, str]:
+        """Creates and returns the structured folders: output/exp_name/variant/trials and best."""
+        var_dir = os.path.join(self.exp_root_dir, variant_name)
+        trials_dir = os.path.join(var_dir, "trials")
+        best_dir = os.path.join(var_dir, "best")
+        os.makedirs(trials_dir, exist_ok=True)
+        os.makedirs(best_dir, exist_ok=True)
         return {
-            'name': self.name,
-            'experiment': self.experiment,
-            'variants': self.variants,
-            'seed': self.seed,
-            'trials_prior': self.trials_prior,
-            'trials_search': self.trials_search,
-            'parallel_trials': self.parallel_trials,
-            'draft': self.draft,
-            'device': self.device,
-            'save_video_space': self.save_video_space,
-            'save_history': self.save_history,
-            'num_workers_data': self.num_workers_data,
-            'phases': list(self.phases.keys()),
+            "root": var_dir,
+            "trials": trials_dir,
+            "best": best_dir,
         }
 
+    # -------------------------------------------------------------------------
+    # Phase 1: Common Phase (Random Search with Parallel Execution)
+    # -------------------------------------------------------------------------
+    def run_common_phase(self) -> List[Dict[str, Any]]:
+        dirs = self._get_variant_dirs("common")
+        db_path = os.path.join(self.db_dir, f"{self.name}_common.db")
 
-    def from_dict(self, data):
-        if data is None: return False
-        self.name = data['name']
-        self.seed = data['seed']
-        self.trials_prior = data['trials_prior']
-        self.trials_search = data['trials_search']
-        self.parallel_trials = data['parallel_trials']
-        self.draft = data['draft']
-        self.device = data['device']
-        self.save_video_space = data['save_video_space']
-        self.save_history = data['save_history']
-        self.num_workers_data = data['num_workers_data']
-        self.experiment = data['experiment']
-        self.variants = data['variants']
-
-        self.phases = {}
-        
-        for name in data['phases']:
-            path = self.path_phase( name, makedirs=False )
-            self.phases[name] = ExperimentPhase.from_path( path )
-
-        return True
-
-
-    def makedirs(self, path:str):
-        path = path.strip()
-
-        if os.path.isfile(path):
-            path = os.path.dirname(path)
-        elif not os.path.exists(path) and not path.endswith('/'):
-            path = os.path.dirname(path)
-            
-        os.makedirs( path, exist_ok=True)
-
-    def path_home(self,rel_path=None, makedirs=True):
-        exp_ui = self.name + "_" + self.experiment + "_" + "".join(self.variants) #self.signature() # cache by template ( any change => new template => new signature => new experiment )
-        path = os.path.join(Experiment.OUTPUT_DIR, exp_ui )
-        if rel_path is not None: path = os.path.join(path, rel_path)
-        if makedirs: self.makedirs(path)
-        return path
-
-    def path_trial(self, variant, trial_num, rel_path=None, makedirs=True):
-        if variant is None: variant = 'common'    
-        path = self.path_phase( os.path.join(variant, Experiment.TRIAL_DIR, f't{trial_num}') )
-        if rel_path is not None: path = os.path.join(path, rel_path)
-        if makedirs: self.makedirs(path)
-        return path
-    
-    def path_phase(self, rel_path=None, makedirs=True):
-        path = self.path_home(Experiment.PHASE_DIR)
-        if rel_path is not None: path = os.path.join(path, rel_path)
-        if makedirs: self.makedirs(path)
-        return path
-
-    def path_config(self,rel_path=None, makedirs=True):
-        path = self.path_home(Experiment.CONFIG_DIR)
-        if rel_path is not None: path = os.path.join(path, rel_path)
-        if makedirs: self.makedirs(path)
-        return path
-    
-    def path_logs(self,rel_path=None, makedirs=True):
-        path = self.path_home(Experiment.LOG_DIR)
-        if rel_path is not None: path = os.path.join(path, rel_path)
-        if makedirs: self.makedirs(path)
-        return path
-    
-    def path_report(self,rel_path=None, makedirs=True):
-        path = self.path_home(Experiment.REPORT_DIR)
-        if rel_path is not None: path = os.path.join(path, rel_path)
-        if makedirs: self.makedirs(path)
-        return path
-
-    def path_snapshot(self, variant:str=None):
-        if variant is None: variant = 'common'
-        return self.path_config(f'ax_client_snapshot_{variant}.json')
-
-    def path_template(self):
-        return self.path_config('template.yaml')  
-    
-    def path_experiment(self):
-        return self.path_config('experiment.json')  
-    
-    
-    def save(self):
-        
-        save_data(  self.path_experiment(), self.to_dict() )
-
-    def load(self):
-        data = load_data( self.path_experiment() )
-        
-        return self.from_dict( data )
-
-
-    def configure_client(self, template:TemplateBase, strategy:str='bo'):
-        # seed_everything(self.seed) -> seed what ? ax client ?
-        params = template.get_params()
-
-        min_acc = template.get_value('nas_min_acc', 0.8) 
-        objectives = {'val_acc': ObjectiveProperties(minimize=False, threshold=min_acc)}
-
-        mod_metric = template.get_value('exp_metric_modularity', [False])
-        if any(mod_metric):
-            min_mod_score = template.get_value('nas_min_mod_score', 0.2)
-            objectives['modularity_score'] = ObjectiveProperties(minimize=False, threshold=min_mod_score) 
-        
-        if strategy == 'sobol':
-            generation_steps = [ GenerationStep(Generators.SOBOL, self.trials_prior) ]
-        else:
-            generation_steps = [ GenerationStep(Generators.BOTORCH_MODULAR, self.trials_search) ]
-        gs = GenerationStrategy(steps=generation_steps)
-        
-
-        ax_client = AxClient(generation_strategy=gs)
-        ax_client.create_experiment( 
-            name=self.name, 
-            parameters=params,
-            objectives=objectives,
-            tracking_metric_names=ModularStep.METRICS
+        # Configure Client with full template search space
+        self.common_client = get_or_create_client(
+            experiment_name=f"{self.name}_common",
+            db_path=db_path,
+            parameters=self.template.to_parameter_configs(),
+            objectives=self.objectives,
+            outcome_constraints=self.outcome_constraints,
         )
 
-        
-        
-        return ax_client
+        completed_count = len(self.common_client.experiment.trials)
+        logger.info(f"Phase 1 (Common): {completed_count}/{self.n_common_trials} trials already completed.")
 
+        fixed_params = self.template.get_fixed()
 
-    def init_phases(self):
-        self.logger = Logger()
-        self.logger.init_backend(backend='file', base_path=self.path_logs(), filename='log')
-        self.logger.capture_stdout()
-
-        
-        common_template = MetaModelTemplate.get_experiment( self.experiment ).get_variant()
-        # prepare common phase - random
-
-        common_client = self.configure_client(common_template, strategy='sobol') 
-        self.add_phase( 'common', common_client, common_template )
-        
-        # prepare variants phase - search
-        for variant in self.variants:
-            va_template = common_template.get_variant( variant )
-            va_client = self.configure_client( va_template, strategy='bo')
-            phase = self.add_phase( variant, va_client, va_template, import_phase='common' )
-
-
-
-    def run(self, blocking=True):
-        # run phase: common -> sequential phase -> parallel random trials
-        common_phase = self.phases.get('common')
-        self.run_phase(common_phase, parallel_trials=self.parallel_trials)
-        
-        # run phases: variants -> parallel phases -> sequential search trials 
-        phase_threads = []
-        for variant in self.variants:
-            variant_phase = self.phases.get(variant)
-            self.run_phase( variant_phase, 1 )
-            phase_thread = threading.Thread(target=self.run_phase, args=( variant_phase, 1 ))
-            phase_thread.name =  f"exp_{self.name}_phase_{variant}"
-            phase_thread.start()
-            phase_threads.append( phase_thread )
-        
-        if blocking:
-            for phase_thread in phase_threads:
-                phase_thread.join()
-
-
-    def run_phase(self, phase: ExperimentPhase, parallel_trials:int=1):
-        times = []
-        stop = False
-        num_trials = phase.client.experiment.num_trials
-        variant = phase.template.variant
-        if variant is None: variant = 'common'
-        
-        old_phase = self.phases.get( phase.import_phase, None )
-        if old_phase is not None and phase.client.experiment.num_trials == 0:
-            phase.client.experiment.warm_start_from_old_experiment( 
-                old_phase.client.experiment,
-                search_space_check_membership_raise_error=False
+        def _evaluate_wrapper(params: Dict[str, Any], trial_index: int) -> Dict[str, float]:
+            config = TrialConfig.from_params_and_fixed(
+                params=params,
+                fixed=fixed_params,
+                variant_name="common",
+                trial_index=trial_index,
             )
-            #Experiment.import_trials( old_phase.client, phase.client )
-            #phase.client.generation_strategy._maybe_transition_to_next_node(False)
+            # Save trial config into output/exp_name/common/trials/
+            config.save(os.path.join(dirs["trials"], f"trial_{trial_index:03d}.yaml"))
+            return self.eval_fn(config)
 
-            #phase.client.fit_model()
+        while completed_count < self.n_common_trials:
+            batch_size = min(self.parallel_common, self.n_common_trials - completed_count)
+            trials_batch = self.common_client.get_next_trials(max_trials=batch_size)
 
-        options = {
-            'name': self.name,
-            'variant': variant,
-            'debug': self.debug,
-            'draft': self.draft,
-            'device': self.device,
-            'save_video_space': self.save_video_space,
-            'seed': self.seed,
-            'save_model': False,
-            'num_workers_data': self.num_workers_data,
-            'save_history': self.save_history,  
-            'home_path': self.path_home(),
-        }
+            results = run_trials_parallel(
+                trial_batch=trials_batch,
+                eval_fn=_evaluate_wrapper,
+                max_workers=self.parallel_common,
+            )
 
-        
-        while not stop:
-            trials, stop = phase.client.get_next_trials(max_trials=parallel_trials)
-            results_queue = mp.Queue()
-            result_cnt = 0 
-            trials_procs = []
-            for trial_index, parameters in trials.items():
-                opts = options.copy()
-                opts['trial_path'] = self.path_trial( variant, trial_index )
-                args = (trial_index, parameters, opts, results_queue) 
-                proc = mp.Process(None, Experiment.run_trial, args=args )
-                proc.name = f"exp_{self.name}_{variant}_trial_{trial_index}"
-                proc.start()
-                trials_procs.append( proc )
-                result_cnt += 1
-            
-            results = []
-            while result_cnt > 0:
-                result = results_queue.get()
-                results.append( result )
-                result_cnt -= 1
+            for t_idx, metrics in results:
+                self.common_client.complete_trial(trial_index=t_idx, raw_data=metrics)
+                logger.info(f"Common Trial #{t_idx} completed: {metrics}")
 
-            for proc in trials_procs:
-                proc.kill()
-                proc.join()
-            
-            #results = list(self.trialsPool.starmap( Experiment.run_trial, trials_params))
-            
-            for trial_index, parameters, metrics, elapsed_time in results:
-                # keep only watched metrics 
-                metrics = {key:metrics[key][-1] for key in metrics if len(metrics[key])>0 } 
-                
-                print(metrics)
+            completed_count = len(self.common_client.experiment.trials)
 
-                phase.client.complete_trial(trial_index=trial_index, raw_data=metrics)
-                phase.add_results(metrics, elapsed_time)
-                
-                #self.save_results()
-            
-                times.append(elapsed_time)
-                avg_time = sum(times) / len(times)
-                est_remaining = avg_time * (num_trials - (trial_index + 1))
-                print(f"Trial {trial_index} completed in {elapsed_time:.2f} seconds. Estimated remaining time: {est_remaining/60:.2f} minutes.")
-                phase.save()
-    #def run_trial(self, variant, trial_index, parameters):
-    #    pass
+        # Save best configs in common phase to output/exp_name/common/best/
+        try:
+            best_pareto = self.common_client.get_best_parameterization()
+            for idx, item in enumerate(best_pareto):
+                params = item[0] if isinstance(item, tuple) else (item.get("parameters") if isinstance(item, dict) else item)
+                t_idx = item[2] if isinstance(item, tuple) and len(item) > 2 else idx
+                best_config = TrialConfig.from_params_and_fixed(
+                    params=params,
+                    fixed=fixed_params,
+                    variant_name="common",
+                    trial_index=t_idx,
+                )
+                best_config.save(os.path.join(dirs["best"], f"best_{t_idx:03d}.yaml"))
+        except Exception as e:
+            logger.debug(f"Common best parameterization export skipped: {e}")
 
-    @staticmethod
-    def run_trial(trial_index:int, parameters:dict, options:dict, results:mp.Queue):
-        elapsed_time = time.time()
-        metric = None
-        
-        while True:
-            #print("#"*80)
-            print(f"Trial {trial_index} with parameters:")
-            #print("#"*80)
-            #print(json.dumps(parameters, indent=2))
+        # Collect evaluated trials for bootstrapping
+        prior_trials = []
+        for t_idx, trial in self.common_client.experiment.trials.items():
+            if trial.status.is_completed:
+                params = trial.arm.parameters
+                metrics = {k: v[0] for k, v in trial.raw_data.items()} if hasattr(trial, "raw_data") and trial.raw_data else {}
+                prior_trials.append({"trial_index": t_idx, "parameters": params, "metrics": metrics})
 
+        return prior_trials
+
+    # -------------------------------------------------------------------------
+    # Phase 2: Variant Bayesian Phases (Bootstrapped & Concurrent)
+    # -------------------------------------------------------------------------
+    def _run_single_variant(self, variant: TemplateVariant, prior_trials: List[Dict[str, Any]]) -> Client:
+        v_name = variant.name
+        dirs = self._get_variant_dirs(v_name)
+        db_path = os.path.join(self.db_dir, f"{v_name}.db")
+
+        # Client configured with full template search space
+        client = get_or_create_client(
+            experiment_name=f"{self.name}_{v_name}",
+            db_path=db_path,
+            parameters=self.template.to_parameter_configs(),
+            objectives=self.objectives,
+            outcome_constraints=self.outcome_constraints,
+        )
+
+        variant_fixed_features = variant.get_fixed_features()
+        fixed_params = self.template.get_fixed()
+
+        # 1. Bootstrap prior trials if starting fresh
+        if len(client.experiment.trials) == 0:
+            logger.info(f"[{v_name}] Bootstrapping {len(prior_trials)} prior observations...")
+            for prior in prior_trials:
+                adapted_params = dict(prior["parameters"])
+                attach_res = client.attach_trial(parameters=adapted_params)
+                t_idx = attach_res[0] if isinstance(attach_res, tuple) else attach_res
+                if prior["metrics"]:
+                    client.complete_trial(trial_index=t_idx, raw_data=prior["metrics"])
+
+        # 2. Sequential Bayesian optimization steps freezing variant_fixed_features via get_next_trials
+        current_trials = len(client.experiment.trials)
+        target_trials = current_trials + self.n_variant_trials
+        logger.info(f"[{v_name}] Running BO steps up to {target_trials} trials (frozen features: {variant_fixed_features})...")
+
+        # Prepare fixed_features for Client.get_next_trials per https://ax.readthedocs.io/en/stable/api.html#ax.api.client.Client.get_next_trials
+        try:
+            from ax.core.observation import ObservationFeatures
+            fixed_feats_arg = ObservationFeatures(parameters=variant_fixed_features)
+        except Exception:
+            fixed_feats_arg = variant_fixed_features
+
+        while len(client.experiment.trials) < target_trials:
+            # Pass variant fixed_features into get_next_trials
             try:
-                metric = Experiment.train_evaluate(trial_index, parameters, options)
-                break
-            except torch.cuda.OutOfMemoryError as e:
-                print(f"[ERROR] CUDA Out of Memory during trial, retry {trial_index}: {e}")
-                print(traceback.format_exc())
-                time.sleep(10)
-                # retry until OOM is resolved
-            except Exception as e:
-                print(f"[ERROR] Exception during trial {trial_index}: {e}")
-                print(traceback.format_exc())
-                raise e
-                
+                trials_dict = client.get_next_trials(max_trials=1, fixed_features=fixed_feats_arg)
+            except (TypeError, Exception):
+                trials_dict = client.get_next_trials(max_trials=1, fixed_features=variant_fixed_features)
 
-            
-        elapsed_time = time.time() - elapsed_time
-        result = (trial_index, parameters, metric, elapsed_time)
-        if results is not None:
-            results.put( result )
+            t_idx, params = next(iter(trials_dict.items()))
 
-        return result
+            # Ensure frozen features are present in params
+            full_params = dict(variant_fixed_features)
+            full_params.update(params)
 
-    @staticmethod
-    def import_trials(from_client:AxClient, to_client:AxClient):
-        imported_trials=[]
-        for trial in from_client.experiment.trials.values():
-            if not trial.status.is_completed: continue
-            imported_trials.append( trial )
-            trial_data = trial.fetch_data()
-            
-            params = trial.arms[0].parameters
-            results = trial_data.df[["metric_name", "mean"]].to_dict(orient='RECORDS')
-            results = {  item['metric_name']: item['mean'] for item in results }
-            
-            params, trial_num = to_client.attach_trial(params)
-            to_client.complete_trial( trial_index=trial_num, raw_data= results )
-            print("STEP:" + str(to_client.generation_strategy.current_step_index))
-                                      
-        #imported_trials = to_client.experiment.warm_start_from_old_experiment(from_client.experiment, search_space_check_membership_raise_error=False)
-        print(f"Imported {len(imported_trials)}/{len(from_client.experiment.trials)} trials from previous experiment")
+            # Initialize TrialConfig with params (including frozen features) and template fixed
+            config = TrialConfig.from_params_and_fixed(
+                params=full_params,
+                fixed=fixed_params,
+                variant_name=v_name,
+                trial_index=t_idx,
+            )
+            # Save into output/exp_name/variant/trials/
+            config.save(os.path.join(dirs["trials"], f"trial_{t_idx:03d}.yaml"))
 
+            metrics = self.eval_fn(config)
+            client.complete_trial(trial_index=t_idx, raw_data=metrics)
+            logger.info(f"[{v_name}] BO Trial #{t_idx} completed: {metrics}")
 
-    @staticmethod
-    def train_evaluate(trial_index:int, config:dict, options:dict ):
-        
+        # 3. Save Pareto-optimal configurations to output/exp_name/variant/best/
+        try:
+            best_pareto = client.get_best_parameterization()
+            for idx, item in enumerate(best_pareto):
+                params = item[0] if isinstance(item, tuple) else (item.get("parameters") if isinstance(item, dict) else item)
+                t_idx = item[2] if isinstance(item, tuple) and len(item) > 2 else idx
+                full_params = dict(variant_fixed_features)
+                full_params.update(params)
 
-        config = MetaModelConfig(config)
-        name = options.get('name')
-        variant = options.get('variant','')
-        trial_path = options.get('trial_path')
-        home_path = options.get('home_path')
-        debug = options.get('debug', False)
-        draft = options.get('draft', False)
-        device = options.get('device', 'cuda')
-        save_video_space = options.get('save_video_space', False)
-        seed = options.get('seed', None)
-        save_model = options.get('save_model', False)
-        num_workers_data = options.get('num_workers_data', 0)
-        save_history = options.get('save_history', False)
+                best_config = TrialConfig.from_params_and_fixed(
+                    params=full_params,
+                    fixed=fixed_params,
+                    variant_name=v_name,
+                    trial_index=t_idx,
+                )
+                best_config.save(os.path.join(dirs["best"], f"best_{t_idx:03d}.yaml"))
+        except Exception as e:
+            logger.debug(f"[{v_name}] Pareto best parameterization export error: {e}")
 
-        # Code to load the experiment
-        logger = Logger()
-        logger.init_backend(backend='file', base_path=trial_path, filename='log')
-        logger.capture_stdout()
+        return client
 
-        #seed_everything(seed)
-        name = f'{name}_v{variant}_t{trial_index}'
-        
-        # Create model first to determine device
-        model = MetaModel(name, config, device=device)
+    def run_variant_phases(self, prior_trials: List[Dict[str, Any]]) -> Dict[str, Client]:
+        tasks = [
+            (
+                variant.name,
+                lambda v=variant: self._run_single_variant(v, prior_trials),
+            )
+            for variant in self.variants
+        ]
 
-        if debug: model.print()
+        self.variant_clients = run_variants_parallel(
+            variant_tasks=tasks,
+            max_workers=self.parallel_variants,
+        )
+        return self.variant_clients
 
-        device  = model.device
-        # Pass model device to dataset
-        dataset = DataProvider.get_dataprovider(config, device=device, num_workers=num_workers_data)
-        
-        space_size = config.modular_space_size
-        # Pass model device to space
-        space = ModularSpace(config, name, model, space_size, debug=debug, useActivations=True, useLayers=True, base_path=trial_path, device=device, history=save_history )
-        
-        steps = ModularStep(config, name, trial_path, dataset, model, space, draft=draft)
+    # -------------------------------------------------------------------------
+    # Pareto Best Extraction via Ax Native get_best_parameterization()
+    # -------------------------------------------------------------------------
+    def get_pareto_best(self) -> Dict[str, List[TrialConfig]]:
+        """
+        Uses Ax's native client.get_best_parameterization() to extract the Pareto frontier
+        for each variant and saves configs to output/exp_name/variant/best/.
+        """
+        results: Dict[str, List[TrialConfig]] = {}
+        fixed_params = self.template.get_fixed()
 
+        for v_name, client in self.variant_clients.items():
+            dirs = self._get_variant_dirs(v_name)
+            variant = self.variants.get_variant(v_name)
+            variant_fixed_features = variant.get_fixed_features() if variant else {}
+            results[v_name] = []
 
-        steps.space.modularizer = config.exp_modularizer
-        
-                
-        steps.step_run( save_video=save_video_space)
+            best_pareto = client.get_best_parameterization()
+            for idx, item in enumerate(best_pareto):
+                if isinstance(item, tuple):
+                    params = item[0]
+                    t_idx = item[2] if len(item) > 2 else idx
+                elif isinstance(item, dict):
+                    params = item.get("parameters", item)
+                    t_idx = item.get("trial_index", idx)
+                else:
+                    continue
 
-        if save_model:
-            model.save(path=os.path.join( trial_path, 'model_final.pth' ))
+                full_params = dict(variant_fixed_features)
+                full_params.update(params)
 
-        return steps.metrics
+                config = TrialConfig.from_params_and_fixed(
+                    params=full_params,
+                    fixed=fixed_params,
+                    variant_name=v_name,
+                    trial_index=t_idx,
+                )
+                config.save(os.path.join(dirs["best"], f"pareto_best_{t_idx:03d}.yaml"))
+                results[v_name].append(config)
 
+        # Write overall summary to output/exp_root_dir/summary.json
+        summary = {
+            "experiment_name": self.name,
+            "template": self.template.name,
+            "objectives": self.objectives,
+            "fixed_parameters": fixed_params,
+            "variants": {
+                v_name: {
+                    "fixed_features": self.variants.get_variant(v_name).get_fixed_features(),
+                    "num_pareto_best": len(configs),
+                }
+                for v_name, configs in results.items()
+            },
+            "timestamp": time.time(),
+        }
+        with open(os.path.join(self.exp_root_dir, "summary.json"), "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2, sort_keys=True)
 
+        return results
 
-if __name__ == "__main__": test()
+    # -------------------------------------------------------------------------
+    # Full Execution Pipeline
+    # -------------------------------------------------------------------------
+    def run(self) -> Dict[str, List[TrialConfig]]:
+        logger.info(f"Starting Multi-Objective NAS Experiment '{self.name}'...")
+        logger.info(f"Results output root directory: {self.exp_root_dir}")
 
+        # Phase 1: Common Random Search
+        prior_trials = self.run_common_phase()
 
+        # Phase 2: Concurrent Variant Bayesian Optimization
+        self.run_variant_phases(prior_trials)
 
-
-
-
+        # Pareto Extraction via native Ax MOO
+        pareto_configs = self.get_pareto_best()
+        logger.info(f"Experiment completed. Summary and configs saved to: {self.exp_root_dir}")
+        return pareto_configs

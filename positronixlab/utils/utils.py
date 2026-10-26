@@ -228,6 +228,6 @@ def load_data(path:str):
     return None
 
 
-def is_debugpy_attached() -> bool:
-    import debugpy
-    return debugpy.is_client_connected()
+    def is_debugpy_attached() -> bool:
+        import debugpy
+        return debugpy.is_client_connected()

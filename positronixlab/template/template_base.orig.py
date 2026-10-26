@@ -31,7 +31,6 @@ class TemplateBase:
         self.add_fixed('template_name', self.name, "str")  # Default input data shape for MNIST
         self.add_fixed('dataset_name', 'mnist', "str")  # Default input data shape for MNIST
         
-        self.add_fixed('modular_space_name', self.name, "str")  # Default modular space name
         self.add_range('modular_space_size', [3,8], "int")  # Default modular space size
         self.add_range('modular_space_lr', [0.0001, 0.01], "float", log_scale=True) # Default modular space size
         self.add_range('modular_space_active_q', [0.6,0.95], "float") # Default modular space size

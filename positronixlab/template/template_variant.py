@@ -1,30 +1,116 @@
-from typing import Any
+"""
+TemplateVariant: Classes for managing variant definitions and fixed parameter sets.
+"""
 
-from positronixlab.template import TemplateBase
+from typing import Any, Dict, List, Optional
+
 
 class TemplateVariant:
-    """Represents a specific variant of a template with fixed features."""
-    
-    def __init__(self, name: str, template: TemplateBase, fixed_features: dict[str, Any] = None):
+    """
+    Represents a specific variant of a template with fixed hyperparameters.
+    In NAS, variants fix architectural choices (e.g. modularity on/off, residual connections)
+    while sharing the broader continuous and discrete search space.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        fixed_features: Optional[Dict[str, Any]] = None,
+        description: str = "",
+    ):
         self.name = name
-        self.template = template
-        self.fixed_features = fixed_features or {}
-        self._validate_features()
+        self.fixed_features: Dict[str, Any] = fixed_features or {}
+        self.description = description
 
-    def _validate_features(self):
-        """Ensures all fixed features actually exist in the base template."""
-        for key in self.fixed_features:
-            if key not in self.template.params:
-                raise ValueError(f"Feature '{key}' is not defined in the template '{self.template.name}'.")
+    def validate(self, template: Any) -> None:
+        """
+        Validates that all fixed features exist in the base template's parameter space.
+        """
+        if hasattr(template, "params"):
+            for key in self.fixed_features:
+                if key not in template.params:
+                    raise ValueError(
+                        f"Fixed feature '{key}' is not defined in template '{template.name}'."
+                    )
 
-    def get_fixed_features_dict(self) -> dict[str, Any]:
+    def get_fixed_features(self) -> Dict[str, Any]:
         """Returns the dictionary for Ax FixedFeatures."""
-        return self.fixed_features
-    
-    def to_dict(self) -> dict:
+        return dict(self.fixed_features)
+
+    def matches_trial_parameters(self, parameters: Dict[str, Any]) -> bool:
+        """
+        Checks if a given set of evaluated parameters matches this variant's fixed features.
+        Used to identify common phase prior trials that can bootstrap this variant.
+        """
+        for k, v in self.fixed_features.items():
+            if k in parameters and parameters[k] != v:
+                return False
+        return True
+
+    def to_dict(self) -> Dict[str, Any]:
         return {
-            'name': self.name,
-            'template_name': self.template.name,
-            'fixed_features': self.fixed_features
+            "name": self.name,
+            "fixed_features": self.fixed_features,
+            "description": self.description,
         }
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TemplateVariant":
+        return cls(
+            name=data["name"],
+            fixed_features=data.get("fixed_features", {}),
+            description=data.get("description", ""),
+        )
+
+    def __repr__(self) -> str:
+        return f"TemplateVariant(name='{self.name}', fixed_features={self.fixed_features})"
+
+
+class TemplateVariantList:
+    """Manages a registry of TemplateVariant instances for an experiment."""
+
+    def __init__(self):
+        self.variants: Dict[str, TemplateVariant] = {}
+
+    def add_variant(self, variant: TemplateVariant) -> None:
+        """Adds a variant to the list."""
+        if variant.name in self.variants:
+            raise ValueError(f"Variant '{variant.name}' already exists.")
+        self.variants[variant.name] = variant
+
+    def get_variant(self, name: str) -> TemplateVariant:
+        """Retrieves a variant by name."""
+        if name not in self.variants:
+            raise KeyError(f"Variant '{name}' does not exist.")
+        return self.variants[name]
+
+    def list_variants(self) -> List[str]:
+        """Lists all registered variant names."""
+        return list(self.variants.keys())
+
+    def items(self):
+        return self.variants.items()
+
+    def values(self):
+        return self.variants.values()
+
+    def __len__(self) -> int:
+        return len(self.variants)
+
+    def __iter__(self):
+        return iter(self.variants.values())
+
+    def validate_all(self, template: Any) -> None:
+        """Validates all variants against the provided template."""
+        for variant in self.variants.values():
+            variant.validate(template)
+
+    def to_dict(self) -> Dict[str, Dict[str, Any]]:
+        return {name: v.to_dict() for name, v in self.variants.items()}
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TemplateVariantList":
+        vl = cls()
+        for _, item in data.items():
+            vl.add_variant(TemplateVariant.from_dict(item))
+        return vl
