@@ -306,5 +306,12 @@ class AtlasCheck:
             }
             
             logger.info(f"Layer {layer_id} -> Avg Purity: {avg_purity:.4f}, Avg Entropy: {avg_entropy:.4f}, Avg KLD: {avg_kld:.4f}, Avg KLD Exp: {avg_kld_exp:.4f}")
+
+        stats['model'] = {
+            'modularity_purity': sum(s['modularity_purity'] for s in stats.values()) / len(stats),
+            'modularity_entropy': sum(s['modularity_entropy'] for s in stats.values()) / len(stats),
+            'modularity_kld': sum(s['modularity_kld'] for s in stats.values()) / len(stats),
+            'modularity_kld_exp': sum(s['modularity_kld_exp'] for s in stats.values()) / len(stats),
+        }
             
         return stats

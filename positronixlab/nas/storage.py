@@ -5,9 +5,8 @@ from ax.api.client import Client
 from ax.api.configs import (
     RangeParameterConfig,
     ChoiceParameterConfig,
-    FixedParameterConfig,
+    StorageConfig,
 )
-from ax.storage.storage_config import StorageConfig
 
 
 def get_storage_config(db_path: str) -> StorageConfig:
@@ -20,7 +19,7 @@ def get_storage_config(db_path: str) -> StorageConfig:
 def get_or_create_client(
     experiment_name: str,
     db_path: str,
-    parameters: Optional[List[Union[RangeParameterConfig, ChoiceParameterConfig, FixedParameterConfig]]] = None,
+    parameters: Optional[List[Union[RangeParameterConfig, ChoiceParameterConfig]]] = None,
     objectives: Optional[str] = None,
     outcome_constraints: Optional[Sequence[str]] = None,
 ) -> Client:

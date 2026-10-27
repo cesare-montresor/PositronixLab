@@ -49,10 +49,17 @@ class TrialBase(ABC):
                 return True
         return False
 
+    
+    def get_results(self) -> Optional[Dict[str, Any]]:
+        """Get results from trial."""
+        self.results = self.plugin_manager.env_get()
+        return self.results
+
     @abstractmethod
     def is_complete(self) -> bool:
         """Check if trial is complete."""
         pass
 
+    
 
     

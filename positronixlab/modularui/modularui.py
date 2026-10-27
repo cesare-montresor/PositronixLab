@@ -104,7 +104,7 @@ class ModularUI:
         # absolute indices and converted in get_cluster_for_index.
         self.positions_plot: Dict[str, Deque[np.ndarray]] = {}
         self._position_last_index: Dict[str, int] = {}
-        self.pca_progress: Dict[str, Any] = {"required": 0, "layers": {}}
+        self.position_progress: Dict[str, Any] = {"required": 0, "layers": {}}
         self.cluster_history: Dict[str, Deque[Dict[str, Any]]] = {}
 
         self.poll_interval_ms = poll_interval_ms
@@ -148,7 +148,7 @@ class ModularUI:
         with self.locks.positions:
             self.positions_plot.clear()
             self._position_last_index.clear()
-            self.pca_progress = {"required": 0, "layers": {}}
+            self.position_progress = {"required": 0, "layers": {}}
             self.cluster_history.clear()
 
     # ---------------------------------------------------------
@@ -207,10 +207,10 @@ class ModularUI:
         with self.locks.observed_layers:
             self.observed_layers = observed_layers
 
-    def set_pca_progress(self, progress: Optional[Dict[str, Any]]) -> None:
+    def set_position_progress(self, progress: Optional[Dict[str, Any]]) -> None:
         """{"required": n, "layers": {layer_id: collected}} published by StatsPlugin."""
         with self.locks.positions:
-            self.pca_progress = progress or {"required": 0, "layers": {}}
+            self.position_progress = progress or {"required": 0, "layers": {}}
 
     # ---------------------------------------------------------
     # Data ingestion (called with already-aggregated StatsPlugin output)
@@ -305,7 +305,7 @@ class ModularUI:
         """Observed layers plus layers that already have positions or are collecting PCA samples."""
         observed = set(self.get_observed_layer_ids())
         with self.locks.positions:
-            seen = set(self.positions_plot.keys()) | set(self.pca_progress.get("layers", {}).keys())
+            seen = set(self.positions_plot.keys()) | set(self.position_progress.get("layers", {}).keys())
         return sorted(observed | seen)
 
     def get_position_steps(self, layer_id: str) -> int:
@@ -343,8 +343,8 @@ class ModularUI:
             if self.positions_plot.get(layer_id):
                 return None
             return {
-                "collected": self.pca_progress.get("layers", {}).get(layer_id, 0),
-                "required": self.pca_progress.get("required", 0),
+                "collected": self.position_progress.get("layers", {}).get(layer_id, 0),
+                "required": self.position_progress.get("required", 0),
             }
 
     def get_cluster_for_index(self, layer_id: str, position_index: int) -> Optional[Dict[str, Any]]:
