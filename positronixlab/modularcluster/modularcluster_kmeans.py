@@ -12,6 +12,7 @@ from sklearn.metrics import silhouette_score
 #from fast_pytorch_kmeans import KMeans, MultiKMeans
 
 from faiss import Kmeans as FAISS_KMeans
+#from faiss import SuperKMeans as FAISS_KMeans
 
 from positronixlab.utils.utils import suppress_output
 
@@ -117,16 +118,15 @@ class ModularClusterKmeans:
                 niter=self.max_iter,  
                 spherical=spherical, 
                 verbose=self.verbose,
-                nredo=self.n_init
-                #gpu=True
+                nredo=self.n_init,
+                gpu=self.device.type == 'cuda'
             )
             
             kmeans.train(x)
-        
+
+        dists, labels = kmeans.assign(x)
+        labels = torch.Tensor(labels).to(self.device)
         centroids = torch.from_numpy(kmeans.centroids).to(self.device)
-        # Assign labels based on nearest centroid
-        dists = self._distance(x, centroids)
-        labels = dists.argmin(dim=1)
         return centroids, labels
     
     def _evaluate_k(self, x: torch.Tensor, k: int) -> float:

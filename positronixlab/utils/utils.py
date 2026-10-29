@@ -15,7 +15,6 @@ import yaml
 from hashlib import md5
 import multiprocessing as mp
 
-
 debug = False
 
 last_session_path = None
@@ -227,7 +226,22 @@ def load_data(path:str):
         logging.error(f"Unsupported extension: {ext}")
     return None
 
-
-    def is_debugpy_attached() -> bool:
-        import debugpy
-        return debugpy.is_client_connected()
+def safe_tensor(val: Any) -> torch.Tensor:
+    if isinstance(val, torch.Tensor):
+        return torch.atleast_1d(val.detach().cpu())
+    
+    # 1. Catch ANYTHING that can be represented as a single number 
+    # (Python ints/floats, 0-D numpy arrays, numpy scalars, custom metric objects)
+    try:
+        return torch.tensor([float(val)])
+    except (TypeError, ValueError):
+        pass
+        
+    # 2. If it cannot be cast to a single float, it's an array/iterable.
+    # Route it safely through numpy to guarantee PyTorch can parse its dimensions.
+    try:
+        arr = np.asarray(val)
+        return torch.atleast_1d(torch.from_numpy(arr))
+    except Exception:
+        # Absolute fallback
+        return torch.atleast_1d(torch.as_tensor(val))

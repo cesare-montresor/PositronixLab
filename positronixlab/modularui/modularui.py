@@ -9,9 +9,11 @@ import numpy as np
 import torch
 from dash import Dash
 from flask.helpers import get_root_path
+from werkzeug.serving import make_server
+
 
 from positronixlab.modularui.layouts import HomeLayout
-from positronixlab.modularui.settings import BOOTSTRAP_THEME, DBC_HELPER_CSS
+from positronixlab.modularui.settings import BOOTSTRAP_THEME, DBC_HELPER_CSS, GLOBAL_TRACE_NAME, SPACELOSS_FAMILY
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +62,7 @@ class ModularUI:
         positions_maxlen: int = 1000,
         metrics_maxlen: int = 2000,
         cluster_maxlen: int = 500,
+        open_browser: bool = True,
     ):
         self.host = host
         self.port = port
@@ -68,6 +71,10 @@ class ModularUI:
         self.positions_maxlen = positions_maxlen
         self.metrics_maxlen = metrics_maxlen
         self.cluster_maxlen = cluster_maxlen
+        self.open_browser = open_browser
+
+        if self.debug == False:
+            logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
         self.locks = UILocks()
 
@@ -89,12 +96,10 @@ class ModularUI:
         # Protected by locks.observed_layers: {layer_id: {meta...}} or a flat list of ids.
         self.observed_layers: Any = {}
 
-        # Protected by locks.metrics
-        self.training_metrics: Dict[str, Deque[float]] = {}
-
-        # Protected by locks.spaceloss
-        self.layer_spaceloss: Dict[str, Dict[str, Deque[float]]] = {}
-        self._overall_spaceloss: Dict[str, Deque[float]] = {}
+        # Protected by locks.metrics. ONE store for every scalar metric:
+        #   family ("train", "val", "spaceloss", ...) -> layer_id ("global" or a layer) -> label -> values
+        # Families, layers and labels are all discovered from the incoming messages.
+        self.series: Dict[str, Dict[str, Dict[str, Deque[float]]]] = {}
 
         # Protected by locks.positions.
         # positions_plot holds only the last `positions_maxlen` steps per layer;
@@ -116,13 +121,49 @@ class ModularUI:
         self.app = Dash(
             __name__,
             external_stylesheets=[BOOTSTRAP_THEME, DBC_HELPER_CSS] + self.home_layout.css,
+            # Panels can be collapsed/rebuilt, so some callback targets legitimately vanish.
+            suppress_callback_exceptions=True,
         )
+        self.server = None
         self.server_thread = None
 
         self.reset()
 
         self.app.layout = self.home_layout.page_layout()
         self.home_layout.register_callbacks(self.app, self)
+
+
+    # ---------------------------------------------------------
+    # Server lifecycle
+    # ---------------------------------------------------------
+
+    def run(self):
+        if self.debug:
+            self.app.enable_dev_tools(debug=True)
+            
+        self.server = make_server(self.host, self.port, self.app.server, threaded=True)
+        self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.server_thread.start()
+
+        if self.open_browser:
+            import webbrowser
+            webbrowser.open(f"http://{self.host}:{self.port}", new=2) 
+
+    def is_running(self):
+        return self.server_thread is not None and self.server_thread.is_alive()
+
+    def stop(self):
+        if self.server:
+            self.server.shutdown()
+        
+        if self.server_thread and self.server_thread.is_alive():
+            self.server_thread.join(timeout=5)
+
+
+    # ---------------------------------------------------------
+    # helper functions
+    # ---------------------------------------------------------
+
 
     def homedir(self):
         return get_root_path(__name__)
@@ -141,10 +182,7 @@ class ModularUI:
         with self.locks.observed_layers:
             self.observed_layers = {}
         with self.locks.metrics:
-            self.training_metrics.clear()
-        with self.locks.spaceloss:
-            self.layer_spaceloss.clear()
-            self._overall_spaceloss.clear()
+            self.series.clear()
         with self.locks.positions:
             self.positions_plot.clear()
             self._position_last_index.clear()
@@ -216,23 +254,35 @@ class ModularUI:
     # Data ingestion (called with already-aggregated StatsPlugin output)
     # ---------------------------------------------------------
 
-    def add_training_point(self, name: str, value: Any) -> None:
-        v = float(_to_numpy(value).reshape(-1)[0])
+    def add_point(self, family: str, layer_id: str, label: str, value: Any) -> None:
+        """One scalar of one metric. layer_id is "global" for non-per-layer metrics."""
+        arr = _to_numpy(value)
+        if arr.size != 1:
+            return
+        v = float(arr.reshape(-1)[0])
         with self.locks.metrics:
-            self.training_metrics.setdefault(name, deque(maxlen=self.metrics_maxlen)).append(v)
+            dq = self.series.setdefault(family, {}).setdefault(layer_id, {}).setdefault(
+                label, deque(maxlen=self.metrics_maxlen))
+            dq.append(v)
 
-    def add_spaceloss_point(self, layer_id: str, names: List[str], values: Any) -> None:
-        vals = _to_numpy(values).reshape(-1)
-        with self.locks.spaceloss:
-            series = self.layer_spaceloss.setdefault(layer_id, {})
-            for n, v in zip(names, vals):
-                series.setdefault(n, deque(maxlen=self.metrics_maxlen)).append(float(v))
+    def ingest_stat(self, family: str, msg: Dict[str, Any]) -> None:
+        """Entry point for a `stats_<family>` message published by UIMetricsPlugin:
+        {"layer_id", "label", "value", "seq", "t"}. Call this from the stats subscriber."""
+        self.add_point(family, str(msg.get("layer_id", "global")), str(msg["label"]), msg["value"])
 
-    def add_overall_spaceloss_point(self, names: List[str], values: Any) -> None:
-        vals = _to_numpy(values).reshape(-1)
-        with self.locks.spaceloss:
-            for n, v in zip(names, vals):
-                self._overall_spaceloss.setdefault(n, deque(maxlen=self.metrics_maxlen)).append(float(v))
+    # --- thin compatibility shims for the old call sites -------------------
+    def add_training_point(self, name: str, value: Any) -> None:
+        family, _, label = name.rpartition(".")
+        self.add_point(family or "metrics", "global", label, value)
+
+    def add_spaceloss_point(self, layer_id: str, names: Any, values: Any) -> None:
+        if isinstance(values, dict):
+            names, values = list(values.keys()), list(values.values())
+        for n, v in zip(names, _to_numpy(values).reshape(-1)):
+            self.add_point(SPACELOSS_FAMILY, layer_id, n, v)
+
+    def add_overall_spaceloss_point(self, names: Any, values: Any) -> None:
+        self.add_spaceloss_point("global", names, values)
 
     def add_position_step(self, layer_id: str, points: Any, index: Optional[int] = None) -> None:
         """One already-PCA-projected step (n, 2) with its absolute timeline index."""
@@ -270,19 +320,95 @@ class ModularUI:
     # Accessors used by the widgets (components.py / plots.py / layouts.py)
     # ---------------------------------------------------------
 
+    def get_series(self, family: str, layer_id: str = "global") -> Dict[str, List[float]]:
+        with self.locks.metrics:
+            return {k: list(v) for k, v in self.series.get(family, {}).get(layer_id, {}).items()}
+
+    def get_labels(self, family: str) -> List[str]:
+        """Labels seen for a family, in first-seen order (so "loss" stays first)."""
+        with self.locks.metrics:
+            labels: Dict[str, None] = {}
+            for per_label in self.series.get(family, {}).values():
+                for label in per_label:
+                    labels.setdefault(label, None)
+            return list(labels)
+
+    @staticmethod
+    def _history_scalar(entry: Any) -> Optional[float]:
+        """metrics_history entries look like [timestamp, value] (or [value] / value)."""
+        try:
+            arr = np.asarray(entry, dtype=float).reshape(-1)
+        except (TypeError, ValueError):
+            return None
+        if arr.size == 1:
+            return float(arr[0])
+        if arr.size == 2:                     # [t, value]
+            return float(arr[1])
+        return None
+
+    def _training_history_groups(self) -> Dict[str, Dict[str, List[float]]]:
+        """Epoch-level train/val/... curves from the `metrics_history` env var that the trainer
+        already publishes ({family: {label: [[t, value], ...]}}). Works even when no stats
+        message reaches add_point(). Per-layer space loss is skipped (handled by the series store)."""
+        history = self.get_var("metrics_history")
+        groups: Dict[str, Dict[str, List[float]]] = {}
+        if not isinstance(history, dict):
+            return groups
+        for family, labels in history.items():
+            if family == SPACELOSS_FAMILY or not isinstance(labels, dict):
+                continue
+            for label, entries in labels.items():
+                if not isinstance(entries, (list, tuple)):
+                    continue
+                values = [v for v in (self._history_scalar(e) for e in entries) if v is not None]
+                if values:
+                    groups.setdefault(str(label), {})[str(family)] = values
+        return groups
+
+    def get_training_groups(self) -> Dict[str, Dict[str, List[float]]]:
+        """{label: {family: values}} for every global-only family except space loss
+        (so train.loss and val.loss land on the same chart). Live series win over the
+        metrics_history fallback."""
+        groups = self._training_history_groups()
+        with self.locks.metrics:
+            for family, layers in self.series.items():
+                if family == SPACELOSS_FAMILY or set(layers) != {"global"}:
+                    continue
+                for label, values in layers["global"].items():
+                    current = groups.setdefault(label, {}).get(family, [])
+                    if len(values) >= len(current):      # never let a late-starting live series truncate the history
+                        groups[label][family] = list(values)
+        return groups
+
+    def debug_state(self) -> Dict[str, Any]:
+        """Quick look at what actually reached the UI (handy from the debugger)."""
+        with self.locks.metrics:
+            series = {f: {layer: {l: len(v) for l, v in labels.items()} for layer, labels in layers.items()}
+                      for f, layers in self.series.items()}
+        return {"series": series, "vars": list(self.get_all_vars_snapshot()),
+                "layers": self.get_known_layer_ids(), "graph_nodes": len(self.get_model_graph().get("nodes", {}))}
+
+    def get_family_groups(self, family: str) -> Dict[str, Dict[str, List[float]]]:
+        """{label: {layer_id: values}} for a per-layer family. The "global" series (mean over
+        layers, computed by UIMetricsPlugin) is exposed under GLOBAL_TRACE_NAME."""
+        groups: Dict[str, Dict[str, List[float]]] = {}
+        with self.locks.metrics:
+            for layer_id, per_label in self.series.get(family, {}).items():
+                trace = GLOBAL_TRACE_NAME if layer_id == "global" else layer_id
+                for label, values in per_label.items():
+                    groups.setdefault(label, {})[trace] = list(values)
+        return groups
+
     @property
     def overall_spaceloss(self) -> Dict[str, List[float]]:
-        with self.locks.spaceloss:
-            return {k: list(v) for k, v in self._overall_spaceloss.items()}
+        return self.get_series(SPACELOSS_FAMILY, "global")
 
     def get_layer_spaceloss(self, layer_id: str) -> Dict[str, List[float]]:
-        with self.locks.spaceloss:
-            metrics = self.layer_spaceloss.get(layer_id, {})
-            return {k: list(v) for k, v in metrics.items()}
+        return self.get_series(SPACELOSS_FAMILY, layer_id)
 
     def get_training_metrics(self) -> Dict[str, List[float]]:
-        with self.locks.metrics:
-            return {k: list(v) for k, v in self.training_metrics.items()}
+        """Flat "family.label" view, kept for old callers."""
+        return {f"{fam}.{label}": v for label, fams in self.get_training_groups().items() for fam, v in fams.items()}
 
     def get_observed_layer_ids(self) -> List[str]:
         with self.locks.observed_layers:
@@ -360,23 +486,3 @@ class ModularUI:
             if pos < 0:
                 return None
             return history[pos]
-
-    # ---------------------------------------------------------
-    # Server lifecycle
-    # ---------------------------------------------------------
-
-    def run(self):
-        self.server_thread = threading.Thread(target=self._run, daemon=True)
-        self.server_thread.start()
-
-    def _run(self):
-        self.app.run(host=self.host, port=self.port, debug=self.debug, use_reloader=self.reloader)
-
-    def is_running(self):
-        return self.server_thread is not None and self.server_thread.is_alive()
-
-    def stop(self):
-        if self.server_thread and self.server_thread.is_alive():
-            import os
-            import signal
-            os.kill(os.getpid(), signal.SIGINT)

@@ -90,8 +90,9 @@ class ModularSpace():
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()    
-        
-        losses = tuple(loss.detach().cpu().numpy() for loss in losses)
+
+        loss_names = ["loss", "loss_on", "loss_off", "loss_centers"] 
+        losses = {name : loss.detach().cpu().numpy() for name, loss in zip( loss_names, losses)}
         return losses, positions.detach().cpu().numpy(), None if stats is None else stats.detach().cpu().numpy() 
 
     @staticmethod_compile

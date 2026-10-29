@@ -30,6 +30,7 @@ dependencies = [
     "pytest-xdist",
     "kaleido",
     "faiss-cpu",
+    "faiss-gpu",
     "ax-platform",
     "sqlalchemy",
     "tabulate",

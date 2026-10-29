@@ -1,3 +1,5 @@
+import threading
+
 import torch
 from abc import ABC, abstractmethod
 from typing import Dict, Callable, Set
@@ -71,15 +73,24 @@ class MeanReducer(Reducer):
         super().__init__()
         self._sum: Dict[str, torch.Tensor] = {}
         self._n: Dict[str, int] = {}
+        self._lock = threading.Lock()
 
     def update(self, key, value):
-        s = self._sum.get(key)
-        if s is None or s.shape != value.shape:
-            self._sum[key], self._n[key] = value.clone(), 1
-        else:
-            s.add_(value.to(s.device))
-            self._n[key] += 1
-        self._dirty.add(key)
+        with self._lock:
+            s = self._sum.get(key)
+            if s is None or s.shape != value.shape:
+                # .clone() qui previene anche il blocco della memoria CUDA IPC
+                self._sum[key] = value.clone()
+                self._n[key] = 1
+            else:
+                s.add_(value.to(s.device))
+                self._n[key] += 1
+            self._dirty.add(key)
+
+    def drain(self):
+        """Sincronizza il drain con il lock per prevenire l'eliminazione delle chiavi durante l'update."""
+        with self._lock:
+            return super().drain()
 
     def _snapshot(self, key):
         return self._sum[key] / self._n[key]
@@ -103,7 +114,70 @@ class WindowReducer(Reducer):
     def _snapshot(self, key):
         return torch.stack(list(self._w[key]))
 
+class DisplacementReducer(Reducer):
+    """
+    Decimazione basata su tolleranza spaziale (Data/Spatial Gating).
+    Emette un nuovo tensore solo quando lo spostamento fisico (norma L2) 
+    rispetto all'ultimo keyframe emesso supera la soglia specificata.
+    """
+    def __init__(self, threshold: float = 0.5, method: str = 'max') -> None:
+        super().__init__()
+        self.threshold = threshold
+        if method not in ('max', 'rms'):
+            raise ValueError("DisplacementReducer method must be 'max' or 'rms'")
+        self.method = method
+        
+        # _keyframe stores the structural reference we measure against
+        self._keyframe: Dict[str, torch.Tensor] = {}
+        # _pending stores the tensor waiting to be pulled by drain()
+        self._pending: Dict[str, torch.Tensor] = {}
+        self._lock = threading.Lock()
+
+    def update(self, key: str, value: torch.Tensor) -> None:
+        with self._lock:
+            kf = self._keyframe.get(key)
+            
+            # Inizializzazione o cambio di shape (es. layer re-init)
+            if kf is None or kf.shape != value.shape:
+                self._keyframe[key] = value.clone()
+                self._pending[key] = value.clone()
+                self._dirty.add(key)
+                return
+
+            # Calcolo della differenza vettoriale, gestendo eventuali disallineamenti di device
+            diff_tensor = value.to(kf.device) - kf
+            
+            if self.method == 'max':
+                # Massima deviazione di un singolo neurone/punto (L2 norm sull'ultima dimensione)
+                dists = torch.linalg.norm(diff_tensor, dim=-1)
+                diff = dists.max().item()
+            else: # 'rms'
+                # Spostamento medio globale del sistema (Root Mean Square)
+                dists_sq = (diff_tensor ** 2).sum(dim=-1)
+                diff = torch.sqrt(dists_sq.mean()).item()
+
+            # Se superiamo la soglia, aggiorniamo il reference frame per i tick successivi
+            if diff > self.threshold:
+                self._keyframe[key] = value.clone()
+                self._pending[key] = value.clone()
+                self._dirty.add(key)
+
+    def drain(self) -> Dict[str, torch.Tensor]:
+        # Sincronizza il drain con il lock per prevenire l'eliminazione 
+        # di chiavi pendenti durante un update ad alta frequenza.
+        with self._lock:
+            return super().drain()
+
+    def _snapshot(self, key: str) -> torch.Tensor:
+        return self._pending[key].clone()
+
+    def _after_drain(self, key: str) -> None:
+        # Libera la memoria del pending per non mantenere due copie 
+        # dello stesso tensore in memoria GPU/CPU tra un threshold hit e l'altro.
+        if key in self._pending:
+            del self._pending[key]
+
 
 REDUCERS: Dict[str, Callable[..., Reducer]] = {
-    "last": LastReducer, "ema": EmaReducer, "mean": MeanReducer, "window": WindowReducer,
+    "last": LastReducer, "ema": EmaReducer, "mean": MeanReducer, "window": WindowReducer, "displacement": DisplacementReducer
 }
