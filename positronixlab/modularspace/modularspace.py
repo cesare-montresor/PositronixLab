@@ -147,7 +147,7 @@ class ModularSpace():
         loss -= loss_centers * float(config.modular_space_loss_centers)
 
   
-
+        
         return loss, loss_on, loss_off, loss_centers
 
 
