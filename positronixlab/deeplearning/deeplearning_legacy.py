@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 
 
 
-from positronixlab.pipeline.pipeline_config_v1 import PipelineConfig
+from positronixlab.pipeline import PipelineConfig
 from positronixlab.metamodel.metamodel import MetaModel
 from positronixlab.dataprovider.dataprovider import DataProvider
 from positronixlab.utils.utils import set_best

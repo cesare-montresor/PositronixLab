@@ -1,4 +1,4 @@
-from positronixlab.pipeline.pipeline_config import PipelineConfig
+from positronixlab.pipeline import PipelineConfig
 from positronixlab.dataprovider.covertype_dataprovider import CovertypeDataProvider
 from positronixlab.dataprovider.fmnist_dataprovider import FashionMnistDataProvider
 from positronixlab.dataprovider.higgs_dataprovider import HIGGSDataProvider

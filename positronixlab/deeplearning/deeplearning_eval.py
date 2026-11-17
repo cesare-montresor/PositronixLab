@@ -9,7 +9,7 @@ from torch import nn
 from positronixlab.dataprovider.dataprovider import DataProvider
 from positronixlab.deeplearning.deeplearning_base import DeeplearningBase
 
-from positronixlab.pipeline.pipeline_config import PipelineConfig
+from positronixlab.pipeline import PipelineConfig
 from positronixlab.metamodel.metamodel import MetaModel
 
 

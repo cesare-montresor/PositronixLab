@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from positronixlab.spacemath.common import staticmethod_compile
 from positronixlab.spacemath.spacemath import SpaceMath
 from positronixlab.spacemath.sigreg import sigreg
-from positronixlab.pipeline.pipeline_config import PipelineConfig
+from positronixlab.pipeline import PipelineConfig
 
 class LayerSpaceMixin:
 

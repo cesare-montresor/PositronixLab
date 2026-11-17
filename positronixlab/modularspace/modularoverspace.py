@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 import torch
 
 from .custertracker import ClusterEvent, ClusterState, ClusterTracker
-from positronixlab.pipeline.pipeline_config import PipelineConfig
+from positronixlab.pipeline import PipelineConfig
 
 
 class ModularOverSpace:

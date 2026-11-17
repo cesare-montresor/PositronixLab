@@ -96,7 +96,7 @@ class ConfigOverlay:
     def render_overlay(self):
         return dbc.Modal(
             [
-                dbc.ModalHeader(dbc.ModalTitle("trial_config"), close_button=True),
+                dbc.ModalHeader(dbc.ModalTitle("pipeline_config"), close_button=True),
                 dbc.ModalBody(
                     [
                         html.Div("check properties to pin them in the top bar.", style={"fontSize": "0.75em", "opacity": 0.6, "marginBottom": "10px"}),

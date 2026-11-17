@@ -8,7 +8,7 @@ from torch import Tensor
 from torch.nn import functional as F
 from positronixlab.spacemath.common import staticmethod_compile
 from positronixlab.spacemath.spacemath import ActivationType, SpaceMath
-from positronixlab.pipeline.pipeline_config import PipelineConfig
+from positronixlab.pipeline import PipelineConfig
 from positronixlab.spacemath.sigreg import sigreg
 
 

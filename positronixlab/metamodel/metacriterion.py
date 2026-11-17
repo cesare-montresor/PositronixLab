@@ -3,7 +3,7 @@ from abc import ABC
 
 from torch import nn
 
-from positronixlab.pipeline.pipeline_config import PipelineConfig
+from positronixlab.pipeline import PipelineConfig
 
 
 class MetaCriterion:

@@ -5,7 +5,7 @@ import torch
 
 from positronixlab.modularobserver.modelmapper import ModelGraph, ModelMapper, ModelNode, ModelEdge
 from positronixlab.spacemath.common import is_layer, is_linear, is_conv
-from positronixlab.pipeline.pipeline_config import PipelineConfig
+from positronixlab.pipeline import PipelineConfig
 from torch.utils.hooks import RemovableHandle
 
 

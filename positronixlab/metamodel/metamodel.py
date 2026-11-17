@@ -2,7 +2,7 @@
 import os
 import time
 
-from positronixlab.pipeline.pipeline_config import PipelineConfig
+from positronixlab.pipeline import PipelineConfig
 import torch
 from torchvision import transforms
 

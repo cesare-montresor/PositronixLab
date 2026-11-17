@@ -4,7 +4,7 @@ import json
 import os
 from typing import Any, Dict, Optional
 import yaml
-from positronixlab.pipeline.pipeline_config import PipelineConfig
+from positronixlab.pipeline import PipelineConfig
 
 @dataclass
 class PipelineConfigV1(PipelineConfig):

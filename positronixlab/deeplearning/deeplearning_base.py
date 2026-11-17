@@ -10,7 +10,7 @@ from collections import Counter
 
 from tqdm import tqdm
 from positronixlab.dataprovider.dataprovider import DataProvider
-from positronixlab.pipeline.pipeline_config import PipelineConfig
+from positronixlab.pipeline import PipelineConfig
 
 
 logger = logging.getLogger(__name__)

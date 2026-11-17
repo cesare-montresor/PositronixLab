@@ -6,7 +6,7 @@ import threading
 import warnings
 
 import tqdm
-from positronixlab.pipeline.pipeline_config import PipelineConfig
+from positronixlab.pipeline import PipelineConfig
 from positronixlab.spacemath.spaceloss import SpaceLoss
 
 import pandas as pd

@@ -23,7 +23,7 @@ for param in params:
 ### Creating a Trial Configuration
 
 ```python
-from positronixlab.pipeline.pipeline_config import PipelineConfig
+from positronixlab.pipeline import PipelineConfig
 
 # Prepare options dictionary
 options = {
@@ -263,7 +263,7 @@ print(custom_template.get_params())  # Different params
 
 ```python
 from positronixlab.template import Template
-from positronixlab.pipeline.pipeline_config import PipelineConfig
+from positronixlab.pipeline import PipelineConfig
 
 # 1. Start with base template
 template = Template.FromName('mnist_fc')

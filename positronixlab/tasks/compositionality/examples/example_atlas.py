@@ -11,7 +11,7 @@ from positronixlab.dataprovider.dataprovider_factory import DataProviderFactory
 from positronixlab.tasks.compositionality.atlas_check import AtlasCheck
 from positronixlab.tasks.compositionality.weightmask_check import WeightmaskCheck
 from positronixlab.metamodel.metamodel import MetaModel
-from positronixlab.pipeline.pipeline_config import PipelineConfig
+from positronixlab.pipeline import PipelineConfig
 
 import logging
 logger = logging.getLogger(__name__)

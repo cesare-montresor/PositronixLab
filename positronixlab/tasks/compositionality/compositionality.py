@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from positronixlab.pipeline.pipeline_config import PipelineConfig
+from positronixlab.pipeline import PipelineConfig
 from positronixlab.dataprovider.dataprovider import DataProvider
 from positronixlab.tasks.compositionality.weightmask_check import WeightmaskCheck
 from positronixlab.tasks.compositionality.atlas_check import AtlasCheck
