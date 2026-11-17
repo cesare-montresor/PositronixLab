@@ -1,4 +1,4 @@
-from positronixlab.trial.trial_config import TrialConfig
+from positronixlab.pipeline.pipeline_config import PipelineConfig
 from positronixlab.dataprovider.covertype_dataprovider import CovertypeDataProvider
 from positronixlab.dataprovider.fmnist_dataprovider import FashionMnistDataProvider
 from positronixlab.dataprovider.higgs_dataprovider import HIGGSDataProvider
@@ -19,47 +19,59 @@ from positronixlab.dataprovider.dataprovider import DataProvider
 class DataProviderFactory:
 
     @staticmethod
-    def from_config(config: TrialConfig, split=None, num_workers=None) -> DataProvider:
+    def from_config(config: PipelineConfig, split=None, num_workers=None, indexed_dataset=False) -> DataProvider:
         name = config.dataset_name
         batch_size = config.batch_size
         flatten = config.model_type == 'fc'
 
+        kwargs = {
+            "batch_size": batch_size,
+            "split": split,
+            "num_workers": num_workers,
+            "indexed_dataset": indexed_dataset,
+        }
+
         if name == 'iris':
-            return IrisDataProvider(batch_size=batch_size, split=split, num_workers=num_workers)
+            return IrisDataProvider(**kwargs)
         elif name == 'mnist':
             transforms = [] 
             if flatten: transforms.append('flatten')
             t = MetaTransform(transforms)
-            return MnistDataProvider(batch_size=batch_size, split=split, transforms=t, num_workers=num_workers)
+            kwargs["transforms"] = t
+            return MnistDataProvider(**kwargs)
         elif name == 'fashion_mnist':
             transforms = [] 
             if flatten: transforms.append('flatten')
             t = MetaTransform(transforms)
-            return FashionMnistDataProvider(batch_size=batch_size, split=split, transforms=t, num_workers=num_workers)
+            kwargs["transforms"] = t
+            return FashionMnistDataProvider(**kwargs)
         elif name == 'covertype':
-            return CovertypeDataProvider(batch_size=batch_size, split=split, num_workers=num_workers)
+            return CovertypeDataProvider(**kwargs)
         elif name == 'higgs':
-            return HIGGSDataProvider(batch_size=batch_size, split=split, num_workers=num_workers)
+            return HIGGSDataProvider(**kwargs)
         elif name == 'cifar10':
             transforms = []
             if flatten: transforms.append('flatten')
             t = MetaTransform(transforms)
-            return CIFAR10DataProvider(batch_size=batch_size, split=split, transforms=t, num_workers=num_workers)
+            kwargs["transforms"] = t
+            return CIFAR10DataProvider(**kwargs)
         elif name == 'cifar100':
             transforms = []
             if flatten: transforms.append('flatten')
             t = MetaTransform(transforms)
-            return CIFAR100DataProvider(batch_size=batch_size, split=split, transforms=t, num_workers=num_workers)
+            kwargs["transforms"] = t
+            return CIFAR100DataProvider(**kwargs)
         elif name == 'scan':
-            return SCANDataProvider(batch_size=batch_size, split=split, num_workers=num_workers)
+            return SCANDataProvider(**kwargs)
         elif name == 'deepmind_math':
-            return MathDataProvider(batch_size=batch_size, split=split, num_workers=num_workers)
+            return MathDataProvider(**kwargs)
         elif name == 'cvr_odd_one_out':
             transforms = []
             if flatten: transforms.append('flatten')
             t = MetaTransform(transforms)
-            return CVROddOneOutDataProvider(batch_size=batch_size, split=split, transforms=t, num_workers=num_workers)
+            kwargs["transforms"] = t
+            return CVROddOneOutDataProvider(**kwargs)
         elif name == 'syneval_odd_one_out':
-            return SynevalOddOneOutDataProvider(batch_size=batch_size, split=split, num_workers=num_workers)
+            return SynevalOddOneOutDataProvider(**kwargs)
         else:
             raise ValueError(f"Unknown dataset: {name}")

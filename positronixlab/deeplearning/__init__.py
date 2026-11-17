@@ -1,9 +1,10 @@
-from positronixlab.deeplearning.deeplearning_setup_plugin import DeeplearningSetupPlugin
-from positronixlab.deeplearning.deeplearning_train_plugin import DeeplearningTrainPlugin
-from positronixlab.deeplearning.deeplearning_common import DeeplearningCommon
+from positronixlab.deeplearning.deeplearning_train import DeeplearningTrain, EarlyStopping
+from positronixlab.deeplearning.deeplearning_eval import DeeplearningEval
+from positronixlab.deeplearning.deeplearning_base import DeeplearningBase
 
 __all__ = [
-    "DeeplearningSetupPlugin",
-    "DeeplearningTrainPlugin",
-    "DeeplearningCommon"
+    "DeeplearningTrain",
+    "DeeplearningEval",
+    "DeeplearningBase",
+    "EarlyStopping"
 ]
