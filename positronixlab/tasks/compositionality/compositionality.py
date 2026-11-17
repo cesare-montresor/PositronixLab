@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from positronixlab.trial.trial_config import TrialConfig
+from positronixlab.pipeline.pipeline_config import PipelineConfig
 from positronixlab.dataprovider.dataprovider import DataProvider
 from positronixlab.tasks.compositionality.weightmask_check import WeightmaskCheck
 from positronixlab.tasks.compositionality.atlas_check import AtlasCheck
@@ -191,7 +191,7 @@ class CompositionalityPipeline:
     """
     High-level orchestrator to generate masks from both paradigms and run the compositionality evaluation.
     """
-    def __init__(self, model: nn.Module, dataprovider: DataProvider, config: TrialConfig):
+    def __init__(self, model: nn.Module, dataprovider: DataProvider, config: PipelineConfig):
         self.model = model
         self.dataprovider = dataprovider
         self.config = config

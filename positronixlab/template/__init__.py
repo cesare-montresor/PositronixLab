@@ -18,5 +18,4 @@ __all__ = [
     "TemplateMnistFC",
     "TemplateCovertype",
     "TemplateHiggs",
-    "TrialConfig",
 ]

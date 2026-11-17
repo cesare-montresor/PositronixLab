@@ -7,7 +7,7 @@ import yaml
 from positronixlab.pipeline.pipeline_config import PipelineConfig
 
 @dataclass
-class TrialConfigV1(PipelineConfig):
+class PipelineConfigV1(PipelineConfig):
     """
     Configuration parameters for a single NAS trial.
     Can be initialized directly with both params and fixed dictionaries.

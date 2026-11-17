@@ -3,7 +3,7 @@ from abc import ABC
 
 from torch import nn
 
-from positronixlab.trial.trial_config import TrialConfig
+from positronixlab.pipeline.pipeline_config import PipelineConfig
 
 
 class MetaCriterion:
@@ -11,7 +11,7 @@ class MetaCriterion:
     A class to hold options for the MetaCriterion.
     This class can be extended to include various configuration parameters.
     """
-    def __init__(self, config: TrialConfig):
+    def __init__(self, config: PipelineConfig):
         self.custom_losses = {}
         self.task =  config.task  # Default task is regression
         self.criterion_type = config.criterion_type
@@ -41,7 +41,7 @@ class MetaCriterion:
             raise ValueError(f"Unsupported criterion type: {name}")
         
 class MetaMetric:
-    def __init__(self, config: TrialConfig, metric_type: str = None):
+    def __init__(self, config: PipelineConfig, metric_type: str = None):
         self.custom_metric = {}
         self.task =  config.task  # Default task is regression
         self.metric_type = metric_type 

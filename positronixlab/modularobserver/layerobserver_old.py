@@ -5,12 +5,11 @@ from calendar import c
 import torch
 from torch import nn
 
-from positronixlab.config.trial_config import TrialConfig
+from positronixlab.pipeline import PipelineConfig
 
-from positronixlab.utils.utils import  is_activation, is_conv, is_linear, is_layer
 from positronixlab.modularobserver.layerobserver import LayerObserver
 from positronixlab.modularobserver.modularobserver import ModularObserver
-from positronixlab.plugin.plugin_transport import ActivationTap
+
 
 
 class LayerObserverPubSub(LayerObserver):

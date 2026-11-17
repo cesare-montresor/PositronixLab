@@ -5,12 +5,12 @@ import torch
 from torch import Tensor
 from positronixlab.spacemath.common import staticmethod_compile
 from positronixlab.spacemath.spacemath import ActivationType, SpaceMath
-from positronixlab.trial.trial_config import TrialConfig
+from positronixlab.pipeline.pipeline_config_v1 import PipelineConfigV1 
 
 
 class ModularSpace():
     
-    def __init__(self, config: TrialConfig, observed_layers: dict[str, dict], device:torch.device=None, stats_enabled:bool=False):
+    def __init__(self, config: PipelineConfig, observed_layers: dict[str, dict], device:torch.device=None, stats_enabled:bool=False):
         self.config = config
         self.observed_layers = observed_layers
         self.device = device if device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -97,7 +97,7 @@ class ModularSpace():
 
     @staticmethod_compile
     #@staticmethod
-    def _process_scores(config: TrialConfig, scores: torch.Tensor, positions: torch.Tensor, stats: torch.Tensor)-> tuple[torch.Tensor, tuple[ torch.Tensor, torch.Tensor, torch.Tensor]]:
+    def _process_scores(config: PipelineConfig, scores: torch.Tensor, positions: torch.Tensor, stats: torch.Tensor)-> tuple[torch.Tensor, tuple[ torch.Tensor, torch.Tensor, torch.Tensor]]:
         bs = scores.shape[0]
         
         # [True, False]

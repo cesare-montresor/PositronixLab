@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from positronixlab.spacemath.common import staticmethod_compile
 from positronixlab.spacemath.spacemath import SpaceMath
 from positronixlab.spacemath.sigreg import sigreg
-from positronixlab.trial.trial_config import TrialConfig
+from positronixlab.pipeline.pipeline_config import PipelineConfig
 
 class LayerSpaceMixin:
 
@@ -40,7 +40,7 @@ class LayerSpaceMixin:
         return M * (lab >= 0).to(dtype).unsqueeze(0)  # Esclude le etichette di rumore (-1)
 
     @staticmethod_compile
-    def _contrast_vectorized(config: TrialConfig, scores: torch.Tensor, positions: torch.Tensor, M: torch.Tensor):
+    def _contrast_vectorized(config: PipelineConfig, scores: torch.Tensor, positions: torch.Tensor, M: torch.Tensor):
         """
         Compiled static graph for heavy tensor algebra. 
         All shapes here (bs, N, K, D) are strictly static.
@@ -85,7 +85,7 @@ class LayerSpaceMixin:
         
         return loss_on, loss_off, centers_on, mixed
 
-    def _process_scores(self, config: TrialConfig, scores: torch.Tensor, positions: torch.Tensor, stats: torch.Tensor, membership: torch.Tensor | None):
+    def _process_scores(self, config: PipelineConfig, scores: torch.Tensor, positions: torch.Tensor, stats: torch.Tensor, membership: torch.Tensor | None):
         """
         Eager execution loop. Handles dynamic masking for SIGReg and stat updates.
         """

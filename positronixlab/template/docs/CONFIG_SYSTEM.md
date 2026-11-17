@@ -33,7 +33,7 @@ Central registry for managing and retrieving templates by name:
 Template.FromName('mnist_fc')  # Returns TemplateMnistFC instance
 ```
 
-#### 5. **TrialConfig** (`trial_config.py`)
+#### 5. **PipelineConfig** (`trial_config.py`)
 Runtime configuration object that materializes template parameters into concrete values for trial execution.
 
 ## Parameter Types
@@ -171,7 +171,7 @@ template_dict = template.to_dict()
 new_template = TemplateBase.from_dict(template_dict)
 ```
 
-### Using TrialConfig
+### Using PipelineConfig
 
 ```python
 # Create trial configuration from parameter options
@@ -183,7 +183,7 @@ options = {
     'input_hidden_dim': 256
 }
 
-trial_config = TrialConfig(options)
+trial_config = PipelineConfig(options)
 
 # Access configuration values
 print(trial_config.learning_rate)

@@ -130,7 +130,7 @@ torch.quantile
 
     @staticmethod_compile
     #@staticmethod
-    def _process_scores(config: TrialConfig, scores: torch.Tensor, positions: torch.Tensor, stats: torch.Tensor, clusters_labels: torch.Tensor|None)-> tuple[torch.Tensor, tuple[ torch.Tensor, torch.Tensor, torch.Tensor]]:
+    def _process_scores(config: PipelineConfig, scores: torch.Tensor, positions: torch.Tensor, stats: torch.Tensor, clusters_labels: torch.Tensor|None)-> tuple[torch.Tensor, tuple[ torch.Tensor, torch.Tensor, torch.Tensor]]:
         bs = scores.shape[0]
         
         # [True, False]

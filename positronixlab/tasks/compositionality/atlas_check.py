@@ -13,7 +13,7 @@ from positronixlab.dataprovider.dataprovider import DataProvider
 from positronixlab.deeplearning.deeplearning_base import DeeplearningBase
 from positronixlab.modularobserver.modularobserver import ModularObserver
 from positronixlab.spacemath.spacemath import SpaceMath
-from positronixlab.trial.trial_config import TrialConfig
+from positronixlab.pipeline.pipeline_config import PipelineConfig
 # PREV: from torch.distributions.kl import kl_divergence  <- kl_divergence dispatches on torch.distributions.Distribution
 #       subclasses (e.g. Categorical), not on raw probability tensors, so calling it on prob_dist/target_dist
 #       tensors below raised NotImplementedError. Replaced with a manual epsilon-smoothed KL computation instead.
@@ -88,7 +88,7 @@ class TensorDistribution(Distribution):
 
 class AtlasCheck:
     def __init__(self, 
-                 config: TrialConfig, 
+                 config: PipelineConfig, 
                  model: nn.Module, 
                  dataprovider: DataProvider, 
                  clusters: Dict[str, Tensor],

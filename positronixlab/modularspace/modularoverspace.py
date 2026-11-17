@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 import torch
 
 from .custertracker import ClusterEvent, ClusterState, ClusterTracker
-from positronixlab.trial.trial_config import TrialConfig
+from positronixlab.pipeline.pipeline_config import PipelineConfig
 
 
 class ModularOverSpace:
@@ -24,7 +24,7 @@ class ModularOverSpace:
 
     def __init__(
         self,
-        config: TrialConfig,
+        config: PipelineConfig,
         observed_layers: dict[str, dict],
         device: torch.device | None = None,
         stats_enabled: bool = False,

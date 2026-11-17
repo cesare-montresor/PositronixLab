@@ -6,7 +6,6 @@ from ax.api.configs import (
 )
 from ax.storage.storage_config import StorageConfig
 
-from .trial_config import TrialConfig
 from .template_base import TemplateBase, ParameterType
 from .template_variant import TemplateVariant, TemplateVariantList
 from .storage import get_storage_config, get_or_create_client
@@ -18,7 +17,6 @@ __all__ = [
     "ChoiceParameterConfig",
     "FixedParameterConfig",
     "StorageConfig",
-    "TrialConfig",
     "TemplateBase",
     "ParameterType",
     "TemplateVariant",

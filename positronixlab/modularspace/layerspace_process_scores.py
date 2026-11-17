@@ -4,7 +4,7 @@ Drop-in replacement for LayerSpace.process_scores / _process_scores.
 UNTESTED: written without running it against your stack (no torch in my sandbox).
 Run the smoke test at the bottom on a CPU first.
 
-New TrialConfig fields (replace modular_space_loss_on/_off/_centers):
+New PipelineConfig fields (replace modular_space_loss_on/_off/_centers):
     modular_space_tau            float  softmax temperature (cosine: try 0.05-0.2)
     modular_space_loss_global    float  weight of the whole-layer contrast
     modular_space_loss_cluster   float  weight of the per-cluster contrast

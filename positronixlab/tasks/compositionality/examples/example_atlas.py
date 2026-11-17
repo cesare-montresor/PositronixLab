@@ -11,7 +11,7 @@ from positronixlab.dataprovider.dataprovider_factory import DataProviderFactory
 from positronixlab.tasks.compositionality.atlas_check import AtlasCheck
 from positronixlab.tasks.compositionality.weightmask_check import WeightmaskCheck
 from positronixlab.metamodel.metamodel import MetaModel
-from positronixlab.trial.trial_config import TrialConfig
+from positronixlab.pipeline.pipeline_config import PipelineConfig
 
 import logging
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ class AtlasCompositionalityExample():
         self.model = None
         self.dp = None
 
-        self.trial_config = TrialConfig()
+        self.trial_config = PipelineConfig()
         
         self.dp = DataProviderFactory.from_config(
             self.trial_config,

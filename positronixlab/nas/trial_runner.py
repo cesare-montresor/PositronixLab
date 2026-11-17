@@ -2,7 +2,7 @@ import logging
 import time
 from typing import Any, Callable, Dict, Optional
 
-from positronixlab.trial import TrialManager, TrialConfig
+from positronixlab.pipeline import TrialManager, PipelineConfig
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ class AtlasComposeTrialEvaluator:
         fixed: Optional[Dict[str, Any]] = None,
         variant_name: Optional[str] = None,
     ) -> Dict[str, float]:
-        config = TrialConfig.from_params_and_fixed(
+        config = PipelineConfig.from_params_and_fixed(
             params=parameters,
             fixed=fixed,
             variant_name=variant_name,

@@ -4,9 +4,7 @@ import logging
 import time
 
 
-from positronixlab.deeplearning.deeplearning_train_plugin import DeeplearningTrainPlugin
-from positronixlab.deeplearning.deeplearning_setup_plugin import DeeplearningSetupPlugin
-from positronixlab.trial import TrialBase, TrialConfig, TrialManager
+from positronixlab.pipeline import Pipeline, PipelineConfig, TrialManager
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +16,8 @@ def main():
 
 
 
-class TrialTrainSimple(TrialBase):
-    def __init__(self, config: TrialConfig, trial_manager: TrialManager):
+class TrialTrainSimple(Pipeline):
+    def __init__(self, config: PipelineConfig, trial_manager: TrialManager):
         super().__init__(config, trial_manager)
         options = {
             "device": None,  # Use default device
@@ -51,7 +49,7 @@ class TrialTrainSimple(TrialBase):
 
 def test_train():
     """Test basic trial execution with setup and training plugins."""
-    config = TrialConfig()
+    config = PipelineConfig()
     config.dataset_name = 'iris'  # Use iris dataset for quick testing
     config.epochs = 1  # Use 1 epoch for quick test
     trial_manager = TrialManager()

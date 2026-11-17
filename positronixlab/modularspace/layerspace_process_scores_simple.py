@@ -4,7 +4,7 @@ Minimal change to your original _process_scores:
   2. repeat the same on/off contrast once per cluster (units of that cluster only)
   3. add sigreg on the positions
 
-New TrialConfig fields:
+New PipelineConfig fields:
     modular_space_loss_cluster   float   weight of the per-cluster term
     modular_space_loss_sigreg    float   weight of sigreg (0 = off)
     modular_space_sigreg_method  str     "weak" | "strong"
@@ -28,7 +28,7 @@ from torch import Tensor
 from positronixlab.spacemath.common import staticmethod_compile
 from positronixlab.spacemath.spacemath import  SpaceMath
 from positronixlab.spacemath.sigreg import sigreg
-from positronixlab.trial.trial_config import TrialConfig
+from positronixlab.pipeline.pipeline_config import PipelineConfig
 
 
 

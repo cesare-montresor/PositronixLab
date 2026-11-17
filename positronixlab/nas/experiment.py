@@ -12,7 +12,7 @@ from ax.api.client import Client
 
 from positronixlab.template import TemplateBase
 from positronixlab.template.template_variant import TemplateVariant, TemplateVariantList
-from positronixlab.trial import TrialConfig
+from positronixlab.pipeline import PipelineConfig
 from .storage import get_or_create_client
 from .parallel_runner import run_trials_parallel, run_variants_parallel
 
@@ -43,7 +43,7 @@ class NasExperiment:
         self,
         name: str,
         template: TemplateBase,
-        eval_fn: Callable[[TrialConfig], Dict[str, float]],
+        eval_fn: Callable[[PipelineConfig], Dict[str, float]],
         objectives: str = "val_acc, -model_size, modularity_score",
         outcome_constraints: Optional[Sequence[str]] = None,
         variants: Optional[TemplateVariantList] = None,
@@ -110,7 +110,7 @@ class NasExperiment:
         fixed_params = self.template.get_fixed()
 
         def _evaluate_wrapper(params: Dict[str, Any], trial_index: int) -> Dict[str, float]:
-            config = TrialConfig.from_params_and_fixed(
+            config = PipelineConfig.from_params_and_fixed(
                 params=params,
                 fixed=fixed_params,
                 variant_name="common",
@@ -142,7 +142,7 @@ class NasExperiment:
             for idx, item in enumerate(best_pareto):
                 params = item[0] if isinstance(item, tuple) else (item.get("parameters") if isinstance(item, dict) else item)
                 t_idx = item[2] if isinstance(item, tuple) and len(item) > 2 else idx
-                best_config = TrialConfig.from_params_and_fixed(
+                best_config = PipelineConfig.from_params_and_fixed(
                     params=params,
                     fixed=fixed_params,
                     variant_name="common",
@@ -217,8 +217,8 @@ class NasExperiment:
             full_params = dict(variant_fixed_features)
             full_params.update(params)
 
-            # Initialize TrialConfig with params (including frozen features) and template fixed
-            config = TrialConfig.from_params_and_fixed(
+            # Initialize PipelineConfig with params (including frozen features) and template fixed
+            config = PipelineConfig.from_params_and_fixed(
                 params=full_params,
                 fixed=fixed_params,
                 variant_name=v_name,
@@ -240,7 +240,7 @@ class NasExperiment:
                 full_params = dict(variant_fixed_features)
                 full_params.update(params)
 
-                best_config = TrialConfig.from_params_and_fixed(
+                best_config = PipelineConfig.from_params_and_fixed(
                     params=full_params,
                     fixed=fixed_params,
                     variant_name=v_name,
@@ -270,12 +270,12 @@ class NasExperiment:
     # -------------------------------------------------------------------------
     # Pareto Best Extraction via Ax Native get_best_parameterization()
     # -------------------------------------------------------------------------
-    def get_pareto_best(self) -> Dict[str, List[TrialConfig]]:
+    def get_pareto_best(self) -> Dict[str, List[PipelineConfig]]:
         """
         Uses Ax's native client.get_best_parameterization() to extract the Pareto frontier
         for each variant and saves configs to output/exp_name/variant/best/.
         """
-        results: Dict[str, List[TrialConfig]] = {}
+        results: Dict[str, List[PipelineConfig]] = {}
         fixed_params = self.template.get_fixed()
 
         for v_name, client in self.variant_clients.items():
@@ -298,7 +298,7 @@ class NasExperiment:
                 full_params = dict(variant_fixed_features)
                 full_params.update(params)
 
-                config = TrialConfig.from_params_and_fixed(
+                config = PipelineConfig.from_params_and_fixed(
                     params=full_params,
                     fixed=fixed_params,
                     variant_name=v_name,
@@ -330,7 +330,7 @@ class NasExperiment:
     # -------------------------------------------------------------------------
     # Full Execution Pipeline
     # -------------------------------------------------------------------------
-    def run(self) -> Dict[str, List[TrialConfig]]:
+    def run(self) -> Dict[str, List[PipelineConfig]]:
         logger.info(f"Starting Multi-Objective NAS Experiment '{self.name}'...")
         logger.info(f"Results output root directory: {self.exp_root_dir}")
 

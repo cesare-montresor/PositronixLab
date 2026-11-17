@@ -1,4 +1,5 @@
 
+from builtins import staticmethod
 from typing import  Dict
 
 import math
@@ -7,13 +8,13 @@ from torch import Tensor
 from torch.nn import functional as F
 from positronixlab.spacemath.common import staticmethod_compile
 from positronixlab.spacemath.spacemath import ActivationType, SpaceMath
-from positronixlab.trial.trial_config import TrialConfig
+from positronixlab.pipeline.pipeline_config import PipelineConfig
 from positronixlab.spacemath.sigreg import sigreg
 
 
 class LayerSpace():
     
-    def __init__(self, config: TrialConfig, observed_layers: dict[str, dict], device:torch.device=None, stats_enabled:bool=False):
+    def __init__(self, config: PipelineConfig, observed_layers: dict[str, dict], device:torch.device=None, stats_enabled:bool=False):
         self.config = config
         self.observed_layers = observed_layers
         self.device = device if device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -111,7 +112,7 @@ class LayerSpace():
         return M * (lab >= 0).to(dtype).unsqueeze(0)  # Esclude le etichette di rumore (-1)
     
     @staticmethod_compile
-    def _contrast_vectorized(config: TrialConfig, scores: torch.Tensor, positions: torch.Tensor, M: torch.Tensor):
+    def _contrast_vectorized(config: PipelineConfig, scores: torch.Tensor, positions: torch.Tensor, M: torch.Tensor):
         """
         Compiled static graph for heavy tensor algebra. 
         All shapes here (bs, N, K, D) are strictly static.
@@ -156,7 +157,7 @@ class LayerSpace():
         
         return loss_on, loss_off, centers_on, mixed
 
-    def _process_scores(self, config: TrialConfig, scores: torch.Tensor, positions: torch.Tensor, stats: torch.Tensor, membership: torch.Tensor | None):
+    def _process_scores(self, config: PipelineConfig, scores: torch.Tensor, positions: torch.Tensor, stats: torch.Tensor, membership: torch.Tensor | None):
         """
         Eager execution loop. Handles dynamic masking for SIGReg and stat updates.
         """

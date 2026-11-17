@@ -2,7 +2,7 @@
 import os
 import time
 
-from positronixlab.trial.trial_config import TrialConfig
+from positronixlab.pipeline.pipeline_config import PipelineConfig
 import torch
 from torchvision import transforms
 
@@ -58,7 +58,7 @@ class MetaModel(BaseModel):
     LAYER_TYPES = {'fc': nn.Linear, 'cnn': nn.Conv2d, 'decnn': nn.ConvTranspose2d, 'rnn': nn.RNN, 'transformer': nn.TransformerEncoder}
     # TODO: implementre support for 'rnn', 'transformer']
         
-    def __init__(self, name, config:TrialConfig, device=None):
+    def __init__(self, name, config:PipelineConfig, device=None):
         super().__init__()
         self.name = name
         self.config = config

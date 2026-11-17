@@ -23,7 +23,7 @@ for param in params:
 ### Creating a Trial Configuration
 
 ```python
-from positronixlab.config.trial_config import TrialConfig
+from positronixlab.pipeline.pipeline_config import PipelineConfig
 
 # Prepare options dictionary
 options = {
@@ -39,7 +39,7 @@ options = {
 }
 
 # Create trial configuration
-trial_config = TrialConfig(options)
+trial_config = PipelineConfig(options)
 
 # Use in training loop
 model = create_model(
@@ -262,8 +262,8 @@ print(custom_template.get_params())  # Different params
 ### For Neural Architecture Search (NAS)
 
 ```python
-from positronixlab.config.template import Template
-from positronixlab.config.trial_config import TrialConfig
+from positronixlab.template import Template
+from positronixlab.pipeline.pipeline_config import PipelineConfig
 
 # 1. Start with base template
 template = Template.FromName('mnist_fc')
@@ -284,7 +284,7 @@ sampled_params = {
 options = {**variant.to_dict()['params'], **sampled_params}
 
 # 5. Create trial configuration
-trial_config = TrialConfig(options)
+trial_config = PipelineConfig(options)
 
 # 6. Run trial
 results = run_trial(trial_config)

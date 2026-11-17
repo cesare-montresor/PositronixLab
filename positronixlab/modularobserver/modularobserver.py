@@ -5,7 +5,7 @@ import torch
 
 from positronixlab.modularobserver.modelmapper import ModelGraph, ModelMapper, ModelNode, ModelEdge
 from positronixlab.spacemath.common import is_layer, is_linear, is_conv
-from positronixlab.trial.trial_config import TrialConfig
+from positronixlab.pipeline.pipeline_config import PipelineConfig
 from torch.utils.hooks import RemovableHandle
 
 
@@ -24,7 +24,7 @@ class ModularObserver:
     """Manages LayerObservers and metric collection, powered by ModelMapper."""
     def __init__(
         self, 
-        config: TrialConfig, 
+        config: PipelineConfig, 
         model: nn.Module, 
         device: torch.device = None,
     ):
