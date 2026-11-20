@@ -4,7 +4,7 @@ import time
 from typing import Dict, Any, Optional
 
 from positronixlab.pipeline.pipeline_config import PipelineConfig
-from parallelazy import PluginManager, PluginDescriptor
+from parallelazy import PluginManager, PluginDescriptor, is_debugpy_attached
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +15,8 @@ class Pipeline(ABC):
     def __init__(self, config: PipelineConfig ):
         self.config = config
         
-        # Use new Ray-based plugin manager
         self.plugin_manager = PluginManager()
+        self.plugin_manager.worker_pydebug = is_debugpy_attached()  # Set a debug port for worker processes (optional)
         self.results: Optional[Dict[str, Any]] = None
 
     def load_plugin(self, descriptor: PluginDescriptor, plugin_config: Dict[str, Any]={}) -> str:
@@ -34,9 +34,9 @@ class Pipeline(ABC):
         self.plugin_manager.load_plugin(descriptor, plugin_config)
         return plugin_id
     
-    def run(self) -> None:
+    def run(self, parallel=True) -> None:
         """Run all loaded plugins."""
-        self.plugin_manager.start_all_plugins()
+        self.plugin_manager.start_all_plugins(parallel=parallel)
 
     def is_error(self) -> bool:
         """Check if any plugin is in error state."""

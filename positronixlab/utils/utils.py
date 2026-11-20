@@ -12,8 +12,8 @@ import torch
 import os
 import json
 import yaml
-from hashlib import md5
 import multiprocessing as mp
+import hashlib
 
 debug = False
 
@@ -176,10 +176,10 @@ def set_best(bests, key, val, min=True):
     # 3. No improvement
     return -1, bests[key]
 
-def signature_settings(data:dict) -> str:
+def signature_settings(data:dict, algo: str = "md5") -> str:
     content  = json.dumps(data, sort_keys=True)
     content = content.encode()
-    sign = md5(content).hexdigest()
+    sign = hashlib.new(algo, content).hexdigest()
     #print(f"Settings signature: {sign}\n\n---\n\n{data}\n\n---\n\n")
     return sign
 
@@ -245,3 +245,32 @@ def safe_tensor(val: Any) -> torch.Tensor:
     except Exception:
         # Absolute fallback
         return torch.atleast_1d(torch.as_tensor(val))
+
+
+
+def model_hash(model: torch.nn.Module, algo: str = "sha256") -> str:
+    hasher = hashlib.new(algo)
+    state_dict = model.state_dict()
+
+    for key in sorted(state_dict.keys()):
+        tensor = state_dict[key]
+        
+        # Hash metadata so reshaped tensors or renamed layers don't collide
+        hasher.update(key.encode("utf-8"))
+        hasher.update(str(tensor.shape).encode("utf-8"))
+        hasher.update(str(tensor.dtype).encode("utf-8"))
+
+        # Flatten, move to CPU, and view as uint8 to handle 0-D scalars 
+        # and dtypes NumPy doesn't natively support (like bfloat16/float8)
+        raw_bytes = (
+            tensor.detach()
+            .cpu()
+            .contiguous()
+            .reshape(-1)
+            .view(torch.uint8)
+            .numpy()
+            .tobytes()
+        )
+        hasher.update(raw_bytes)
+
+    return hasher.hexdigest()

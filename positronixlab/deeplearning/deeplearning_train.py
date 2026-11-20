@@ -38,6 +38,7 @@ class DeeplearningTrain:
         self.dp = dp
         self.draft = draft
         
+        self.optim = None
         self.optim = self._get_optimizer()
 
         self.early_stop: EarlyStopping = None
