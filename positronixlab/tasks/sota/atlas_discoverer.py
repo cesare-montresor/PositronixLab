@@ -289,8 +289,10 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
         unit_energy: Dict[str, torch.Tensor],
         mask_name: str,
         extra_metadata: Optional[Dict[str, Any]] = None,
+        top_cluster_fraction: Optional[float] = None,
     ) -> SubnetworkMask:
         """Select top-attributed functional clusters per layer and build a ``SubnetworkMask``."""
+        frac = self.top_cluster_fraction if top_cluster_fraction is None else float(top_cluster_fraction)
         masks: Dict[str, torch.Tensor] = {}
         scores: Dict[str, torch.Tensor] = {}
         selected_clusters: Dict[str, List[int]] = {}
@@ -299,30 +301,33 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
             energy = unit_energy.get(layer_name)
             if energy is None:
                 continue
-            unique_c = torch.unique(labels)
+            labels_long = labels.detach().cpu().long()
+            energy_cpu = energy.detach().cpu()
+            unique_c = torch.unique(labels_long)
             cluster_scores = []
             for cid in unique_c:
-                c_mask = labels == cid
-                c_score = float(energy[c_mask].mean().item())
+                c_mask = labels_long == cid
+                c_score = float(energy_cpu[c_mask].mean().item())
                 cluster_scores.append((int(cid.item()), c_score))
 
             cluster_scores.sort(key=lambda item: item[1], reverse=True)
             k_select = max(
                 self.min_active_clusters,
-                int(round(len(cluster_scores) * self.top_cluster_fraction)),
+                int(round(len(cluster_scores) * frac)),
             )
             k_select = min(k_select, len(cluster_scores))
             chosen = {cid for cid, _ in cluster_scores[:k_select]}
             selected_clusters[layer_name] = sorted(chosen)
 
-            unit_mask = torch.zeros_like(labels, dtype=torch.bool)
+            unit_mask = torch.zeros_like(labels_long, dtype=torch.bool)
             for cid in chosen:
-                unit_mask |= labels == cid
+                unit_mask |= labels_long == cid
             masks[layer_name] = unit_mask
-            scores[layer_name] = energy
+            scores[layer_name] = energy_cpu
 
         meta = {
             "method": self.name,
+            "top_cluster_fraction": frac,
             "selected_clusters": selected_clusters,
             "num_clusters": {
                 k: int(torch.unique(v).numel()) for k, v in clusters_by_layer.items()
@@ -338,6 +343,65 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
             scores=scores,
             metadata=meta,
         )
+
+    def attribute_from_unit_energy(
+        self,
+        clusters_by_layer: Dict[str, torch.Tensor],
+        energy_by_subtask: Dict[str, Dict[str, torch.Tensor]],
+        *,
+        top_cluster_fraction: Optional[float] = None,
+    ) -> Dict[str, SubnetworkMask]:
+        """Build per-subtask ``SubnetworkMask``s from pre-computed clusters and unit energies (zero model passes)."""
+        results: Dict[str, SubnetworkMask] = {}
+        for subtask_name, energy in energy_by_subtask.items():
+            results[subtask_name] = self._clusters_to_unit_mask(
+                clusters_by_layer,
+                energy,
+                mask_name=f"atlas:{subtask_name}",
+                extra_metadata={"subtask": subtask_name},
+                top_cluster_fraction=top_cluster_fraction,
+            )
+        return results
+
+    def attribute_from_clusters(
+        self,
+        model: nn.Module,
+        clusters_by_layer: Dict[str, torch.Tensor],
+        subtask_dataloaders: Dict[str, Iterable[Any]],
+        *,
+        top_cluster_fraction: Optional[float] = None,
+    ) -> Dict[str, SubnetworkMask]:
+        """Attribute pre-computed clusters (e.g. from ``ClusterPlugin``) to subtasks without re-fitting the Atlas."""
+        layers = list(clusters_by_layer.keys())
+        energy_by_subtask = {
+            subtask_name: self._collect_mean_unit_energy(model, loader, layers)
+            for subtask_name, loader in subtask_dataloaders.items()
+        }
+        return self.attribute_from_unit_energy(
+            clusters_by_layer,
+            energy_by_subtask,
+            top_cluster_fraction=top_cluster_fraction,
+        )
+
+    def sweep_fractions(
+        self,
+        clusters_by_layer: Dict[str, torch.Tensor],
+        unit_energy: Dict[str, torch.Tensor],
+        fractions: Iterable[float],
+        mask_name: str = "atlas",
+        extra_metadata: Optional[Dict[str, Any]] = None,
+    ) -> List[SubnetworkMask]:
+        """Generate a sparsity sweep of ``SubnetworkMask``s from one attribution pass (zero retraining)."""
+        return [
+            self._clusters_to_unit_mask(
+                clusters_by_layer,
+                unit_energy,
+                mask_name=f"{mask_name}@{float(f):.2f}",
+                extra_metadata=extra_metadata,
+                top_cluster_fraction=float(f),
+            )
+            for f in fractions
+        ]
 
     def discover(
         self,

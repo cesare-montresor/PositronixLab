@@ -94,10 +94,18 @@ class Pipeline(ABC):
         statuses = self.plugin_manager.plugin_status_all()
         for plugin_id, status in statuses.items():
             errs: List[str] = []
-            if status.worker_status and getattr(status.worker_status, "errors", None):
-                errs = list(status.worker_status.errors)
+            raw_errs = getattr(status.worker_status, "errors", None) if status.worker_status else None
+            if isinstance(raw_errs, (list, tuple)):
+                errs = [str(e) for e in raw_errs]
             elif status.process_alive:
-                errs = self.plugin_manager.plugin_errors(plugin_id)
+                try:
+                    fetched = self.plugin_manager.plugin_errors(plugin_id)
+                    if fetched:
+                        errs = [str(e) for e in fetched]
+                except Exception:
+                    pass
+            if not errs and isinstance(raw_errs, int) and raw_errs > 0:
+                errs = [f"Worker reported {raw_errs} error(s)"]
             if errs:
                 errors[plugin_id] = errs
         return errors

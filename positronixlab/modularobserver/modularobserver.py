@@ -27,10 +27,22 @@ class ModularObserver:
         config: PipelineConfig, 
         model: nn.Module, 
         device: torch.device = None,
+        observable_types: tuple[type[nn.Module], ...] | None = None,
+        target_layers: List[str] | None = None,
+        exclude_patterns: tuple[str, ...] = (),
     ):
         self.config = config
-        self.device = device or getattr(model, 'device', torch.device("cpu"))
+        if device is not None:
+            self.device = device
+        elif getattr(model, 'device', None) is not None:
+            self.device = model.device
+        else:
+            first_param = next(model.parameters(), None)
+            self.device = first_param.device if first_param is not None else torch.device("cpu")
         self.model = model
+        self.observable_types = observable_types
+        self.target_layers = set(target_layers) if target_layers is not None else None
+        self.exclude_patterns = tuple(exclude_patterns)
         
         self.nodes_list: List[ModelNode] = []
         self.nodes_by_name: Dict[str, ModelNode] = {}
@@ -51,15 +63,23 @@ class ModularObserver:
     
     def _is_suitable_layer(self, module: nn.Module, name: str) -> bool:
         """Determines which modules are tracked as unique layers in the graph."""
+        if self.target_layers is not None and name in self.target_layers:
+            return True
+        if self.observable_types is not None and isinstance(module, self.observable_types):
+            return True
         return is_layer(module)
         
     def _is_observable_layer(self, module: nn.Module, name: str) -> bool:
         """Determines which modules are tracked as unique layers in the graph."""
         if len(list(module.parameters())) == 0:
             return False # only learnable layers
-        # return is_layer(module)
-        # return is_linear(module) or is_conv(module)        
-        return is_linear(module) # todo: support all architectures
+        if self.exclude_patterns and any(pat in name for pat in self.exclude_patterns):
+            return False
+        if self.target_layers is not None:
+            return name in self.target_layers
+        if self.observable_types is not None:
+            return isinstance(module, self.observable_types)
+        return is_linear(module)
 
 
     def _on_graph_discovered(self, mapper: ModelMapper):
@@ -116,24 +136,26 @@ class ModularObserver:
         for node in self.nodes_list:
             hook_name = f"{node.name}_weights"
             module_ref = node.module_ref
-            if callback is None:
-                if hook_name in self.hooks:
-                    for hook in self.hooks[hook_name]:
-                        hook.remove()
-                    del self.hooks[hook_name]
-            else:
-                hooks = [param.register_hook(lambda grad: callback(module_ref, param, grad)) for param in module_ref.parameters()]
+            if hook_name in self.hooks:
+                for hook in self.hooks[hook_name]:
+                    hook.remove()
+                del self.hooks[hook_name]
+            if callback is not None:
+                hooks = [
+                    param.register_hook(lambda grad, m=module_ref, p=param: callback(m, p, grad))
+                    for param in module_ref.parameters()
+                ]
                 self.hooks[hook_name] = hooks
 
     def on_pre_forward_layer(self, callback: PreForwardCallback = None):
         for node in self.nodes_list:
             hook_name = f"{node.name}_pre_forward"
             module_ref = node.module_ref
-            if callback is None:
-                if hook_name in self.hooks:
-                    self.hooks[hook_name].remove() if self.hooks[hook_name] else None
-                    del self.hooks[hook_name]
-            else:
+            if hook_name in self.hooks:
+                if self.hooks[hook_name]:
+                    self.hooks[hook_name].remove()
+                del self.hooks[hook_name]
+            if callback is not None:
                 hook = module_ref.register_forward_pre_hook(callback)
                 self.hooks[hook_name] = hook
 
@@ -141,11 +163,11 @@ class ModularObserver:
         for node in self.nodes_list:
             module_ref = node.module_ref
             hook_name = f"{node.name}_forward"
-            if callback is None:
-                if hook_name in self.hooks:
-                    self.hooks[hook_name].remove() if self.hooks[hook_name] else None
-                    del self.hooks[hook_name]
-            else:
+            if hook_name in self.hooks:
+                if self.hooks[hook_name]:
+                    self.hooks[hook_name].remove()
+                del self.hooks[hook_name]
+            if callback is not None:
                 hook = module_ref.register_forward_hook(callback)
                 self.hooks[hook_name] = hook
 
@@ -153,17 +175,18 @@ class ModularObserver:
         for node in self.nodes_list:
             module_ref = node.module_ref
             hook_name = f"{node.name}_backward"
-            if callback is None:
-                if hook_name in self.hooks:
-                    self.hooks[hook_name].remove() if self.hooks[hook_name] else None
-                    del self.hooks[hook_name]
-            else:
+            if hook_name in self.hooks:
+                if self.hooks[hook_name]:
+                    self.hooks[hook_name].remove()
+                del self.hooks[hook_name]
+            if callback is not None:
                 hook = module_ref.register_full_backward_hook(callback)
                 self.hooks[hook_name] = hook
 
     
     def clear(self):
         """Removes all hooks and clears the mapped observers."""
+        self.on_pre_forward_layer(None)
         self.on_forward_layer(None)
         self.on_backward_layer(None)
         self.on_grad_weights(None)

@@ -359,10 +359,14 @@ class ModelMapper:
             return self.graph
 
         was_training = model.training
+        model_device = getattr(model, "device", None)
+        if model_device is None:
+            first_param = next(model.parameters(), None)
+            model_device = first_param.device if first_param is not None else torch.device("cpu")
         try:
             model.eval()
             with torch.no_grad(), self.trace_context():
-                _ = model(data.to(device=model.device))
+                _ = model(data.to(device=model_device))
         finally:
             model.train(was_training)
 

@@ -112,6 +112,70 @@ class ModelLoader:
         return model
 
     @classmethod
+    def save(
+        cls,
+        model: nn.Module,
+        path: str | Path,
+        *,
+        arch: Optional[str] = None,
+        model_kwargs: Optional[Dict[str, Any]] = None,
+        dataset_name: Optional[str] = None,
+        metrics: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Path:
+        """Save a self-describing checkpoint bundle for later reload via :meth:`load_bundle`."""
+        out_path = Path(path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        resolved_arch = arch or getattr(model, "arch", None) or getattr(model, "sota_arch", None)
+        bundle: Dict[str, Any] = {
+            "format": "positronix_sota_bundle_v1",
+            "arch": resolved_arch,
+            "model_kwargs": dict(model_kwargs or {}),
+            "dataset_name": dataset_name,
+            "metrics": dict(metrics or {}),
+            "metadata": dict(metadata or {}),
+            "state_dict": {k: v.detach().cpu() for k, v in model.state_dict().items()},
+        }
+        torch.save(bundle, out_path)
+        return out_path
+
+    @classmethod
+    def load_bundle(
+        cls,
+        path: str | Path,
+        *,
+        device: Optional[torch.device | str] = None,
+        strict: bool = True,
+        **override_model_kwargs: Any,
+    ) -> Tuple[SOTAModel, Dict[str, Any]]:
+        """Load a self-describing bundle saved by :meth:`save`.
+
+        Returns ``(model, info)`` where ``info`` contains ``arch``, ``model_kwargs``,
+        ``dataset_name``, ``metrics``, and ``metadata``.
+        """
+        bundle = torch.load(path, map_location="cpu", weights_only=False)
+        if not isinstance(bundle, dict) or bundle.get("format") != "positronix_sota_bundle_v1":
+            raise ValueError(
+                f"File {path} is not a positronix_sota_bundle_v1 checkpoint. "
+                "Use ModelLoader.load(arch, checkpoint=path) for raw state_dicts."
+            )
+        arch = bundle.get("arch")
+        if not arch:
+            raise ValueError(f"Bundle {path} is missing required 'arch' field.")
+        kwargs = dict(bundle.get("model_kwargs") or {})
+        kwargs.update(override_model_kwargs)
+        model = cls.create(arch, device=device, **kwargs)
+        model.load_state_dict(bundle["state_dict"], strict=strict)
+        info = {
+            "arch": arch,
+            "model_kwargs": kwargs,
+            "dataset_name": bundle.get("dataset_name"),
+            "metrics": dict(bundle.get("metrics") or {}),
+            "metadata": dict(bundle.get("metadata") or {}),
+        }
+        return model, info
+
+    @classmethod
     def load(
         cls,
         arch: str,
