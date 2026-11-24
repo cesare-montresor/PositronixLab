@@ -95,7 +95,8 @@ class ModularClusterKmeansStream:
         else:
             raise ValueError(f"Unsupported metric: {self.metric}")
 
-        dist.fill_diagonal_(0.0)  # added for eucledian
+        if x is y:
+            dist.fill_diagonal_(0.0)  # added for eucledian
         dist.clamp_(min=0.0)  # not alwys >=0 due to numerical errors
         return dist
 
@@ -124,9 +125,10 @@ class ModularClusterKmeansStream:
         if init_centroids is not None and init_centroids.shape[1] != x.shape[1]:
             init_centroids = None  # stale cache entry (feature dim changed)
 
+        x_np = x.detach().cpu().numpy().astype('float32', copy=False)
         with suppress_output():
             kmeans = FAISS_KMeans(
-                d=x.shape[1],
+                d=x_np.shape[1],
                 k=k,
                 niter=self._effective_max_iter,
                 spherical=spherical,
@@ -136,9 +138,9 @@ class ModularClusterKmeansStream:
             )
 
             if init_centroids is not None:
-                kmeans.train(x, init_centroids=init_centroids)
+                kmeans.train(x_np, init_centroids=init_centroids)
             else:
-                kmeans.train(x)
+                kmeans.train(x_np)
 
         centroids = torch.from_numpy(kmeans.centroids).to(self.device)
         # Cache converged centroids for this k so the next fit() at the same

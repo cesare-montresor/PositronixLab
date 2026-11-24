@@ -11,9 +11,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-from cuml.manifold.umap import UMAP
-
-
 # ---------------------------------------------------------
 # Processors: elaborazione a valle del reducer (gira nel loop di main)
 # ---------------------------------------------------------
@@ -25,21 +22,14 @@ class Processor(ABC):
         il messaggio su un altro topic (e lo esclude da storico ed env)."""
 
 
-import math
-import threading
-from typing import Any, Dict, List, Optional
-
-import numpy as np
-import torch
-
 # Assuming UMAP is imported from either umap-learn or cuML
 try:
     from cuml.manifold import UMAP
 except ImportError:
-    from umap import UMAP
-
-# Assuming Processor base class is available in your module
-from positronixlab.stats.processor import Processor
+    try:
+        from umap import UMAP
+    except ImportError:
+        UMAP = None
 
 
 class UmapProcessor(Processor):

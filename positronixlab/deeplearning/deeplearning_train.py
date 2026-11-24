@@ -49,8 +49,16 @@ class DeeplearningTrain:
 
         self.history = {"train": [], "val": []}
 
-    def add_early_stopping(self, max_attempts: int = 3, min_gain: float = 0.01, metric: str = "loss"):
-        self.early_stop = EarlyStopping(max_attempts=max_attempts, min_gain=min_gain)
+    def add_early_stopping(
+        self,
+        max_attempts: int = 3,
+        min_gain: float = 0.01,
+        metric: str = "loss",
+        minimize: bool = None,
+    ):
+        if minimize is None:
+            minimize = "loss" in metric.lower()
+        self.early_stop = EarlyStopping(max_attempts=max_attempts, min_gain=min_gain, minimize=minimize)
         self.early_stop_metric = metric
 
     def _get_optimizer(self):
@@ -165,14 +173,18 @@ class DeeplearningTrain:
         forward_time = time.time()
 
         with torch.no_grad():
-            for batch_idx, (x, y) in enumerate(tqdm(dataloader, desc="Inference")):
+            for batch_idx, batch in enumerate(tqdm(dataloader, desc="Inference")):
+                if len(batch) == 3:
+                    x, y, _ = batch
+                else:
+                    x, y = batch
                 x = x.to(device=self.device)
                 y = y.to(device=self.device)
 
                 y_hat = self.model(x)
                 loss = self.model.loss(x, y, y_hat)
 
-                total_loss += loss.detach().item()
+                total_loss += loss.detach().item() * len(x)
                 data_num += len(x)
 
                 batch_acc = None
@@ -216,30 +228,35 @@ class DeeplearningTrain:
 
     
 class EarlyStopping:
-    def __init__(self, max_attempts: int = 3, min_gain: float = 0.01):
+    def __init__(self, max_attempts: int = 3, min_gain: float = 0.01, minimize: bool = False):
         self.max_attempts = max_attempts
         self.min_gain = min_gain
+        self.minimize = minimize
         self.num_attempts = 0
-        self.metric_last = 0
+        self.metric_last = None
         self.total_attempts = 0
         self.num_resets = 0
 
     def should_stop(self, metric):
         self.total_attempts += 1
-        gain = metric - self.metric_last
-        
+        if self.metric_last is None:
+            self.metric_last = metric
+            self.num_resets += 1
+            self.num_attempts = 0
+            return False
+
+        gain = (self.metric_last - metric) if self.minimize else (metric - self.metric_last)
         self.num_attempts += 1
-        
 
         if gain >= self.min_gain:
             self.num_resets += 1
             self.num_attempts = 0 #valid gain: reset counter
             self.metric_last = metric
-            logging.info(f'[EarlyStop] New best! +{int(gain*100)}% metric')
+            logging.info(f'[EarlyStop] New best! {gain:+.4f} metric')
         else:
-            logging.info(f'[EarlyStop] No sufficient gain: +{int(gain*100)}%  ({self.num_attempts}/{self.max_attempts})')
-        
-        if self.num_attempts > self.max_attempts:
+            logging.info(f'[EarlyStop] No sufficient gain: {gain:+.4f} ({self.num_attempts}/{self.max_attempts})')
+
+        if self.num_attempts >= self.max_attempts:
             logging.info(f'[EarlyStop] No gain. Stopping.')
             return True
 

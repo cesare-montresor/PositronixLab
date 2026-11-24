@@ -1,346 +1,579 @@
+from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import gc
 import json
 import logging
 import os
 import time
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
-
-
-
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generic,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
+import yaml
 
 from ax.api.client import Client
+from ax.api.configs import StorageConfig
+from ax.core.trial_status import TrialStatus
 
-from positronixlab.template import TemplateBase
-from positronixlab.template.template_variant import TemplateVariant, TemplateVariantList
-from positronixlab.pipeline import PipelineConfig
-from .storage import get_or_create_client
-from .parallel_runner import run_trials_parallel, run_variants_parallel
+from positronixlab.nas.trial_config import TrialConfig
+from positronixlab.nas.trial_pipeline import MetricValue, TrialPipeline, TrialResult, is_oom_error
+from positronixlab.pipeline.pipeline_config import PipelineOptions
+from positronixlab.template.template_base import TemplateBase
 
 logger = logging.getLogger(__name__)
 
+TConfig = TypeVar("TConfig", bound=TrialConfig)
 
-class NasExperiment:
+
+def _release_cuda_cache() -> None:
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
+def _ensure_sqlite_db(url: str) -> None:
+    """Bind Ax's SQLAlchemy engine/session factory to `url` and ensure schema tables exist."""
+    from ax.storage.sqa_store.db import (
+        create_all_tables,
+        get_engine,
+        init_engine_and_session_factory,
+    )
+
+    init_engine_and_session_factory(url=url, force_init=True)
+    create_all_tables(get_engine())
+
+
+class Experiment(Generic[TConfig]):
     """
-    Multi-objective Neural Architecture Search using Meta's modern Ax Client (Ax 1.3+),
-    SQLite persistence, and 2-phase variant bootstrapping:
-    1. Phase 1: Parallel exploration across common unconstrained template space.
-    2. Phase 2: Concurrent variant Bayesian optimizations, each with its own SQLite database,
-       passing variant fixed_features to client.get_next_trials to freeze those search space dimensions.
-    3. Resumability: Checks existing databases and resumes uninterrupted from the last completed trial.
-    4. Pareto Frontier: Extracts best trade-offs using Ax's native get_best_parameterization().
-    5. Folder Structure (always rooted at output/):
-       output/<exp_name>/
-       ├── common/
-       │   ├── trials/
-       │   └── best/
-       ├── <variant_name>/
-       │   ├── trials/
-       │   └── best/
-       └── databases/
+    Lightweight, SQLite-backed Ax 1.3 experiment runner for NAS and HPO.
+
+    Folder layout (`<output_dir>/<name>/`):
+    ```
+    <output_dir>/<name>/
+    ├── ax.db                 # SQLite source of truth (Ax Client auto-persists)
+    ├── template.yaml         # Search space + fixed params + constraints snapshot
+    ├── experiment.yaml       # Experiment configuration metadata
+    ├── summary.csv           # Human-readable trial table (client.summarize())
+    ├── best/                 # Best / Pareto-optimal trial configs + best_summary.json
+    └── trials/
+        └── trial_000/        # Also parallelazy PluginManager work_dir
+            ├── config.yaml   # Immutable Ax input TrialConfig
+            ├── effective_config.yaml  # Optional post-trial overrides (e.g. best_epoch)
+            ├── result.json   # Metrics, status, duration, metadata, errors
+            └── logs/         # parallelazy log_dir (<run_id>/manager.log, ...)
+    ```
     """
 
     def __init__(
         self,
         name: str,
         template: TemplateBase,
-        eval_fn: Callable[[PipelineConfig], Dict[str, float]],
-        objectives: str = "val_acc, -model_size, modularity_score",
+        objective: str,
+        *,
+        trial_pipeline_cls: Optional[Type[TrialPipeline]] = None,
+        eval_fn: Optional[Callable[[TConfig], Union[TrialResult, Dict[str, MetricValue]]]] = None,
+        config_cls: Type[TConfig] = TrialConfig,  # type: ignore[assignment]
+        pipeline_options: Optional[PipelineOptions] = None,
         outcome_constraints: Optional[Sequence[str]] = None,
-        variants: Optional[TemplateVariantList] = None,
-        n_common_trials: int = 8,
-        n_variant_trials: int = 6,
-        parallel_common: int = 4,
-        parallel_variants: int = 4,
-        output_dir: str = "output"
+        tracking_metrics: Optional[Sequence[str]] = None,
+        output_dir: str = "output",
+        generation_method: str = "fast",
+        initialization_budget: Optional[int] = None,
+        initialize_with_center: bool = True,
+        parallel_init: int = 1,
+        parallel_bo: int = 1,
+        gpu_ids: Optional[Sequence[int]] = None,
+        trial_timeout_sec: Optional[float] = None,
+        poll_interval: float = 0.25,
+        oom_retries: int = 2,
+        oom_backoff_sec: float = 15.0,
+        oom_final_status: str = "abandoned",
+        reconcile_running: str = "fail",
+        random_seed: Optional[int] = None,
     ):
+        if trial_pipeline_cls is None and eval_fn is None:
+            raise ValueError("Provide either `trial_pipeline_cls` or `eval_fn`.")
+        if oom_final_status not in ("abandoned", "failed"):
+            raise ValueError("`oom_final_status` must be 'abandoned' or 'failed'.")
+
         self.name = name
         self.template = template
+        self.objective = objective
+        self.trial_pipeline_cls = trial_pipeline_cls
         self.eval_fn = eval_fn
-        self.objectives = objectives
-        self.outcome_constraints = list(outcome_constraints or [])
-        self.n_common_trials = n_common_trials
-        self.n_variant_trials = n_variant_trials
-        self.parallel_common = parallel_common
-        self.parallel_variants = parallel_variants
+        self.config_cls = config_cls
+        self.pipeline_options = pipeline_options or PipelineOptions()
+        self.outcome_constraints = list(outcome_constraints) if outcome_constraints else None
+        self.tracking_metrics = list(tracking_metrics) if tracking_metrics else None
 
-        # Structured output directories: output/<exp_name>/<variant>/[trials, best]
-        self.exp_root_dir = os.path.abspath(os.path.join(output_dir, self.name))
-        self.db_dir = os.path.abspath(os.path.join(self.exp_root_dir, "databases"))
-        os.makedirs(self.exp_root_dir, exist_ok=True)
-        os.makedirs(self.db_dir, exist_ok=True)
+        self.generation_method = generation_method
+        self.initialization_budget = initialization_budget
+        self.initialize_with_center = initialize_with_center
 
-        self.variants = variants if variants is not None else self.template.variants
-        self.variants.validate_all(self.template)
+        self.parallel_init = max(1, int(parallel_init))
+        self.parallel_bo = max(1, int(parallel_bo))
+        self.gpu_ids = list(gpu_ids) if gpu_ids is not None else None
+        self.trial_timeout_sec = trial_timeout_sec
+        self.poll_interval = poll_interval
 
-        self.common_client: Optional[Client] = None
-        self.variant_clients: Dict[str, Client] = {}
+        self.oom_retries = max(0, int(oom_retries))
+        self.oom_backoff_sec = float(oom_backoff_sec)
+        self.oom_final_status = oom_final_status
+        self.reconcile_running = reconcile_running
+        self.random_seed = random_seed
 
-    def _get_variant_dirs(self, variant_name: str) -> Dict[str, str]:
-        """Creates and returns the structured folders: output/exp_name/variant/trials and best."""
-        var_dir = os.path.join(self.exp_root_dir, variant_name)
-        trials_dir = os.path.join(var_dir, "trials")
-        best_dir = os.path.join(var_dir, "best")
-        os.makedirs(trials_dir, exist_ok=True)
-        os.makedirs(best_dir, exist_ok=True)
-        return {
-            "root": var_dir,
-            "trials": trials_dir,
-            "best": best_dir,
-        }
+        # Directory layout
+        self.exp_dir = os.path.abspath(os.path.join(output_dir, self.name))
+        self.trials_dir = os.path.join(self.exp_dir, "trials")
+        self.best_dir = os.path.join(self.exp_dir, "best")
+        self.db_path = os.path.join(self.exp_dir, "ax.db")
+        os.makedirs(self.trials_dir, exist_ok=True)
+        os.makedirs(self.best_dir, exist_ok=True)
 
-    # -------------------------------------------------------------------------
-    # Phase 1: Common Phase (Random Search with Parallel Execution)
-    # -------------------------------------------------------------------------
-    def run_common_phase(self) -> List[Dict[str, Any]]:
-        dirs = self._get_variant_dirs("common")
-        db_path = os.path.join(self.db_dir, f"{self.name}_common.db")
+        self._db_url = f"sqlite:///{self.db_path}"
+        self.storage_config = StorageConfig(url=self._db_url)
+        self.client: Client = self._init_or_resume_client()
+        self._save_experiment_metadata()
 
-        # Configure Client with full template search space
-        self.common_client = get_or_create_client(
-            experiment_name=f"{self.name}_common",
-            db_path=db_path,
-            parameters=self.template.to_parameter_configs(),
-            objectives=self.objectives,
-            outcome_constraints=self.outcome_constraints,
-        )
-
-        completed_count = len(self.common_client.experiment.trials)
-        logger.info(f"Phase 1 (Common): {completed_count}/{self.n_common_trials} trials already completed.")
-
-        fixed_params = self.template.get_fixed()
-
-        def _evaluate_wrapper(params: Dict[str, Any], trial_index: int) -> Dict[str, float]:
-            config = PipelineConfig.from_params_and_fixed(
-                params=params,
-                fixed=fixed_params,
-                variant_name="common",
-                trial_index=trial_index,
-            )
-            # Save trial config into output/exp_name/common/trials/
-            config.save(os.path.join(dirs["trials"], f"trial_{trial_index:03d}.yaml"))
-            return self.eval_fn(config)
-
-        while completed_count < self.n_common_trials:
-            batch_size = min(self.parallel_common, self.n_common_trials - completed_count)
-            trials_batch = self.common_client.get_next_trials(max_trials=batch_size)
-
-            results = run_trials_parallel(
-                trial_batch=trials_batch,
-                eval_fn=_evaluate_wrapper,
-                max_workers=self.parallel_common,
-            )
-
-            for t_idx, metrics in results:
-                self.common_client.complete_trial(trial_index=t_idx, raw_data=metrics)
-                logger.info(f"Common Trial #{t_idx} completed: {metrics}")
-
-            completed_count = len(self.common_client.experiment.trials)
-
-        # Save best configs in common phase to output/exp_name/common/best/
-        try:
-            best_pareto = self.common_client.get_best_parameterization()
-            for idx, item in enumerate(best_pareto):
-                params = item[0] if isinstance(item, tuple) else (item.get("parameters") if isinstance(item, dict) else item)
-                t_idx = item[2] if isinstance(item, tuple) and len(item) > 2 else idx
-                best_config = PipelineConfig.from_params_and_fixed(
-                    params=params,
-                    fixed=fixed_params,
-                    variant_name="common",
-                    trial_index=t_idx,
-                )
-                best_config.save(os.path.join(dirs["best"], f"best_{t_idx:03d}.yaml"))
-        except Exception as e:
-            logger.debug(f"Common best parameterization export skipped: {e}")
-
-        # Collect evaluated trials for bootstrapping
-        prior_trials = []
-        for t_idx, trial in self.common_client.experiment.trials.items():
-            if trial.status.is_completed:
-                params = trial.arm.parameters
-                metrics = {k: v[0] for k, v in trial.raw_data.items()} if hasattr(trial, "raw_data") and trial.raw_data else {}
-                prior_trials.append({"trial_index": t_idx, "parameters": params, "metrics": metrics})
-
-        return prior_trials
+    @property
+    def is_multi_objective(self) -> bool:
+        return "," in self.objective
 
     # -------------------------------------------------------------------------
-    # Phase 2: Variant Bayesian Phases (Bootstrapped & Concurrent)
+    # SQLite Lifecycle & Resumption
     # -------------------------------------------------------------------------
-    def _run_single_variant(self, variant: TemplateVariant, prior_trials: List[Dict[str, Any]]) -> Client:
-        v_name = variant.name
-        dirs = self._get_variant_dirs(v_name)
-        db_path = os.path.join(self.db_dir, f"{v_name}.db")
+    def _init_or_resume_client(self) -> Client:
+        existed = os.path.exists(self.db_path) and os.path.getsize(self.db_path) > 0
+        _ensure_sqlite_db(self._db_url)
 
-        # Client configured with full template search space
-        client = get_or_create_client(
-            experiment_name=f"{self.name}_{v_name}",
-            db_path=db_path,
-            parameters=self.template.to_parameter_configs(),
-            objectives=self.objectives,
-            outcome_constraints=self.outcome_constraints,
-        )
-
-        variant_fixed_features = variant.get_fixed_features()
-        fixed_params = self.template.get_fixed()
-
-        # 1. Bootstrap prior trials if starting fresh
-        if len(client.experiment.trials) == 0:
-            logger.info(f"[{v_name}] Bootstrapping {len(prior_trials)} prior observations...")
-            for prior in prior_trials:
-                adapted_params = dict(prior["parameters"])
-                attach_res = client.attach_trial(parameters=adapted_params)
-                t_idx = attach_res[0] if isinstance(attach_res, tuple) else attach_res
-                if prior["metrics"]:
-                    client.complete_trial(trial_index=t_idx, raw_data=prior["metrics"])
-
-        # 2. Sequential Bayesian optimization steps freezing variant_fixed_features via get_next_trials
-        current_trials = len(client.experiment.trials)
-        target_trials = current_trials + self.n_variant_trials
-        logger.info(f"[{v_name}] Running BO steps up to {target_trials} trials (frozen features: {variant_fixed_features})...")
-
-        # Prepare fixed_features for Client.get_next_trials per https://ax.readthedocs.io/en/stable/api.html#ax.api.client.Client.get_next_trials
-        try:
-            from ax.core.observation import ObservationFeatures
-            fixed_feats_arg = ObservationFeatures(parameters=variant_fixed_features)
-        except Exception:
-            fixed_feats_arg = variant_fixed_features
-
-        while len(client.experiment.trials) < target_trials:
-            # Pass variant fixed_features into get_next_trials
+        if existed:
+            loaded_client = None
             try:
-                trials_dict = client.get_next_trials(max_trials=1, fixed_features=fixed_feats_arg)
-            except (TypeError, Exception):
-                trials_dict = client.get_next_trials(max_trials=1, fixed_features=variant_fixed_features)
-
-            t_idx, params = next(iter(trials_dict.items()))
-
-            # Ensure frozen features are present in params
-            full_params = dict(variant_fixed_features)
-            full_params.update(params)
-
-            # Initialize PipelineConfig with params (including frozen features) and template fixed
-            config = PipelineConfig.from_params_and_fixed(
-                params=full_params,
-                fixed=fixed_params,
-                variant_name=v_name,
-                trial_index=t_idx,
-            )
-            # Save into output/exp_name/variant/trials/
-            config.save(os.path.join(dirs["trials"], f"trial_{t_idx:03d}.yaml"))
-
-            metrics = self.eval_fn(config)
-            client.complete_trial(trial_index=t_idx, raw_data=metrics)
-            logger.info(f"[{v_name}] BO Trial #{t_idx} completed: {metrics}")
-
-        # 3. Save Pareto-optimal configurations to output/exp_name/variant/best/
-        try:
-            best_pareto = client.get_best_parameterization()
-            for idx, item in enumerate(best_pareto):
-                params = item[0] if isinstance(item, tuple) else (item.get("parameters") if isinstance(item, dict) else item)
-                t_idx = item[2] if isinstance(item, tuple) and len(item) > 2 else idx
-                full_params = dict(variant_fixed_features)
-                full_params.update(params)
-
-                best_config = PipelineConfig.from_params_and_fixed(
-                    params=full_params,
-                    fixed=fixed_params,
-                    variant_name=v_name,
-                    trial_index=t_idx,
+                loaded_client = Client.load_from_database(
+                    experiment_name=self.name,
+                    storage_config=self.storage_config,
                 )
-                best_config.save(os.path.join(dirs["best"], f"best_{t_idx:03d}.yaml"))
-        except Exception as e:
-            logger.debug(f"[{v_name}] Pareto best parameterization export error: {e}")
+                logger.info("Resumed Ax experiment '%s' from %s", self.name, self.db_path)
+            except Exception as exc:
+                logger.warning("Could not load existing DB '%s' (%s); creating new experiment.", self.db_path, exc)
+            if loaded_client is not None:
+                self._reconcile_interrupted_trials(loaded_client)
+                return loaded_client
 
+        client = Client(storage_config=self.storage_config, random_seed=self.random_seed)
+        client.configure_experiment(
+            name=self.name,
+            parameters=self.template.to_parameter_configs(),
+            parameter_constraints=self.template.get_constraints() or None,
+        )
+        client.configure_optimization(
+            objective=self.objective,
+            outcome_constraints=self.outcome_constraints,
+        )
+        if self.tracking_metrics:
+            client.configure_tracking_metrics(metric_names=self.tracking_metrics)
+
+        init_budget = self.initialization_budget
+        if init_budget is None and self.parallel_init > 1:
+            init_budget = max(5, self.parallel_init)
+
+        client.configure_generation_strategy(
+            method=self.generation_method,
+            initialization_budget=init_budget,
+            initialize_with_center=self.initialize_with_center,
+            allow_exceeding_initialization_budget=(self.parallel_init > 1),
+        )
         return client
 
-    def run_variant_phases(self, prior_trials: List[Dict[str, Any]]) -> Dict[str, Client]:
-        tasks = [
-            (
-                variant.name,
-                lambda v=variant: self._run_single_variant(v, prior_trials),
-            )
-            for variant in self.variants
+    def _reconcile_interrupted_trials(self, client: Client) -> None:
+        """Handle trials left in RUNNING state if a previous process crashed."""
+        running_indices = [
+            idx
+            for idx, trial in client._experiment.trials.items()
+            if trial.status == TrialStatus.RUNNING
         ]
-
-        self.variant_clients = run_variants_parallel(
-            variant_tasks=tasks,
-            max_workers=self.parallel_variants,
+        if not running_indices:
+            return
+        for idx in running_indices:
+            if self.reconcile_running == "abandon":
+                client.mark_trial_abandoned(trial_index=idx)
+            else:
+                client.mark_trial_failed(trial_index=idx, failed_reason="Interrupted prior to completion")
+        logger.warning(
+            "Reconciled %d leftover RUNNING trials (%s): %s",
+            len(running_indices),
+            self.reconcile_running,
+            running_indices,
         )
-        return self.variant_clients
 
-    # -------------------------------------------------------------------------
-    # Pareto Best Extraction via Ax Native get_best_parameterization()
-    # -------------------------------------------------------------------------
-    def get_pareto_best(self) -> Dict[str, List[PipelineConfig]]:
-        """
-        Uses Ax's native client.get_best_parameterization() to extract the Pareto frontier
-        for each variant and saves configs to output/exp_name/variant/best/.
-        """
-        results: Dict[str, List[PipelineConfig]] = {}
-        fixed_params = self.template.get_fixed()
-
-        for v_name, client in self.variant_clients.items():
-            dirs = self._get_variant_dirs(v_name)
-            variant = self.variants.get_variant(v_name)
-            variant_fixed_features = variant.get_fixed_features() if variant else {}
-            results[v_name] = []
-
-            best_pareto = client.get_best_parameterization()
-            for idx, item in enumerate(best_pareto):
-                if isinstance(item, tuple):
-                    params = item[0]
-                    t_idx = item[2] if len(item) > 2 else idx
-                elif isinstance(item, dict):
-                    params = item.get("parameters", item)
-                    t_idx = item.get("trial_index", idx)
-                else:
-                    continue
-
-                full_params = dict(variant_fixed_features)
-                full_params.update(params)
-
-                config = PipelineConfig.from_params_and_fixed(
-                    params=full_params,
-                    fixed=fixed_params,
-                    variant_name=v_name,
-                    trial_index=t_idx,
-                )
-                config.save(os.path.join(dirs["best"], f"pareto_best_{t_idx:03d}.yaml"))
-                results[v_name].append(config)
-
-        # Write overall summary to output/exp_root_dir/summary.json
-        summary = {
-            "experiment_name": self.name,
-            "template": self.template.name,
-            "objectives": self.objectives,
-            "fixed_parameters": fixed_params,
-            "variants": {
-                v_name: {
-                    "fixed_features": self.variants.get_variant(v_name).get_fixed_features(),
-                    "num_pareto_best": len(configs),
-                }
-                for v_name, configs in results.items()
-            },
-            "timestamp": time.time(),
+    def _save_experiment_metadata(self) -> None:
+        self.template.save(os.path.join(self.exp_dir, "template.yaml"))
+        meta = {
+            "name": self.name,
+            "objective": self.objective,
+            "is_multi_objective": self.is_multi_objective,
+            "outcome_constraints": self.outcome_constraints or [],
+            "tracking_metrics": self.tracking_metrics or [],
+            "generation_method": self.generation_method,
+            "initialization_budget": self.initialization_budget,
+            "parallel_init": self.parallel_init,
+            "parallel_bo": self.parallel_bo,
+            "config_cls": f"{self.config_cls.__module__}.{self.config_cls.__qualname__}",
+            "db_path": self.db_path,
         }
-        with open(os.path.join(self.exp_root_dir, "summary.json"), "w", encoding="utf-8") as f:
-            json.dump(summary, f, indent=2, sort_keys=True)
+        with open(os.path.join(self.exp_dir, "experiment.yaml"), "w", encoding="utf-8") as f:
+            yaml.dump(meta, f, sort_keys=False)
 
+    # -------------------------------------------------------------------------
+    # Warm-Start from Prior SQLite Experiment (Foundation for Future Variants)
+    # -------------------------------------------------------------------------
+    def warm_start_from(
+        self,
+        prior_db_path: str,
+        prior_experiment_name: str,
+        filter_fn: Optional[Callable[[Dict[str, Any]], bool]] = None,
+    ) -> int:
+        """
+        Attach completed trials from a prior SQLite Ax experiment as warm-start
+        observations. Returns the number of trials attached.
+        """
+        prior_url = f"sqlite:///{os.path.abspath(prior_db_path)}"
+        _ensure_sqlite_db(prior_url)
+        prior_storage = StorageConfig(url=prior_url)
+        prior_client = Client.load_from_database(
+            experiment_name=prior_experiment_name,
+            storage_config=prior_storage,
+        )
+        prior_exp = prior_client._experiment
+        data_df = prior_exp.lookup_data().df
+
+        extracted: List[Tuple[Dict[str, Any], Dict[str, MetricValue]]] = []
+        for idx, trial in prior_exp.trials.items():
+            if trial.status != TrialStatus.COMPLETED or getattr(trial, "arm", None) is None:
+                continue
+            params = dict(trial.arm.parameters)
+            if filter_fn is not None and not filter_fn(params):
+                continue
+
+            trial_rows = data_df[data_df["trial_index"] == idx]
+            if trial_rows.empty:
+                continue
+            raw_data: Dict[str, MetricValue] = {}
+            for _, row in trial_rows.iterrows():
+                mean = float(row["mean"])
+                sem = row.get("sem")
+                if sem is not None and sem == sem:  # not NaN
+                    raw_data[str(row["metric_name"])] = (mean, float(sem))
+                else:
+                    raw_data[str(row["metric_name"])] = mean
+            extracted.append((params, raw_data))
+
+        # Re-bind Ax SQLAlchemy session factory back to this experiment's DB
+        _ensure_sqlite_db(self._db_url)
+
+        attached = 0
+        for params, raw_data in extracted:
+            new_idx = self.client.attach_trial(parameters=params)
+            self.client.complete_trial(trial_index=new_idx, raw_data=raw_data)
+            attached += 1
+
+        logger.info(
+            "Warm-started '%s' with %d completed trials from '%s'",
+            self.name,
+            attached,
+            prior_experiment_name,
+        )
+        return attached
+
+    # -------------------------------------------------------------------------
+    # Trial Execution Helpers
+    # -------------------------------------------------------------------------
+    def _trial_dir(self, trial_index: int) -> str:
+        tdir = os.path.join(self.trials_dir, f"trial_{trial_index:03d}")
+        os.makedirs(tdir, exist_ok=True)
+        return tdir
+
+    def _build_trial_config(
+        self,
+        trial_index: int,
+        params: Mapping[str, Any],
+        gpu_id: Optional[int] = None,
+    ) -> TConfig:
+        tdir = self._trial_dir(trial_index)
+        config = self.config_cls.from_trial(
+            params=params,
+            fixed=self.template.get_fixed(),
+            experiment_name=self.name,
+            trial_index=trial_index,
+            trial_dir=tdir,
+            gpu_id=gpu_id,
+        )
+        config.save(os.path.join(tdir, "config.yaml"))
+        return config
+
+    def _run_single_trial(self, config: TConfig) -> TrialResult:
+        if self.trial_pipeline_cls is not None:
+            pipeline = self.trial_pipeline_cls(config=config, options=self.pipeline_options)
+            return pipeline.execute(
+                timeout_sec=self.trial_timeout_sec,
+                poll_interval=self.poll_interval,
+            )
+
+        assert self.eval_fn is not None
+        t0 = time.monotonic()
+        try:
+            out = self.eval_fn(config)
+            if isinstance(out, TrialResult):
+                return out
+            return TrialResult(
+                status="completed",
+                metrics=dict(out),
+                duration_sec=time.monotonic() - t0,
+            )
+        except Exception as exc:
+            msg = f"{type(exc).__name__}: {exc}"
+            return TrialResult(
+                status="oom" if is_oom_error(msg) else "error",
+                duration_sec=time.monotonic() - t0,
+                errors={"eval_fn": [msg]},
+                reason=msg,
+            )
+
+    def _record_trial_result(self, trial_index: int, config: TConfig, result: TrialResult) -> None:
+        tdir = self._trial_dir(trial_index)
+        result.save(os.path.join(tdir, "result.json"))
+
+        if result.effective_overrides:
+            eff_cfg = config.with_updates(**result.effective_overrides)
+            eff_cfg.save(os.path.join(tdir, "effective_config.yaml"))
+
+        if result.is_completed:
+            self.client.complete_trial(trial_index=trial_index, raw_data=result.metrics)
+            logger.info("Trial #%d completed (%.1fs): %s", trial_index, result.duration_sec, result.metrics)
+        elif result.is_oom:
+            if self.oom_final_status == "failed":
+                self.client.mark_trial_failed(trial_index=trial_index, failed_reason=result.reason or "CUDA OOM")
+            else:
+                self.client.mark_trial_abandoned(trial_index=trial_index)
+            logger.warning("Trial #%d marked %s after OOM: %s", trial_index, self.oom_final_status, result.reason)
+        elif result.status == "timeout":
+            self.client.mark_trial_failed(trial_index=trial_index, failed_reason=result.reason or "Trial timeout")
+            logger.warning("Trial #%d timed out: %s", trial_index, result.reason)
+        else:
+            self.client.mark_trial_failed(trial_index=trial_index, failed_reason=result.reason or "Trial error")
+            logger.warning("Trial #%d failed: %s", trial_index, result.reason)
+
+    def _current_concurrency(self, remaining: int) -> int:
+        completed = sum(
+            1 for t in self.client._experiment.trials.values() if t.status == TrialStatus.COMPLETED
+        )
+        init_budget = self.initialization_budget if self.initialization_budget is not None else 5
+        in_init = completed < init_budget
+        workers = self.parallel_init if in_init else self.parallel_bo
+        if self.gpu_ids is not None and len(self.gpu_ids) > 0:
+            workers = min(workers, len(self.gpu_ids)) if workers > 1 else workers
+        return max(1, min(workers, remaining))
+
+    def _retry_oom_solo(self, trial_index: int, params: Mapping[str, Any]) -> None:
+        """
+        Re-run a trial that hit OOM solo (concurrency=1) with backoff retries
+        to handle both parallel-batch contention and transient shared-GPU load.
+        """
+        gpu_id = self.gpu_ids[0] if self.gpu_ids else None
+        config = self._build_trial_config(trial_index, params, gpu_id=gpu_id)
+
+        last_result: Optional[TrialResult] = None
+        total_attempts = 1 + self.oom_retries
+        for attempt in range(1, total_attempts + 1):
+            _release_cuda_cache()
+            logger.info(
+                "Trial #%d solo OOM retry %d/%d...",
+                trial_index,
+                attempt,
+                total_attempts,
+            )
+            result = self._run_single_trial(config)
+            last_result = result
+            if not result.is_oom:
+                self._record_trial_result(trial_index, config, result)
+                return
+            if attempt < total_attempts and self.oom_backoff_sec > 0:
+                time.sleep(self.oom_backoff_sec)
+
+        assert last_result is not None
+        self._record_trial_result(trial_index, config, last_result)
+
+    # -------------------------------------------------------------------------
+    # Main Optimization Loop
+    # -------------------------------------------------------------------------
+    def run(
+        self,
+        n_trials: int,
+        fixed_parameters: Optional[Dict[str, Any]] = None,
+    ) -> List[Tuple[TConfig, Dict[str, Tuple[float, Optional[float]]], int]]:
+        """
+        Run (or resume) until `n_trials` trials have reached a terminal state
+        (`COMPLETED` / `ABANDONED` / `EARLY_STOPPED`), then export summary and
+        best/Pareto configs.
+        """
+        while True:
+            terminal_count = sum(
+                1
+                for t in self.client._experiment.trials.values()
+                if t.status in (TrialStatus.COMPLETED, TrialStatus.ABANDONED, TrialStatus.EARLY_STOPPED)
+            )
+            remaining = n_trials - terminal_count
+            if remaining <= 0:
+                break
+
+            batch_size = self._current_concurrency(remaining)
+            trials_batch = self.client.get_next_trials(
+                max_trials=batch_size,
+                fixed_parameters=fixed_parameters,
+            )
+            if not trials_batch:
+                break
+
+            oom_deferred: List[Tuple[int, Mapping[str, Any]]] = []
+
+            if len(trials_batch) == 1:
+                t_idx, params = next(iter(trials_batch.items()))
+                gpu_id = self.gpu_ids[0] if self.gpu_ids else None
+                config = self._build_trial_config(t_idx, params, gpu_id=gpu_id)
+                result = self._run_single_trial(config)
+                if result.is_oom and self.oom_retries > 0:
+                    oom_deferred.append((t_idx, params))
+                else:
+                    self._record_trial_result(t_idx, config, result)
+            else:
+                configs: Dict[int, TConfig] = {}
+                with ThreadPoolExecutor(max_workers=len(trials_batch)) as executor:
+                    futures = {}
+                    for slot, (t_idx, params) in enumerate(trials_batch.items()):
+                        gpu_id = self.gpu_ids[slot % len(self.gpu_ids)] if self.gpu_ids else None
+                        cfg = self._build_trial_config(t_idx, params, gpu_id=gpu_id)
+                        configs[t_idx] = cfg
+                        futures[executor.submit(self._run_single_trial, cfg)] = (t_idx, params)
+
+                    for future in as_completed(futures):
+                        t_idx, params = futures[future]
+                        result = future.result()
+                        if result.is_oom:
+                            logger.warning(
+                                "Trial #%d hit OOM during parallel batch (%d workers); deferring to solo retry.",
+                                t_idx,
+                                len(trials_batch),
+                            )
+                            oom_deferred.append((t_idx, params))
+                        else:
+                            self._record_trial_result(t_idx, configs[t_idx], result)
+
+            for t_idx, params in oom_deferred:
+                self._retry_oom_solo(t_idx, params)
+
+            self.export_summary()
+
+        return self.export_best()
+
+    # -------------------------------------------------------------------------
+    # Reporting & Best Extraction
+    # -------------------------------------------------------------------------
+    def get_best(
+        self,
+        use_model_predictions: bool = False,
+    ) -> List[Tuple[TConfig, Dict[str, Tuple[float, Optional[float]]], int]]:
+        """
+        Return best trial(s) as `[(TrialConfig, prediction_dict, trial_index), ...]`.
+        Dispatches to `get_pareto_frontier()` for MOO and `get_best_parameterization()`
+        for single-objective experiments.
+        """
+        fixed = self.template.get_fixed()
+        items: List[Tuple[Mapping[str, Any], Dict[str, Tuple[float, Optional[float]]], int]] = []
+
+        if self.is_multi_objective:
+            frontier = self.client.get_pareto_frontier(use_model_predictions=use_model_predictions)
+            for params, pred, t_idx, _arm_name in frontier:
+                items.append((params, pred, int(t_idx)))
+        else:
+            params, pred, t_idx, _arm_name = self.client.get_best_parameterization(
+                use_model_predictions=use_model_predictions
+            )
+            items.append((params, pred, int(t_idx)))
+
+        results: List[Tuple[TConfig, Dict[str, Tuple[float, Optional[float]]], int]] = []
+        for params, pred, t_idx in items:
+            cfg = self.config_cls.from_trial(
+                params=params,
+                fixed=fixed,
+                experiment_name=self.name,
+                trial_index=t_idx,
+                trial_dir=self._trial_dir(t_idx),
+            )
+            results.append((cfg, pred, t_idx))
         return results
 
-    # -------------------------------------------------------------------------
-    # Full Execution Pipeline
-    # -------------------------------------------------------------------------
-    def run(self) -> Dict[str, List[PipelineConfig]]:
-        logger.info(f"Starting Multi-Objective NAS Experiment '{self.name}'...")
-        logger.info(f"Results output root directory: {self.exp_root_dir}")
+    def export_summary(self) -> str:
+        """Write human-readable `summary.csv` from `client.summarize()`."""
+        csv_path = os.path.join(self.exp_dir, "summary.csv")
+        try:
+            df = self.client.summarize()
+            df.to_csv(csv_path, index=False)
+        except Exception as exc:
+            logger.debug("Skipping summary.csv export: %s", exc)
+        return csv_path
 
-        # Phase 1: Common Random Search
-        prior_trials = self.run_common_phase()
+    def export_best(
+        self,
+        use_model_predictions: bool = False,
+    ) -> List[Tuple[TConfig, Dict[str, Tuple[float, Optional[float]]], int]]:
+        """Export best / Pareto frontier configs to `best/` and write `best_summary.json`."""
+        self.export_summary()
+        try:
+            best_items = self.get_best(use_model_predictions=use_model_predictions)
+        except Exception as exc:
+            logger.warning("Could not extract best parameterization: %s", exc)
+            return []
 
-        # Phase 2: Concurrent Variant Bayesian Optimization
-        self.run_variant_phases(prior_trials)
+        summary_entries = []
+        for cfg, pred, t_idx in best_items:
+            cfg.save(os.path.join(self.best_dir, f"trial_{t_idx:03d}.yaml"))
+            summary_entries.append(
+                {
+                    "trial_index": t_idx,
+                    "config_file": f"trial_{t_idx:03d}.yaml",
+                    "predictions": {
+                        k: [float(v[0]), None if v[1] is None else float(v[1])]
+                        if isinstance(v, tuple)
+                        else float(v)
+                        for k, v in pred.items()
+                    },
+                }
+            )
 
-        # Pareto Extraction via native Ax MOO
-        pareto_configs = self.get_pareto_best()
-        logger.info(f"Experiment completed. Summary and configs saved to: {self.exp_root_dir}")
-        return pareto_configs
+        with open(os.path.join(self.best_dir, "best_summary.json"), "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "experiment_name": self.name,
+                    "objective": self.objective,
+                    "best_trials": summary_entries,
+                },
+                f,
+                indent=2,
+            )
+        return best_items

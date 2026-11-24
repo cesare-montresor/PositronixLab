@@ -2,5 +2,12 @@
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
     "pythonTestExplorer.testFramework": "pytest",
-    "pythonTestExplorer.outputs.showOutputsOnRun": true
+    "pythonTestExplorer.outputs.showOutputsOnRun": true,
+    "python.analysis.extraPaths": [
+        "./libs/parallelazy",
+    ]
 }
+
+
+
+

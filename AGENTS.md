@@ -1,5 +1,5 @@
 ## Keeping this file current
-Last synced: 2e947b8ea88711d13055ce7b2f001284cbb0c17d
+Last synced: b81709f
 
 At the start of every session:
 1. Find commits since the last sync: `git log --oneline <Last synced hash>..HEAD`
@@ -27,63 +27,56 @@ At the end of every session:
 ---
 
 ## Purpose
-`positronixlab` (Python `~=3.12`, PyTorch) is a research library providing the math, datasets, models, and tools to build a vector-space "brain atlas" for mapping, isolating, and understanding emergent functional modularity in neural networks. It projects computation units (CUs/neurons) into a decoupled embedding space via contrastive learning on forward activations, clusters CUs into computational groups (CGs), tracks cluster identities over time, and supports multi-objective NAS (Ax) and live Dash visualization.
+`positronixlab` (Python `~=3.12`, PyTorch) is a research framework providing the math, datasets, models, SOTA baselines, and tools to build a vector-space "brain atlas" for mapping, isolating, and understanding emergent functional modularity in neural networks. It projects computation units (CUs/neurons) into a decoupled embedding space via contrastive learning on forward activations, clusters CUs into computational groups (CGs), tracks cluster identities over time, benchmarks against Csordás & Lepori/NeuroSurgeon weight-masking SOTA, and supports Ax 1.3+ multi-objective NAS and live Dash visualization.
 
 ## Role in the ecosystem
-Split from a single monorepo into 4 sibling repos:
-- **`../parallelazy`** (installed in `.venv` as `0.0.6`): standalone multiprocess worker/plugin framework (spawn/pipes, topic pub/sub, shared env). Do not reimplement plugin runtime or IPC here.
-- **`../parallelazy-vscode`**: VS Code extension bridging `debugpy` for `spawn`ed worker processes (minimal maintenance).
-- **`positronixlab` (this repo)**: reusable library only (spaces, math, observer, clustering, datasets, NAS, stats, UI components).
-- **`../AtlasCompose`**: the only non-library application repo; combines `positronixlab` and `parallelazy` (concrete `plugin_*` wrappers and experiment entry points moved there in `4e70649`).
+Split from a single monorepo into 4 sibling repos (plus SOTA reference symlinks under `libs/`):
+- **`../parallelazy`** (installed editable in `.venv` as `0.2.1`): standalone multiprocess worker/plugin framework (spawn/pipes, topic pub/sub, shared env, logging). Do not reimplement plugin runtime or IPC here.
+- **`../parallelazy-vscode`**: VS Code extension bridging `debugpy` for `spawn`ed worker processes.
+- **`positronixlab` (this repo)**: reusable library only (spaces, math, observer, clustering, datasets, models, SOTA baselines, NAS, stats, UI components).
+- **`../AtlasCompose`**: application repo combining `positronixlab` and `parallelazy`.
+- **`libs/`**: reference symlinks (`are_neural_nets_modular`, `Compositional_Subnetworks`, `NeuroSurgeon`, `parallelazy`).
 
 ## Directory map
-- `positronixlab/modularspace/` — CU embedding spaces (`ModularSpace`, `LayerSpace`, `ModularOverSpace`), cluster identity tracker (`custertracker.py` [sic]), `legacy/`.
-- `positronixlab/spacemath/` — `SpaceMath`, `LayerType`, `ActivationType`, `sigreg.py`, `spaceloss.py`, and `common.py` (`torch.compile` wrappers, tensor monkey-patches).
-- `positronixlab/modularobserver/` — `ModelMapper` (static + `TorchFunctionMode` dynamic graph tracing, Cytoscape export) and `ModularObserver` (layer/grad hooks).
-- `positronixlab/modularcluster/` — Adaptive FAISS K-Means (`ModularClusterKmeans`), streaming K-Means, `streaming_cluster_tracker.py`.
-- `positronixlab/deeplearning/` — `DeeplearningBase` (callback-driven batch/epoch loop), `DeeplearningTrain` (train/val/inference + `EarlyStopping`), `deeplearning_eval.py`.
-- `positronixlab/metamodel/` — `BaseModel`/`MetaModel` (`nn_input -> nn_latent -> nn_output` built from `PipelineConfig`), `MetaCriterion`, `metatransform.py`.
-- `positronixlab/pipeline/` — `Pipeline` ABC (wraps `parallelazy.PluginManager`) and `PipelineConfig` / `PipelineConfigV1` / `PipelineConfigV2`.
-- `positronixlab/dataprovider/` — Auto-registering `DataReader`/`DataProvider` (`__init_subclass__`), `DataProviderFactory`, dataset providers (MNIST, FMNIST, CIFAR10/100, Higgs, Covertype, Iris, Math, SCAN, OddOneOut/CVR/SynEval).
-- `positronixlab/template/` — `TemplateBase`/`TemplateVariant` separating tunable Ax `params` from `fixed` constants; dataset templates.
-- `positronixlab/nas/` — `NasExperiment`: 2-phase Ax 1.3+ multi-objective NAS (parallel random `common` phase -> concurrent sequential BO `variant` phases, SQLite under `output/<exp>/databases/`).
-- `positronixlab/stats/` — High-rate to low-rate aggregation (`Reducer`: Last/Ema/Mean/Window; `Processor`: Pca/Umap/Overall; `Stream`).
-- `positronixlab/modularui/` — Thread-safe Dash/Plotly/Cytoscape view store (`ModularUI`, `UILocks`) consuming pre-aggregated stats.
-- `positronixlab/tasks/` — Downstream evaluations (`tasks/compositionality/`: `atlas_check.py`, `weightmask_check.py`, `compositionality.py`).
-- `positronixlab/logger/`, `positronixlab/utils/` — Process/thread-safe singleton `Logger` (stdout/stderr capture); misc helpers (`process_start_spawn`, `session_path`).
+- `positronixlab/` — Pure library source code (no `tests/`, `docs/`, `examples/`, or `legacy/`):
+  - `spacemath/` — Modular primitives (`scoring.py`, `contrast.py`, `weighting.py`, `losses.py`, `reducers.py`, `space_type.py`, `sigreg.py`), `SpaceMath`, and `common.py` (`torch.compile` wrappers, tensor helpers).
+  - `modularspace/` — `LayerSpace`, `LayerSpaceConfig`, `SpaceStep`, `presets.py`, `ModularSpace`, `ModularOverSpace`, and `custertracker.py` [sic].
+  - `modularobserver/` — `ModelMapper` (static + `TorchFunctionMode` dynamic graph tracing, Cytoscape export), `ModularObserver`, `LayerObserver`.
+  - `modularcluster/` — Adaptive FAISS K-Means (`ModularClusterKmeans`), streaming K-Means, `StreamingClusterTracker`.
+  - `deeplearning/` — `TrainConfig`, `DeeplearningBase`, `DeeplearningTrain` (+ `EarlyStopping`), `DeeplearningEval`.
+  - `metamodel/` — `MetaModelConfig`, `BaseModel`/`MetaModel`, `MetaCriterion`, `MetaTransform`, and `sota/` (`ModelLoader`, `SOTAModel`, `OddOneOutHead`, Csordás/Lepori standard-PyTorch models, `NeuroSurgeon` adapter).
+  - `dataprovider/` — `DataConfig`, `DataReader`/`DataProvider`, `DataProviderFactory`, dataset providers, and `sota/` (`CompositionalDataProvider`, `DataProviderLoader`, Csordás & Lepori compositional families).
+  - `tasks/` — Downstream evaluations: `sota/` (`SubnetworkMask`, `MaskApplier`, `AtlasDiscoverer`, `NeuroSurgeonDiscoverer`, `CsordasGumbelDiscoverer`, `RandomMaskDiscoverer`) and `compositionality/` (earlier prototype).
+  - `pipeline/` — `BaseConfig` (`config.py`), `Pipeline` ABC (wraps `parallelazy.PluginManager`), `PipelineConfig`/`V1`/`V2`.
+  - `nas/` — Ax 1.3+ `Experiment`, `TrialConfig`, `TrialPipeline`.
+  - `template/` — `TemplateBase`, `TemplateVariant`, `TemplateFactory`, dataset templates.
+  - `stats/` — `Reducer` (`Last`/`Ema`/`Mean`/`Window`/`Displacement`), `Processor` (`Umap`/`Overall`), `DisplacementFilter`, `Stream`.
+  - `modularui/` — Thread-safe Dash/Plotly/Cytoscape view store (`ModularUI`, `UILocks`, `layouts`, `docks`, `components`, `plots`).
+  - `utils/` — Misc helpers (`process_start_spawn`, `seed_everything`, `session_path`, `save_data`/`load_data`).
+- `tests/` — Unit tests mirroring `positronixlab/` (`pytest.ini` sets `testpaths = tests`).
+- `docs/` — Per-module `*_SYSTEM.md` / `*_USAGE.md` docs, Ax guides, `components.md`, and media.
+- `examples/` — Standalone runnable CPU examples per module (incl. `examples/tasks/example_atlas_vs_sota.py`).
+- `reports/` — Per-module `*_analysis.md` audits, `overall_analysis.md`, and `SOTA_integration.md`.
 
 ## Key abstractions and invariants
-- **Decoupled space graph**: `ModularSpace`/`LayerSpace` never backprop into the main model. Activations are detached, mapped to `[-1, 1]` scores via per-sample quantile `active_q` (`SpaceMath.activations_to_scores`), and optimized per-layer with dedicated Adam optimizers on `positions: [num_cus, modular_space_size]`.
-- **`torch.compile` split (`LayerSpace`)**: `_contrast_vectorized` and `_process_activations` use `@staticmethod_compile` (`mode="default"`) with `torch._dynamo.mark_static_address` on `positions`/`stats`; dynamic-shape masking (SIGReg) stays eager in `_process_scores` to avoid graph breaks.
-- **Space implementations & config versions**: `ModularSpace` (`PipelineConfigV1`, `modular_space_loss_centers`) is currently the only working implementation. `LayerSpace` (`PipelineConfigV2`, `modular_space_loss_cluster`/`modular_space_loss_sigreg`/`modular_space_sigreg_method`) and `layerspace_process_scores*.py`/`layerspace_remixed.py` are WIP alternative implementations under revision. `PipelineConfig.from_dict()` silently drops unknown keys and coerces primitive types.
-- **Observer filter**: `ModularObserver._is_observable_layer()` currently accepts `is_linear(module)` only (Conv/RNN/Transformer are mapped by `ModelMapper` but filtered out by the observer).
-- **Model/Trainer contract**: `DeeplearningBase`/`DeeplearningTrain` require `model.device`; `inference()` requires `model.loss(x, y, y_hat)` (from `MetaModel`). `process_batch` accepts `(x, y)` or `(x, y, idx)` (from `IndexedDataset`).
-- **Import side effects**: `spacemath/common.py` sets `torch.set_float32_matmul_precision('high')` and monkey-patches `torch.Tensor.{zclamp,zclamp_,spow,spow_}`. `logger/logger.py` globally filters out `UserWarning`.
+- **Decoupled space graph**: `ModularSpace`/`LayerSpace` never backprop into the main model. Activations are detached, mapped to `[-1, 1]` scores, and optimized per-layer with dedicated Adam optimizers on `positions: [num_cus, modular_space_size]`.
+- **Composable configs & lazy exports**: `pipeline/config.py:BaseConfig` underpins `DataConfig`, `TrainConfig`, `MetaModelConfig`, `LayerSpaceConfig`, and `TrialConfig`. `dataprovider/__init__.py`, `metamodel/__init__.py`, and `pipeline/__init__.py` use PEP 562 lazy `__getattr__` so standalone ML/SOTA imports never require `parallelazy`.
+- **Unified SOTA contract**: `ModelLoader` (`metamodel.sota`), `DataProviderLoader` (`dataprovider.sota`), and `SubnetworkMask` / `MaskApplier` / `SubnetworkDiscoverer` (`tasks.sota`) allow apples-to-apples comparison of Atlas, NeuroSurgeon, and Csordás Gumbel-Sigmoid on identical models and datasets.
+- **NeuroSurgeon import quirk**: `libs/NeuroSurgeon` has an undeclared `torchmetrics` import in `Probing`; `metamodel/sota/neurosurgeon_adapter.py` automatically bypasses `Probing` so `Models` and `Masking` work without `torchmetrics`.
+- **Import side effects**: `spacemath/common.py` sets `torch.set_float32_matmul_precision('high')` and monkey-patches `torch.Tensor.{zclamp,zclamp_,spow,spow_}`. `spacemath/contrast.py` runs `torch.compile` (set `TRITON_CACHE_DIR=/tmp/triton_cache TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_cache` in read-only-home environments).
 - **CUDA multiprocessing**: `DataReader` selects `fork` only if CUDA is uninitialized, otherwise `spawn`; `utils.process_start_spawn()` enforces `spawn`.
 
 ## Commands
-- Environment: `.venv/bin/python`, editable install (`pip install -e .`).
-- Passing test suite: `.venv/bin/pytest positronixlab/logger/tests/test_logger.py -v` (31 passed).
-- Full pytest: `.venv/bin/pytest -v` — currently fails collection on 2 files:
-  - `dataprovider/tests/test_higgs.py`: `ImportError: cannot import name 'is_debugpy_attached' from 'parallelazy'` (imported by `pipeline/pipeline.py` against `parallelazy 0.0.6`).
-  - `modularcluster/tests/test_kmeans_plugin.py`: `ModuleNotFoundError: positronixlab.modularcluster.modularcluster_plugin` (stale test from pre-split plugin code).
-- K-Means tests: `.venv/bin/pytest positronixlab/modularcluster/tests/test_kmeans.py -v` — 11 passed, 3 failed (`test_print_stats`, `test_sync_euclidean`, `test_sync_cosine`) with `NotImplementedError: "bincount_cpu" not implemented for 'Float'` at `modularcluster_kmeans.py:260`.
-- Lint / typecheck / CI: none configured (no ruff/black/mypy/CI files).
+- Environment: `.venv/bin/python` (Python 3.12, editable install).
+- Full test suite: `TRITON_CACHE_DIR=/tmp/triton_cache TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_cache .venv/bin/pytest -q` (runs all suites under `tests/`; requires access to sibling `../parallelazy` and `libs/NeuroSurgeon` for full pass).
+- SOTA integration tests only: `TRITON_CACHE_DIR=/tmp/triton_cache TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_cache .venv/bin/pytest tests/metamodel/test_sota_loader.py tests/tasks/test_sota_masks.py tests/tasks/test_atlas_discoverer.py tests/dataprovider/test_sota_providers.py -v`.
+- Head-to-head Atlas vs SOTA CPU benchmark: `.venv/bin/python examples/tasks/example_atlas_vs_sota.py`.
+- Archived pre-cleanup snapshot: git tag `archive/pre-cleanup`.
 
 ## Conventions and gotchas
 - Keep typo in `modularspace/custertracker.py` (re-exported in `modularspace/__init__.py`) unless updating all callers.
 - `stats/common.py:_as_tensor()` may return a view over recycled IPC/cudagraph buffers; callers retaining values must `.clone()`.
-- Known WIP bugs / cleanup items:
-  - `ModularSpace.get_space()` and `LayerSpace.get_space()` check `if None in (layer_info, positions, optimizer, stats)` — raises `ValueError` when `stats_enabled=False`.
-  - `EarlyStopping.should_stop()` maximizes its metric (`gain = metric - self.metric_last`), even though `add_early_stopping()` defaults `metric="loss"`.
-  - `.vscode/launch.json` and `modularcluster/tests/test_kmeans_plugin.py` still reference pre-split paths (`atlas_compose`, `plugin/examples`, `downstream_tasks`, `modularcluster_plugin`) and need cleanup.
+- Known remaining bugs (P1/P2) are cataloged in `reports/overall_analysis.md` and pinned via `@pytest.mark.xfail(strict=True)` in `tests/`.
 
 ## Do not touch
-- Archived/legacy code: `positronixlab/*/legacy/`, `deeplearning/deeplearning_legacy.py`, `modularobserver/layerobserver_old.py`, `modularspace/modularspace_original.py`.
-- Non-code / generated / fixtures: `draft/`, `papers/`, `data/`, `positronixlab.egg-info/`, `.obsidian/`, `modularui/examples/dump/data.pickle`, `tasks/compositionality/examples/{all_vars.pkl,trained_model.pth}`.
-
-## Docs
-- `positronixlab/components.md` — architecture & NAS overview (partially predates `parallelazy`/app split).
-- `positronixlab/modularspace/docs/{layerloss.md,cluster_identity_tracking.md}` — `LayerSpace`/SIGReg and `ClusterTracker` design notes.
-- `positronixlab/spacemath/docs/PARKING LOT PROBLEM.md` — embedding space geometry notes.
-- Module docs: `dataprovider/docs/DATAPROVIDER_SYSTEM.md`, `logger/docs/LOGGER_{SYSTEM,USAGE}.md`, `modularcluster/docs/MODULARCLUSTER_{API,SYSTEM,USAGE}.md`, `stats/docs/STATS_{SYSTEM,USAGE}.md`, `template/docs/CONFIG_{SYSTEM,USAGE}.md`.
+- Non-code / generated / fixtures: `draft/`, `papers/`, `data/`, `positronixlab.egg-info/`, `.obsidian/`, `examples/modularui/dump/data.pickle`, `examples/tasks/compositionality/{all_vars.pkl,trained_model.pth}`.

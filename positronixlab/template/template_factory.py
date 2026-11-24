@@ -31,9 +31,7 @@ class TemplateFactory:
         if template_class is None:
             raise ValueError(f"Unknown experiment: {experiment}")
         
-        template = template_class(name=name)
-
-        return template()
+        return template_class(name=name)
         
 
 

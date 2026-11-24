@@ -214,9 +214,9 @@ def load_data(path:str):
     if ext == '.json':
         with open(path, 'r') as f:
             return json.load(f)
-    elif ext == '.yaml':
+    elif ext in ['.yaml', '.yml']:
         with open(path, 'r') as f:
-            return yaml.load(f)
+            return yaml.safe_load(f)
     elif ext in ['.pkl', '.pickle']:
         with open(path, 'rb') as f:
             return pickle.load(f)

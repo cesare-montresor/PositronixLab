@@ -1,216 +1,343 @@
+from __future__ import annotations
 
-from builtins import staticmethod
-from typing import  Dict
+from typing import Any, Dict, Optional, Tuple
 
-import math
 import torch
 from torch import Tensor
-from torch.nn import functional as F
-from positronixlab.spacemath.common import staticmethod_compile
-from positronixlab.spacemath.spacemath import ActivationType, SpaceMath
-from positronixlab.pipeline import PipelineConfig
-from positronixlab.spacemath.sigreg import sigreg
+
+from positronixlab.modularspace.config import LayerSpaceConfig
+from positronixlab.spacemath.contrast import ContrastResult, get_contrast
+from positronixlab.spacemath.losses import (
+    loss_batch_repulsion,
+    loss_centers_repulsion,
+    loss_sigreg,
+    loss_sigreg_centers,
+)
+from positronixlab.spacemath.scoring import activations_to_scores
+from positronixlab.spacemath.space_type import SpaceType
+from positronixlab.spacemath.spacemath import ActivationType
+from positronixlab.spacemath.weighting import (
+    get_weighter,
+    mask_cluster_membership,
+    mask_global_scope,
+    stats_update_,
+)
 
 
-class LayerSpace():
-    
-    def __init__(self, config: PipelineConfig, observed_layers: dict[str, dict], device:torch.device=None, stats_enabled:bool=False):
+class LayerSpace:
+    """
+    Per-layer decoupled embedding space for computation units (CUs).
+
+    Directly parametrizes and conditionally enables each stage of the update
+    (activation scoring, unit weighting, global/cluster contrast, and auxiliary
+    losses) from `LayerSpaceConfig` (or any compatible config) plus optional
+    explicit keyword overrides.
+    """
+
+    def __init__(
+        self,
+        config: LayerSpaceConfig,
+        observed_layers: Dict[str, Dict[str, Any]],
+        device: Optional[torch.device] = None,
+        stats_enabled: bool = False,
+        *,
+        # Space geometry
+        space_type: Optional[str] = None,
+        # Activation -> scores options
+        score_method: Optional[str] = None,
+        arch_reducer: Optional[str] = None,
+        apply_activation: Optional[bool] = None,
+        active_q: Optional[float] = None,
+        cnn_locality_weight: Optional[float] = None,
+        spatial_radius: int = 3,
+        # Weighting options
+        weight_method: Optional[str] = None,
+        freq_alpha: Optional[float] = None,
+        # Contrast options
+        contrast_method: Optional[str] = None,
+        loss_on: Optional[float] = None,
+        loss_off: Optional[float] = None,
+        tau: Optional[float] = None,
+        # Conditional loss weights (0.0 = disabled / skipped)
+        loss_global: Optional[float] = None,
+        loss_cluster: Optional[float] = None,
+        loss_centers: Optional[float] = None,
+        loss_batch: Optional[float] = None,
+        loss_sigreg: Optional[float] = None,
+        # SIGReg options
+        sigreg_method: Optional[str] = None,
+        sigreg_target: Optional[str] = None,
+        sigreg_dim: Optional[int] = None,
+        eps: float = 1e-8,
+    ) -> None:
         self.config = config
         self.observed_layers = observed_layers
         self.device = device if device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.stats_enabled = stats_enabled
+        self.eps = float(eps)
 
-        self.positions: Dict[str, torch.Tensor] = {}
-        self.stats: Dict[str, torch.Tensor] = {}
+        # Resolve parameters: explicit kwargs override config fields, falling back to defaults.
+        def _pick(override: Any, attr: str, default: Any) -> Any:
+            if override is not None:
+                return override
+            val = getattr(config, attr, default)
+            return default if val is None else val
+
+        self.space_type = SpaceType.normalize_name(_pick(space_type, "modular_space_distance", SpaceType.COSINE))
+
+        # Scoring stage
+        self.score_method = str(_pick(score_method, "modular_space_scoring", "quantile"))
+        self.arch_reducer = arch_reducer if arch_reducer is not None else getattr(config, "modular_space_reducer", None)
+        self.apply_activation = bool(_pick(apply_activation, "modular_space_apply_activation", False))
+        self.active_q = float(_pick(active_q, "modular_space_active_q", 0.80))
+        self.cnn_locality_weight = float(_pick(cnn_locality_weight, "modular_cnn_locality", 0.5))
+        self.spatial_radius = int(spatial_radius)
+
+        # Weighting stage
+        self.weight_method = str(_pick(weight_method, "modular_space_weighting", "raw"))
+        self.freq_alpha = float(_pick(freq_alpha, "modular_space_freq_alpha", 0.0))
+        self._weight_fn = get_weighter(self.weight_method)
+
+        # Contrast stage
+        self.contrast_method = str(_pick(contrast_method, "modular_space_contrast", "distance_log"))
+        self.loss_on = float(_pick(loss_on, "modular_space_loss_on", 1.0))
+        self.loss_off = float(_pick(loss_off, "modular_space_loss_off", 1.0))
+        self.tau = float(_pick(tau, "modular_space_tau", 0.1))
+        self._contrast_fn = get_contrast(self.contrast_method)
+
+        # Conditional loss weights (0.0 disables the term completely)
+        self.loss_global = float(_pick(loss_global, "modular_space_loss_global", 1.0))
+        self.loss_cluster = float(_pick(loss_cluster, "modular_space_loss_cluster", 1.0))
+        self.loss_centers = float(_pick(loss_centers, "modular_space_loss_centers", 0.0))
+        self.loss_batch = float(_pick(loss_batch, "modular_space_loss_batch", 0.0))
+        self.loss_sigreg = float(_pick(loss_sigreg, "modular_space_loss_sigreg", 1.0))
+
+        # SIGReg stage
+        self.sigreg_method = str(_pick(sigreg_method, "modular_space_sigreg_method", "weak"))
+        self.sigreg_target = str(_pick(sigreg_target, "modular_space_sigreg_target", "centers")).strip().lower()
+        self.sigreg_dim = int(_pick(sigreg_dim, "modular_space_sigreg_dim", 64))
+        if self.sigreg_target not in ("centers", "positions"):
+            raise ValueError(f"Unknown sigreg_target '{self.sigreg_target}'. Expected 'centers' or 'positions'.")
+
+        self.positions: Dict[str, Tensor] = {}
+        self.stats: Dict[str, Tensor] = {}
         self.optimizers: Dict[str, torch.optim.Optimizer] = {}
-
 
         self._init_layers()
         self._init_space()
 
-    def _init_layers(self):
+    def _init_layers(self) -> None:
+        """Instantiate optional activation modules for each observed layer."""
         for layer_id, layer_info in self.observed_layers.items():
             act_type = layer_info.get("activation_type", None)
             act_fn = None if act_type is None else ActivationType.get_function(act_type)
             self.observed_layers[layer_id]["activation"] = act_fn
 
-    def _init_space(self):
+    def _init_space(self) -> None:
+        """Allocate per-layer CU positions, optional running stats, and Adam optimizers."""
         for layer_id, layer_info in self.observed_layers.items():
-            num_cus = layer_info["out_units"]
+            num_cus = int(layer_info["out_units"])
 
-            # positions: [num_cus, modular_space_size]
-            positions = torch.randn(num_cus, self.config.modular_space_size, device=self.device, requires_grad=True)
+            positions = torch.randn(
+                num_cus,
+                self.config.modular_space_size,
+                device=self.device,
+                requires_grad=True,
+            )
             torch._dynamo.mark_static_address(positions)
             self.positions[layer_id] = positions
-            
-            # stats: [num_cus, 4] for count_on, count_off, scores_on, scores_off
+
             if self.stats_enabled:
                 stats = torch.zeros(num_cus, 4, device=self.device)
                 torch._dynamo.mark_static_address(stats)
                 self.stats[layer_id] = stats
-            
-            # optimizer: dedicated for each positions
+
             self.optimizers[layer_id] = torch.optim.Adam(
                 (positions,),
                 lr=self.config.modular_space_lr,
             )
-    
+
     def get_space(self, layer_id: str):
+        """Return (layer_info, positions, optimizer, stats) for `layer_id`."""
         layer_info = self.observed_layers.get(layer_id, None)
         positions = self.positions.get(layer_id, None)
-        stats = self.stats.get(layer_id, None)
         optimizer = self.optimizers.get(layer_id, None)
-        if None in (layer_info, positions, optimizer, stats):
-            raise ValueError(f"Layer {layer_id} not found in ModularSpace.")
+        stats = self.stats.get(layer_id, None)
+        if None in (layer_info, positions, optimizer):
+            raise ValueError(f"Layer {layer_id} not found in LayerSpace.")
         return layer_info, positions, optimizer, stats
-    
-    def process_activations(self, layer_id: str, activations: torch.Tensor, clusters_labels: torch.Tensor|None )-> tuple[tuple, Tensor, Tensor | None]:
-        layer_info = self.get_space(layer_id)[0]
-        scores = self._process_activations(self.config.modular_space_active_q, activations, layer_info["layer_type"], layer_info["activation"])
-        scores = scores.detach().clone()  # Detach and clone to avoid in-place modifications
-        return self.process_scores(layer_id, scores, clusters_labels)
 
-    @staticmethod_compile
-    #@staticmethod
-    def _process_activations(active_q: float, activations: torch.Tensor, layer_type: str, activation_fn) -> Tensor:
-        # [1 |0| -1]
-        scores = SpaceMath.activations_to_scores( 
-            activations, layer_type, activation_fn, 
-            active_q, cnn_locality_weight=0.5)
-        
-        return scores
-    
-    
-    def process_scores(self, layer_id: str, scores: torch.Tensor, clusters_labels: torch.Tensor | None):
+    def score_activations(self, layer_id: str, activations: Tensor) -> Tensor:
+        """Convert raw activations for `layer_id` into detached [-1, 1] unit scores."""
+        layer_info = self.get_space(layer_id)[0]
+        scores = activations_to_scores(
+            activations,
+            layer_type=layer_info.get("layer_type", "linear"),
+            score_method=self.score_method,
+            reducer=self.arch_reducer,
+            activation_fn=layer_info.get("activation", None),
+            apply_activation=self.apply_activation,
+            active_q=self.active_q,
+            cnn_locality_weight=self.cnn_locality_weight,
+            spatial_radius=self.spatial_radius,
+            eps=self.eps,
+        )
+        return scores.detach().clone()
+
+    def process_activations(
+        self,
+        layer_id: str,
+        activations: Tensor,
+        clusters_labels: Optional[Tensor] = None,
+        unit_mask: Optional[Tensor] = None,
+    ) -> Tuple[Dict[str, Any], Tensor, Optional[Any]]:
+        """Score raw layer activations and run one space optimization step."""
+        scores = self.score_activations(layer_id, activations)
+        return self.process_scores(layer_id, scores, clusters_labels=clusters_labels, unit_mask=unit_mask)
+
+    def compute_loss(
+        self,
+        positions: Tensor,
+        scores: Tensor,
+        *,
+        stats: Optional[Tensor] = None,
+        clusters_labels: Optional[Tensor] = None,
+        unit_mask: Optional[Tensor] = None,
+    ) -> Tuple[Tensor, Dict[str, Tensor]]:
+        """Conditionally compute all enabled contrast and auxiliary loss terms."""
+        num_units = positions.shape[0]
+        device, dtype = positions.device, positions.dtype
+        zero = positions.new_zeros(())
+
+        # 1) Weighting
+        w_on, w_off = self._weight_fn(
+            scores,
+            stats=stats,
+            freq_alpha=self.freq_alpha,
+        )
+
+        total_loss = zero
+        metrics: Dict[str, Tensor] = {}
+
+        contrast_kwargs = dict(
+            space_type=self.space_type,
+            weight_on=self.loss_on,
+            weight_off=self.loss_off,
+            tau=self.tau,
+            eps=self.eps,
+        )
+
+        global_res: Optional[ContrastResult] = None
+        cluster_res: Optional[ContrastResult] = None
+
+        # 2) Global contrast
+        if self.loss_global > 0.0:
+            m_global = mask_global_scope(num_units, device, dtype, unit_mask=unit_mask)
+            global_res = self._contrast_fn(positions, w_on, w_off, m_global, **contrast_kwargs)
+            total_loss = total_loss + self.loss_global * global_res.loss
+            metrics["loss_global"] = global_res.loss
+            metrics["loss_on"] = global_res.loss_on
+            metrics["loss_off"] = global_res.loss_off
+            metrics["frac_mixed_global"] = global_res.mixed.mean().detach()
+
+        # 3) Cluster contrast
+        if self.loss_cluster > 0.0:
+            m_cluster = mask_cluster_membership(
+                clusters_labels,
+                num_units=num_units,
+                device=device,
+                dtype=dtype,
+                unit_mask=unit_mask,
+            )
+            if m_cluster is not None:
+                cluster_res = self._contrast_fn(positions, w_on, w_off, m_cluster, **contrast_kwargs)
+                total_loss = total_loss + self.loss_cluster * cluster_res.loss
+                metrics["loss_cluster"] = cluster_res.loss
+                metrics["frac_mixed_cluster"] = cluster_res.mixed.mean().detach()
+            else:
+                metrics["loss_cluster"] = zero
+
+        primary = cluster_res if cluster_res is not None else global_res
+
+        # 4) Center repulsion (on vs off center separation)
+        if self.loss_centers > 0.0 and global_res is not None:
+            l_centers = loss_centers_repulsion(
+                global_res.centers_on,
+                global_res.centers_off,
+                mixed=global_res.mixed,
+                space_type=self.space_type,
+                eps=self.eps,
+            )
+            total_loss = total_loss + self.loss_centers * l_centers
+            metrics["loss_centers"] = l_centers
+
+        # 5) Batch repulsion (inter-sample center separation)
+        if self.loss_batch > 0.0 and primary is not None:
+            l_batch = loss_batch_repulsion(
+                primary.centers_on,
+                mixed=primary.mixed,
+                space_type=self.space_type,
+                eps=self.eps,
+            )
+            total_loss = total_loss + self.loss_batch * l_batch
+            metrics["loss_batch"] = l_batch
+
+        # 6) SIGReg regularization
+        if self.loss_sigreg > 0.0:
+            if self.sigreg_target == "positions":
+                pts = positions[unit_mask > 0] if unit_mask is not None else positions
+                l_sigreg = loss_sigreg(
+                    pts,
+                    space_type=self.space_type,
+                    method=self.sigreg_method,
+                    sketch_dim=self.sigreg_dim,
+                    eps=self.eps,
+                )
+            else:
+                if primary is not None:
+                    l_sigreg = loss_sigreg_centers(
+                        primary.centers_on,
+                        primary.mixed,
+                        space_type=self.space_type,
+                        method=self.sigreg_method,
+                        sketch_dim=self.sigreg_dim,
+                        eps=self.eps,
+                    )
+                else:
+                    l_sigreg = zero
+            total_loss = total_loss + self.loss_sigreg * l_sigreg
+            metrics["loss_sigreg"] = l_sigreg
+
+        metrics["loss"] = total_loss
+        return total_loss, metrics
+
+    def process_scores(
+        self,
+        layer_id: str,
+        scores: Tensor,
+        clusters_labels: Optional[Tensor] = None,
+        unit_mask: Optional[Tensor] = None,
+    ) -> Tuple[Dict[str, Any], Tensor, Optional[Any]]:
+        """Update stats, compute composite loss, step optimizer, and return (losses, positions, stats)."""
         _, positions, optimizer, stats = self.get_space(layer_id)
         if not self.stats_enabled:
             stats = None
-            
-        membership = self._membership(clusters_labels, positions.device, positions.dtype)
-        
-        losses = self._process_scores(self.config, scores, positions, stats, membership)
-        loss = losses[0]
+
+        if stats is not None:
+            stats_update_(stats, scores)
+
+        loss, metrics = self.compute_loss(
+            positions,
+            scores,
+            stats=stats,
+            clusters_labels=clusters_labels,
+            unit_mask=unit_mask,
+        )
 
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
 
-        loss_names = ["loss", "loss_on", "loss_off", "loss_cluster", "loss_sigreg"]
-        losses_dict = {name: l.detach().cpu().numpy() for name, l in zip(loss_names, losses)}
-        return losses_dict, positions.detach().cpu().numpy(), None if stats is None else stats.detach().cpu().numpy()
-
-    @staticmethod
-    def _membership(labels, device, dtype):
-        """Crea una maschera one-hot (K, N) basata sulle etichette dei cluster."""
-        if labels is None:
-            return None
-        lab = torch.as_tensor(labels, device=device).long()
-        K = int(lab.max().item()) + 1
-        if K < 2:
-            return None
-        M = F.one_hot(lab.clamp_min(0), K).T.to(dtype)
-        return M * (lab >= 0).to(dtype).unsqueeze(0)  # Esclude le etichette di rumore (-1)
-    
-    @staticmethod_compile
-    def _contrast_vectorized(config: PipelineConfig, scores: torch.Tensor, positions: torch.Tensor, M: torch.Tensor):
-        """
-        Compiled static graph for heavy tensor algebra. 
-        All shapes here (bs, N, K, D) are strictly static.
-        """
-        bs, N = scores.shape
-        D = positions.shape[1]
-        
-        idxs_on, idxs_off = SpaceMath.split_active_group(scores)
-        w_on_base = scores * idxs_on                    
-        w_off_base = -(scores * idxs_off)               
-        
-        # Broadcasting: (bs, K, N)
-        w_on = w_on_base.unsqueeze(1) * M.unsqueeze(0)
-        w_off = w_off_base.unsqueeze(1) * M.unsqueeze(0)
-        
-        mass_on = w_on.sum(2)
-        mass_off = w_off.sum(2)
-        mixed = ((mass_on > SpaceMath.eps) & (mass_off > SpaceMath.eps)).to(scores.dtype)
-        
-        w_on_norm = w_on / mass_on.clamp(min=SpaceMath.eps).unsqueeze(2)
-        w_off_norm = w_off / mass_off.clamp(min=SpaceMath.eps).unsqueeze(2)
-        
-        batch_pos = positions.unsqueeze(0).expand(bs, -1, -1)
-        centers_on = torch.bmm(w_on_norm, batch_pos)
-        
-        # Inlined distance calculation to avoid external graph breaks
-        is_cosine = str(config.modular_space_distance).lower().startswith("cos")
-        if is_cosine:
-            pos_norm = F.normalize(positions, p=2, dim=-1)
-            cent_norm = F.normalize(centers_on, p=2, dim=-1)
-            sim = torch.matmul(cent_norm, pos_norm.T)  # (bs, K, N)
-            d = 1.0 - sim
-        else:
-            d = torch.cdist(centers_on, positions)     # (bs, K, N)
-            
-        dist_on = (w_on_norm * d).sum(2)
-        dist_off = (w_off_norm * d).sum(2)
-        
-        m_count = mixed.sum().clamp(min=1.0)
-        loss_on = (dist_on * mixed).sum() / m_count
-        loss_off = (dist_off * mixed).sum() / m_count
-        
-        return loss_on, loss_off, centers_on, mixed
-
-    def _process_scores(self, config: PipelineConfig, scores: torch.Tensor, positions: torch.Tensor, stats: torch.Tensor, membership: torch.Tensor | None):
-        """
-        Eager execution loop. Handles dynamic masking for SIGReg and stat updates.
-        """
-        bs, N = scores.shape
-        D = positions.shape[1]
-        
-        if stats is not None:
-            idxs_on, idxs_off = SpaceMath.split_active_group(scores)
-            stats[:, 0] += idxs_on.sum(dim=0).detach()
-            stats[:, 1] += idxs_off.sum(dim=0).detach()
-            stats[:, 2] += (scores * idxs_on).sum(dim=0).detach()
-            stats[:, 3] += (-(scores * idxs_off)).sum(dim=0).detach()
-            
-        # 1) Global Contrast (Calls compiled graph)
-        M_global = torch.ones(1, N, device=positions.device, dtype=positions.dtype)
-        l_on_g, l_off_g, centers_on_g, mixed_g = self._contrast_vectorized(config, scores, positions, M_global)
-        
-        l_on = torch.log(1 + l_on_g) * float(config.modular_space_loss_on)
-        l_off = torch.log(1 + l_off_g) * float(config.modular_space_loss_off)
-        loss = l_on - l_off
-        
-        centers_for_sigreg = centers_on_g
-        mixed_for_sigreg = mixed_g
-        loss_cluster = scores.new_zeros(())
-        
-        # 2) Cluster Contrast (Calls compiled graph)
-        w_c = float(getattr(config, "modular_space_loss_cluster", 0.0))
-        if membership is not None and w_c > 0:
-            l_on_c, l_off_c, centers_on_c, mixed_c = self._contrast_vectorized(config, scores, positions, membership)
-            
-            l_on_c = torch.log(1 + l_on_c) * float(config.modular_space_loss_on)
-            l_off_c = torch.log(1 + l_off_c) * float(config.modular_space_loss_off)
-            loss_cluster = l_on_c - l_off_c
-            loss = loss + w_c * loss_cluster
-            
-            centers_for_sigreg = centers_on_c
-            mixed_for_sigreg = mixed_c
-            
-        # 3) SIGReg (Dynamic shape logic stays in eager mode)
-        loss_sigreg = scores.new_zeros(())
-        w_s = float(getattr(config, "modular_space_loss_sigreg", 0.0))
-        if w_s > 0:
-            active_mask = mixed_for_sigreg > 0
-            if active_mask.sum() > 1:
-                active_centers = centers_for_sigreg[active_mask]  # Dynamic shape triggers graph break if compiled
-                
-                is_cosine = str(config.modular_space_distance).lower().startswith("cos")
-                if is_cosine:
-                    X_sig = F.normalize(active_centers, dim=-1) * math.sqrt(D)
-                else:
-                    X_sig = active_centers
-                    
-                loss_sigreg = sigreg(X_sig, method=str(config.modular_space_sigreg_method))
-                loss = loss + w_s * loss_sigreg
-
-        return loss, l_on, l_off, loss_cluster, loss_sigreg
+        losses_dict = {name: val.detach().cpu().numpy() for name, val in metrics.items()}
+        stats_copy = None if stats is None else stats.detach().cpu().numpy()
+        return losses_dict, positions.detach(), stats_copy

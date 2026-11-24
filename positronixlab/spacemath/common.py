@@ -59,6 +59,8 @@ def is_activation(module: nn.Module):
     return module.__class__.__module__ == 'torch.nn.modules.activation'
 
 def is_layer(module: nn.Module):
+    if isinstance(module, nn.Identity):
+        return False
     name = module.__class__.__module__.lower()
     layers = [
         'torch.nn.modules.linear',
@@ -66,13 +68,13 @@ def is_layer(module: nn.Module):
         'torch.nn.modules.rnn',
         'torch.nn.modules.transformer'
     ]
-    return name in layers
+    return isinstance(module, (nn.Linear, nn.Conv1d, nn.Conv2d, nn.Conv3d)) or name in layers
 
 def is_conv(module: nn.Module):
-    return module.__class__.__module__ == 'torch.nn.modules.conv'
+    return isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.ConvTranspose1d, nn.ConvTranspose2d, nn.ConvTranspose3d)) or module.__class__.__module__ == 'torch.nn.modules.conv'
 
 def is_linear(module: nn.Module):
-    return module.__class__.__module__ == 'torch.nn.modules.linear'
+    return isinstance(module, nn.Linear)
 
 
 def compile(func: F) -> F:

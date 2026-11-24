@@ -10,6 +10,9 @@ from positronixlab.dataprovider.scan_dataprovider import SCANDataProvider
 from positronixlab.dataprovider.math_dataprovider import MathDataProvider
 from positronixlab.dataprovider.cvr_oddoneout_dataprovider import CVROddOneOutDataProvider
 from positronixlab.dataprovider.syneval_oddoneout_dataprovider import SynevalOddOneOutDataProvider
+from positronixlab.dataprovider.addmul_dataprovider import AddMulDataProvider
+from positronixlab.dataprovider.tuple_arithmetic_dataprovider import TupleArithmeticDataProvider
+from positronixlab.dataprovider.permuted_mnist_dataprovider import PermutedMnistDataProvider
 from positronixlab.metamodel.metatransform import MetaTransform
 from positronixlab.dataprovider.dataprovider import DataProvider
 
@@ -73,5 +76,11 @@ class DataProviderFactory:
             return CVROddOneOutDataProvider(**kwargs)
         elif name == 'syneval_odd_one_out':
             return SynevalOddOneOutDataProvider(**kwargs)
+        elif name == 'addmul':
+            return AddMulDataProvider(**kwargs)
+        elif name == 'tuple_arithmetic':
+            return TupleArithmeticDataProvider(**kwargs)
+        elif name == 'permuted_mnist':
+            return PermutedMnistDataProvider(flatten=flatten, **kwargs)
         else:
             raise ValueError(f"Unknown dataset: {name}")

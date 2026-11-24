@@ -87,7 +87,8 @@ class ModularClusterKmeans:
         else:
             raise ValueError(f"Unsupported metric: {self.metric}")
 
-        dist.fill_diagonal_(0.0) # added for eucledian
+        if x is y:
+            dist.fill_diagonal_(0.0) # added for eucledian
         dist.clamp_(min=0.0) # not alwys >=0 due to numerical errors
         return dist
     
@@ -111,9 +112,10 @@ class ModularClusterKmeans:
         if spherical:
             x = F.normalize(x, p=2, dim=1)
         
+        x_np = x.detach().cpu().numpy().astype('float32', copy=False)
         with suppress_output():
             kmeans = FAISS_KMeans(
-                d=x.shape[1], 
+                d=x_np.shape[1], 
                 k=k, 
                 niter=self.max_iter,  
                 spherical=spherical, 
@@ -122,10 +124,10 @@ class ModularClusterKmeans:
                 gpu=self.device.type == 'cuda'
             )
             
-            kmeans.train(x)
+            kmeans.train(x_np)
 
-        dists, labels = kmeans.assign(x)
-        labels = torch.Tensor(labels).to(self.device)
+        dists, labels = kmeans.assign(x_np)
+        labels = torch.as_tensor(labels, dtype=torch.long, device=self.device)
         centroids = torch.from_numpy(kmeans.centroids).to(self.device)
         return centroids, labels
     

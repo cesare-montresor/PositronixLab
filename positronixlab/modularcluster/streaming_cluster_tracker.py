@@ -135,7 +135,7 @@ class StreamingClusterTracker:
             self.last_published_centroids is None
             or self.last_published_centroids.shape[0] != centroids.shape[0]
         ):
-            return labels
+            return centroids, labels
 
         prev = torch.as_tensor(
             self.last_published_centroids, device=centroids.device, dtype=centroids.dtype
@@ -145,8 +145,11 @@ class StreamingClusterTracker:
 
         remap = np.empty(centroids.shape[0], dtype=np.int64)
         remap[col_ind] = row_ind  # new_label_id -> old_label_id
+        inv_remap = np.empty(centroids.shape[0], dtype=np.int64)
+        inv_remap[row_ind] = col_ind  # old_label_id -> new_label_id
         remap_t = torch.as_tensor(remap, device=labels.device)
-        return remap_t[labels]
+        inv_remap_t = torch.as_tensor(inv_remap, device=centroids.device)
+        return centroids[inv_remap_t], remap_t[labels]
 
     def _gate_k_change(self, new_k: int) -> int:
         """
@@ -225,7 +228,9 @@ class StreamingClusterTracker:
             self.last_stats = stats
             return stats
 
-        labels = self._relabel_to_match_previous(self.kmeans.centroids, self.kmeans.labels)
+        reordered_centroids, labels = self._relabel_to_match_previous(
+            self.kmeans.centroids, self.kmeans.labels
+        )
 
         ari = None
         if (
@@ -234,7 +239,7 @@ class StreamingClusterTracker:
         ):
             ari = adjusted_rand_score(self.last_published_labels, labels.cpu().numpy())
 
-        centroids_np = self.kmeans.centroids.cpu().numpy()
+        centroids_np = reordered_centroids.cpu().numpy()
         labels_np = labels.cpu().numpy()
 
         self.last_published_labels = labels_np

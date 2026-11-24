@@ -1,0 +1,118 @@
+from positronixlab.spacemath.contrast import (
+    CONTRASTS,
+    ContrastResult,
+    contrast_distance_linear,
+    contrast_distance_log,
+    contrast_softmax_ce,
+    get_contrast,
+)
+from positronixlab.spacemath.losses import (
+    LOSSES,
+    loss_batch_repulsion,
+    loss_centers_repulsion,
+    loss_layer_alignment,
+    loss_sigreg,
+    loss_sigreg_centers,
+)
+from positronixlab.spacemath.reducers import (
+    REDUCERS,
+    get_reducer,
+    reduce_conv_l2,
+    reduce_conv_locality,
+    reduce_conv_max,
+    reduce_conv_mean_abs,
+    reduce_linear,
+)
+from positronixlab.spacemath.scoring import (
+    SCORERS,
+    activations_to_scores,
+    get_scorer,
+    score_normalize_by_threshold,
+    score_quantile,
+    score_sign_preserving_batch,
+    score_sign_preserving_row,
+    score_softmax,
+    score_top_k,
+)
+from positronixlab.spacemath.sigreg import sigreg, sigreg_strong, sigreg_weak
+from positronixlab.spacemath.space_type import (
+    SpaceType,
+    distance_elementwise,
+    distance_pairwise,
+    space_is_cosine,
+    space_normalize,
+    space_sigreg_prepare,
+)
+from positronixlab.spacemath.spacemath import ActivationType, LayerType, SpaceMath
+from positronixlab.spacemath.weighting import (
+    WEIGHTERS,
+    get_weighter,
+    mask_cluster_membership,
+    mask_global_scope,
+    split_active_group,
+    stats_activation_frequency,
+    stats_update_,
+    weight_inv_freq,
+    weight_raw,
+    weight_uniform,
+)
+
+__all__ = [
+    # Space geometry & distances
+    "SpaceType",
+    "space_is_cosine",
+    "space_normalize",
+    "space_sigreg_prepare",
+    "distance_elementwise",
+    "distance_pairwise",
+    # Architecture reducers
+    "REDUCERS",
+    "get_reducer",
+    "reduce_linear",
+    "reduce_conv_locality",
+    "reduce_conv_l2",
+    "reduce_conv_mean_abs",
+    "reduce_conv_max",
+    # Scoring
+    "SCORERS",
+    "get_scorer",
+    "activations_to_scores",
+    "score_normalize_by_threshold",
+    "score_quantile",
+    "score_top_k",
+    "score_sign_preserving_row",
+    "score_sign_preserving_batch",
+    "score_softmax",
+    # Weighting, masks & stats
+    "WEIGHTERS",
+    "get_weighter",
+    "weight_raw",
+    "weight_inv_freq",
+    "weight_uniform",
+    "split_active_group",
+    "stats_update_",
+    "stats_activation_frequency",
+    "mask_global_scope",
+    "mask_cluster_membership",
+    # Contrastive steps
+    "CONTRASTS",
+    "get_contrast",
+    "ContrastResult",
+    "contrast_distance_log",
+    "contrast_distance_linear",
+    "contrast_softmax_ce",
+    # Additional losses & SIGReg
+    "LOSSES",
+    "loss_centers_repulsion",
+    "loss_batch_repulsion",
+    "loss_sigreg",
+    "loss_sigreg_centers",
+    "loss_layer_alignment",
+    "sigreg",
+    "sigreg_weak",
+    "sigreg_strong",
+    # Legacy / v1 SpaceMath
+    "LayerType",
+    "ActivationType",
+    "SpaceMath",
+]

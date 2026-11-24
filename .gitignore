@@ -1,5 +1,6 @@
 data/*
 profile.pyspy
+libs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

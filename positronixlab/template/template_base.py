@@ -1,17 +1,16 @@
-import copy
-import yaml
-import os
+from __future__ import annotations
 
+import copy
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+import os
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 import yaml
 
 from ax.api.configs import (
-    RangeParameterConfig,
     ChoiceParameterConfig,
+    DerivedParameterConfig,
+    RangeParameterConfig,
 )
-
-from positronixlab.template.template_variant import TemplateVariant, TemplateVariantList
 
 
 class ParameterType(str, Enum):
@@ -21,157 +20,217 @@ class ParameterType(str, Enum):
     BOOL = "bool"
 
 
+ParameterConfig = Union[
+    RangeParameterConfig,
+    ChoiceParameterConfig,
+    DerivedParameterConfig,
+]
+
 
 class TemplateBase:
     """
-    Defines the parameter space, fixed parameters, and variants for NAS.
-    Separates tunable parameters (self.params) from fixed parameters (self.fixed)
-    to keep the Ax search space clean and free of noise.
+    Lightweight Ax 1.3 search-space builder.
+
+    Separates tunable parameters (`self.params`) and linear constraints
+    (`self.constraints`) from fixed non-searchable constants (`self.fixed`)
+    so the Ax search space stays clean and free of noise.
     """
 
     CONFIG_PATH = "configs/"
 
-    def __init__(self, name:str=None):
-        self.name = name if name is not None else self.__class__.__name__.lower()
-        self.params: Dict[str, Dict[str, Any]] = {}  # Tunable search space parameters
-        self.fixed: Dict[str, Any] = {}              # Fixed hyperparameters (dataset, task, etc.)
-        self.variants: TemplateVariantList = TemplateVariantList()
+    def __init__(self, name: Optional[str] = None):
+        self.name: str = name if name is not None else self.__class__.__name__.lower()
+        self.params: Dict[str, Dict[str, Any]] = {}
+        self.fixed: Dict[str, Any] = {}
+        self.constraints: List[str] = []
 
     # -------------------------------------------------------------------------
-    # Search Space Building Methods (Tunable Parameters)
+    # Search Space Building Methods (Tunable & Derived Parameters)
     # -------------------------------------------------------------------------
     def add_range(
         self,
         name: str,
-        bounds: List[Union[int, float]],
+        bounds: Sequence[Union[int, float]],
         parameter_type: Union[ParameterType, str] = ParameterType.FLOAT,
+        scaling: Optional[str] = None,
+        step_size: Optional[Union[int, float]] = None,
         log_scale: bool = False,
-    ) -> None:
+    ) -> "TemplateBase":
         p_type = parameter_type.value if isinstance(parameter_type, ParameterType) else str(parameter_type)
-        self.params[name] = {
+        resolved_scaling = scaling if scaling is not None else ("log" if log_scale else "linear")
+        spec: Dict[str, Any] = {
             "name": name,
             "type": "range",
-            "bounds": bounds,
-            "value_type": p_type,
-            "log_scale": log_scale,
+            "bounds": list(bounds),
+            "parameter_type": p_type,
+            "scaling": resolved_scaling,
         }
+        if step_size is not None:
+            spec["step_size"] = step_size
+        self.fixed.pop(name, None)
+        self.params[name] = spec
+        return self
 
     def add_choice(
         self,
         name: str,
-        values: List[Any],
+        values: Sequence[Any],
         parameter_type: Union[ParameterType, str] = ParameterType.STRING,
         is_ordered: Optional[bool] = None,
-        dependents: Optional[Dict[str, Any]] = None,
-    ) -> None:
+        dependent_parameters: Optional[Mapping[Any, Sequence[str]]] = None,
+        log_scale: Optional[bool] = None,
+    ) -> "TemplateBase":
         p_type = parameter_type.value if isinstance(parameter_type, ParameterType) else str(parameter_type)
-        param: Dict[str, Any] = {
+        if is_ordered is None:
+            # Explicit default avoids AxParameterWarning (2-value choices are always ordered in Ax)
+            is_ordered = len(values) <= 2 or p_type in ("int", "float")
+        spec: Dict[str, Any] = {
             "name": name,
             "type": "choice",
-            "values": values,
-            "value_type": p_type,
+            "values": list(values),
+            "parameter_type": p_type,
             "is_ordered": is_ordered,
         }
-        if dependents is not None:
-            param["dependents"] = dependents
-        self.params[name] = param
+        if dependent_parameters is not None:
+            spec["dependent_parameters"] = {k: list(v) for k, v in dependent_parameters.items()}
+        if log_scale is not None:
+            spec["log_scale"] = log_scale
+        self.fixed.pop(name, None)
+        self.params[name] = spec
+        return self
+
+    def add_derived(
+        self,
+        name: str,
+        expression_str: str,
+        parameter_type: Union[ParameterType, str] = ParameterType.FLOAT,
+    ) -> "TemplateBase":
+        """Register an Ax 1.3 `DerivedParameterConfig` (linear SymPy expression)."""
+        p_type = parameter_type.value if isinstance(parameter_type, ParameterType) else str(parameter_type)
+        self.fixed.pop(name, None)
+        self.params[name] = {
+            "name": name,
+            "type": "derived",
+            "expression_str": expression_str,
+            "parameter_type": p_type,
+        }
+        return self
+
+    def add_constraint(self, constraint: str) -> "TemplateBase":
+        """Add a linear inequality parameter constraint (e.g. `'x1 <= x2'`)."""
+        if constraint not in self.constraints:
+            self.constraints.append(constraint)
+        return self
 
     # -------------------------------------------------------------------------
-    # Fixed Parameters (Saved in self.fixed to avoid polluting the search space)
+    # Fixed Parameters (Excluded from Ax search space, merged into TrialConfig)
     # -------------------------------------------------------------------------
     def add_fixed(
         self,
         name: str,
         value: Any,
         parameter_type: Optional[Union[ParameterType, str]] = None,
-    ) -> None:
-        """Stores fixed parameters directly in self.fixed."""
+    ) -> "TemplateBase":
+        """Store a fixed non-searchable parameter (removes any tunable param of the same name)."""
+        self.params.pop(name, None)
         self.fixed[name] = value
+        return self
 
-    def get_fixed(self, keys: Optional[List[str]] = None) -> Dict[str, Any]:
-        """
-        Pulls fixed parameters. If specific keys are requested (e.g. ['dataset_name', 'task']),
-        returns only those. Otherwise returns all fixed parameters.
-        """
+    def get_fixed(self, keys: Optional[Sequence[str]] = None) -> Dict[str, Any]:
         if keys is not None:
             return {k: self.fixed[k] for k in keys if k in self.fixed}
         return dict(self.fixed)
 
-    # -------------------------------------------------------------------------
-    # Variant Management
-    # -------------------------------------------------------------------------
-    def add_variant(
-        self,
-        name: str,
-        fixed_features: Optional[Dict[str, Any]] = None,
-        description: str = "",
-    ) -> TemplateVariant:
-        variant = TemplateVariant(name=name, fixed_features=fixed_features, description=description)
-        self.variants.add_variant(variant)
-        return variant
+    def remove(self, name: str) -> "TemplateBase":
+        """Remove a parameter from both tunable and fixed dictionaries."""
+        self.params.pop(name, None)
+        self.fixed.pop(name, None)
+        return self
 
-    def get_variant(self, name: str) -> TemplateVariant:
-        return self.variants.get_variant(name)
-
-    def list_variants(self) -> List[str]:
-        return self.variants.list_variants()
+    def merge(self, other: "TemplateBase", overwrite: bool = True) -> "TemplateBase":
+        """Merge another template's tunable params, fixed constants, and constraints into this one."""
+        for k, spec in other.params.items():
+            if overwrite or (k not in self.params and k not in self.fixed):
+                self.fixed.pop(k, None)
+                self.params[k] = copy.deepcopy(spec)
+        for k, val in other.fixed.items():
+            if overwrite or (k not in self.fixed and k not in self.params):
+                self.params.pop(k, None)
+                self.fixed[k] = copy.deepcopy(val)
+        for c in other.constraints:
+            self.add_constraint(c)
+        return self
 
     # -------------------------------------------------------------------------
-    # Ax Search Space Conversion (Tunable Parameters Only)
+    # Ax 1.3 Conversion
     # -------------------------------------------------------------------------
-    def to_parameter_configs(
-        self,
-    ) -> List[Union[RangeParameterConfig, ChoiceParameterConfig]]:
-        """
-        Converts tunable parameters (self.params) into modern Ax ParameterConfig objects
-        (RangeParameterConfig, ChoiceParameterConfig).
-        Fixed parameters are excluded to avoid search space noise.
-        """
-        configs = []
+    def to_parameter_configs(self) -> List[ParameterConfig]:
+        """Convert tunable/derived parameters into Ax 1.3 `*ParameterConfig` objects."""
+        configs: List[ParameterConfig] = []
 
         for name, spec in self.params.items():
-            p_type = spec.get("type")
-            if p_type == "range":
+            p_kind = spec.get("type")
+            p_type = spec.get("parameter_type") or spec.get("value_type", "float")
+
+            if p_kind == "range":
+                scaling = spec.get("scaling")
+                if scaling is None:
+                    scaling = "log" if spec.get("log_scale", False) else "linear"
+                kwargs: Dict[str, Any] = {
+                    "name": name,
+                    "bounds": tuple(spec["bounds"]),
+                    "parameter_type": p_type,
+                    "scaling": scaling,
+                }
+                if spec.get("step_size") is not None:
+                    kwargs["step_size"] = spec["step_size"]
+                configs.append(RangeParameterConfig(**kwargs))
+
+            elif p_kind == "choice":
+                kwargs = {
+                    "name": name,
+                    "values": list(spec["values"]),
+                    "parameter_type": p_type,
+                    "is_ordered": spec.get("is_ordered"),
+                }
+                deps = spec.get("dependent_parameters") or spec.get("dependents")
+                if deps is not None:
+                    kwargs["dependent_parameters"] = deps
+                if spec.get("log_scale") is not None:
+                    kwargs["log_scale"] = spec["log_scale"]
+                configs.append(ChoiceParameterConfig(**kwargs))
+
+            elif p_kind == "derived":
                 configs.append(
-                    RangeParameterConfig(
+                    DerivedParameterConfig(
                         name=name,
-                        bounds=tuple(spec["bounds"]),
-                        parameter_type=spec.get("value_type", "float"),
-                        log_scale=spec.get("log_scale", False),
-                    )
-                )
-            elif p_type == "choice":
-                configs.append(
-                    ChoiceParameterConfig(
-                        name=name,
-                        values=spec["values"],
-                        parameter_type=spec.get("value_type", "str"),
-                        is_ordered=spec.get("is_ordered"),
+                        expression_str=spec["expression_str"],
+                        parameter_type=p_type,
                     )
                 )
 
         return configs
 
-    # -------------------------------------------------------------------------
-    # Hashing & Serialization
-    # -------------------------------------------------------------------------
-    
+    def get_constraints(self) -> List[str]:
+        return list(self.constraints)
 
+    # -------------------------------------------------------------------------
+    # Serialization
+    # -------------------------------------------------------------------------
     def to_dict(self) -> Dict[str, Any]:
         return {
             "name": self.name,
-            "params": self.params,
-            "fixed": self.fixed,
-            "variants": self.variants.to_dict(),
+            "params": copy.deepcopy(self.params),
+            "fixed": copy.deepcopy(self.fixed),
+            "constraints": list(self.constraints),
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TemplateBase":
         tpl = cls(name=data.get("name", "template"))
-        tpl.params = data.get("params", {})
-        tpl.fixed = data.get("fixed", {})
-        if "variants" in data:
-            tpl.variants = TemplateVariantList.from_dict(data["variants"])
+        tpl.params = copy.deepcopy(data.get("params", {}))
+        tpl.fixed = copy.deepcopy(data.get("fixed", {}))
+        tpl.constraints = list(data.get("constraints", []))
         return tpl
 
     def save(self, filepath: Optional[str] = None) -> str:
@@ -185,116 +244,78 @@ class TemplateBase:
     @classmethod
     def load(cls, filepath: str) -> "TemplateBase":
         with open(filepath, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+            data = yaml.safe_load(f) or {}
         return cls.from_dict(data)
 
 
-
-
-
-
 class TemplateDL(TemplateBase):
-    
-    
-    def __init__(self, name:str=None):
-        self.name = name if name is not None else self.__class__.__name__.lower()
-        self.variant = None
-        self.params = {}
-
-                
-        
-        self.add_fixed('nas_min_acc', 0.95, "float")
-                
-        self.add_fixed('task', "classification", "str")  # Default task is classification
-        self.add_fixed('criterion_type', "cross_entropy", "str")  # Default task is classification
-        self.add_fixed('model_type', "fc", "str")  # Default model type is fully connected (fc])
-        self.add_range('train_epochs', [1,10], "int")  # Default number of training epochs
-        #self.add_fixed('space_epochs', 1, "int")  # Default number of space epochs ( optimized for unchaning model weights)
-
-        self.add_fixed('template_name', self.name, "str")  # Default input data shape for MNIST
-        self.add_fixed('dataset_name', 'mnist', "str")  # Default input data shape for MNIST
-        
-
-
-        self.add_fixed('input_data_shape', 784, "int") 
-        self.add_range('input_hidden_dim', [64,512], "int") 
-
-        self.add_range('input_num_layers', [2,10], "int")
-        self.add_range('input_reduce_every', [2,8], "int")  # Default input size reduced every N layer. <1 no reduction
-        self.add_choice('input_dropout_every', [-1, 0, 1], "int") # 0 first only, -1 none, N>0 every N layer])
-        self.add_choice('input_batch_norm', [True,False], "bool")
-        self.add_choice('input_residual', [True,False], "bool")
-
-
-        self.add_fixed('output_data_shape', 10, "int") # -1: auto
-        self.add_range('output_hidden_dim', [64,256], "int") # -1: auto
-
-        self.add_range('output_num_layers', [2,4], "int") # -1: auto
-        self.add_range('output_reduce_every', [0,2], "int")  # Default input size reduced every N layer. <1 no reduction
-        self.add_choice('output_dropout_every', [-1,0,1], "int") # 0 first only, -1 none, N>0 every N layer])
-        self.add_choice('output_batch_norm', [True,False], "bool")
-        self.add_choice('output_residual', [True,False], "bool")
-
-
-        self.add_choice('activation', ['relu', 'leaky_relu'], "str")
-        self.add_range('dropout', [0.1,0.5], "float")
-        self.add_range('learning_rate', [0.0001, 0.01], "float", log_scale=True)
-        self.add_range('batch_size', [32,128], "int")
-
-    """
-        if variant == 'a':
-            template.add_choice('exp_metric_modularity', [False], 'bool')
-            template.add_choice('exp_modularizer', [False], 'bool')
-        elif variant == 'b':
-            template.add_choice('exp_metric_modularity', [True], 'bool')
-            template.add_choice('exp_modularizer', [False], 'bool')
-        elif variant == 'c':
-            template.add_choice('exp_metric_modularity', [False], 'bool')
-            template.add_choice('exp_modularizer', [True], 'bool')
-        elif variant == 'd':
-            template.add_choice('exp_metric_modularity', [True], 'bool')
-            template.add_choice('exp_modularizer', [True], 'bool')
-    """    
-        
-class TemplateAtlas(TemplateDL):
-    def __init__(self, name: str=None):
+    def __init__(self, name: Optional[str] = None):
         super().__init__(name)
 
-        self.add_choice('exp_metric_modularity', [True, False], 'bool')
-        self.add_choice('exp_modularizer', [True, False], 'bool')
+        self.add_fixed("nas_min_acc", 0.95, "float")
+        self.add_fixed("task", "classification", "str")
+        self.add_fixed("criterion_type", "cross_entropy", "str")
+        self.add_fixed("model_type", "fc", "str")
+        self.add_range("train_epochs", [1, 10], "int")
 
-        self.add_fixed('nas_min_mod_score', 0.2, "float")
-        
-        
-        self.add_range('modular_space_size', [3,8], "int")  # Default modular space size
-        self.add_range('modular_space_lr', [0.0001, 0.01], "float", log_scale=True) # Default modular space size
-        self.add_range('modular_space_active_q', [0.6,0.95], "float") # Default modular space size
-        self.add_choice('modular_space_distance', ['euclidean', 'cosine'], "str") # Default modular space size
-        self.add_range('modular_modularize_decay', [0.8, 0.99], "float") # Default modular space size
+        self.add_fixed("template_name", self.name, "str")
+        self.add_fixed("dataset_name", "mnist", "str")
+
+        self.add_fixed("input_data_shape", 784, "int")
+        self.add_range("input_hidden_dim", [64, 512], "int")
+        self.add_range("input_num_layers", [2, 10], "int")
+        self.add_range("input_reduce_every", [2, 8], "int")
+        self.add_choice("input_dropout_every", [-1, 0, 1], "int")
+        self.add_choice("input_batch_norm", [True, False], "bool")
+        self.add_choice("input_residual", [True, False], "bool")
+
+        self.add_fixed("output_data_shape", 10, "int")
+        self.add_range("output_hidden_dim", [64, 256], "int")
+        self.add_range("output_num_layers", [2, 4], "int")
+        self.add_range("output_reduce_every", [0, 2], "int")
+        self.add_choice("output_dropout_every", [-1, 0, 1], "int")
+        self.add_choice("output_batch_norm", [True, False], "bool")
+        self.add_choice("output_residual", [True, False], "bool")
+
+        self.add_choice("activation", ["relu", "leaky_relu"], "str")
+        self.add_range("dropout", [0.1, 0.5], "float")
+        self.add_range("learning_rate", [0.0001, 0.01], "float", scaling="log")
+        self.add_range("batch_size", [32, 128], "int")
 
 
-        self.add_range('modular_space_loss_on', [0, 1], "float")
-        self.add_range('modular_space_loss_off', [0, 1], "float")
-        self.add_range('modular_space_loss_centers', [0, 1], "float")
-        self.add_range('modular_space_loss_batch', [0, 1], "float")
-        self.add_range('modular_space_loss_alignment', [0, 1], "float")
+class TemplateAtlas(TemplateDL):
+    def __init__(self, name: Optional[str] = None):
+        super().__init__(name)
+
+        self.add_choice("exp_metric_modularity", [True, False], "bool")
+        self.add_choice("exp_modularizer", [True, False], "bool")
+        self.add_fixed("nas_min_mod_score", 0.2, "float")
+
+        self.add_range("modular_space_size", [3, 8], "int")
+        self.add_range("modular_space_lr", [0.0001, 0.01], "float", scaling="log")
+        self.add_range("modular_space_active_q", [0.6, 0.95], "float")
+        self.add_choice("modular_space_distance", ["euclidean", "cosine"], "str")
+        self.add_range("modular_modularize_decay", [0.8, 0.99], "float")
+
+        self.add_range("modular_space_loss_on", [0.0, 1.0], "float")
+        self.add_range("modular_space_loss_off", [0.0, 1.0], "float")
+        self.add_range("modular_space_loss_centers", [0.0, 1.0], "float")
+        self.add_range("modular_space_loss_batch", [0.0, 1.0], "float")
+        self.add_range("modular_space_loss_alignment", [0.0, 1.0], "float")
 
 
 class TemplateCNN(TemplateAtlas):
+    def __init__(self, name: Optional[str] = None):
+        super().__init__(name)
 
-    def __init__(self, name: str=None):
-        super().__init__(name)   
-        
-        self.add_fixed('model_type', "cnn", "str")  # Default model type is convolutional neural network (cnn)
-        self.add_choice('cnn_kernel_size', [3,5,7], "int")
-        self.add_range('modular_cnn_locality', [0.8, 0.99], "float") # Default modular space size
+        self.add_fixed("model_type", "cnn", "str")
+        self.add_choice("cnn_kernel_size", [3, 5, 7], "int")
+        self.add_range("modular_cnn_locality", [0.8, 0.99], "float")
 
 
 class TemplateFC(TemplateAtlas):
+    def __init__(self, name: Optional[str] = None):
+        super().__init__(name)
 
-    def __init__(self, name: str=None):
-        super().__init__(name)   
-        
-        self.add_fixed('model_type', "fc", "str")  # Default model type is fully connected (fc)
-        self.add_range('input_hidden_dim', [64,512], "int")
-
+        self.add_fixed("model_type", "fc", "str")
+        self.add_range("input_hidden_dim", [64, 512], "int")

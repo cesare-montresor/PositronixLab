@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 
 def sigreg(pos: torch.Tensor, sketch_dim: int = 64, method: str = "weak") -> torch.Tensor:
+    """Dispatch isotropic Gaussian regularization ('weak' covariance or 'strong' characteristic function)."""
     if method == "weak":
         return sigreg_weak(pos, sketch_dim)
     elif method == "strong":
@@ -13,6 +14,7 @@ def sigreg(pos: torch.Tensor, sketch_dim: int = 64, method: str = "weak") -> tor
         raise ValueError(f"Unknown method: {method}")
 
 def sigreg_weak(pos: torch.Tensor, sketch_dim: int = 64) -> torch.Tensor:
+    """Frobenius distance between (optionally sketched) empirical covariance and identity."""
     # https://arxiv.org/abs/2603.05924v1
     N, D = pos.shape
     if D > sketch_dim:
@@ -25,6 +27,7 @@ def sigreg_weak(pos: torch.Tensor, sketch_dim: int = 64) -> torch.Tensor:
     return torch.sqrt((cov - eye).pow(2).sum() + 1e-12)   # Frobenius, eps contro il NaN
 
 def sigreg_strong(pos: torch.Tensor, sketch_dim: int = 64) -> torch.Tensor:
+    """Sliced characteristic-function distance to standard normal N(0, I)."""
     # https://arxiv.org/abs/2511.08544
     N, D = pos.shape
     A = torch.randn(D, sketch_dim, device=pos.device, dtype=pos.dtype)
