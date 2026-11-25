@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "positronixlab"
-version="0.1.1"
+version="0.1.2"
 description = "A comprehensive framework to explore modularity of neural networks"
 readme = "README.md"
 license = "MPL-2.0"
