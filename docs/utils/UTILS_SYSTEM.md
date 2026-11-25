@@ -9,15 +9,14 @@
 ```
 positronixlab/utils/
 ├── __init__.py          # Empty package marker (import from positronixlab.utils.utils)
-├── utils.py             # All 17 utility functions and module-level state
-├── analysis.md          # Code review, bug catalog, and recommendations
-├── docs/
-│   ├── UTILS_SYSTEM.md  # Architecture and technical reference (this file)
-│   └── UTILS_USAGE.md   # Practical usage guide and examples
-├── tests/
-│   └── test_utils.py    # Pytest unit test suite
-└── examples/
-    └── example_utils.py # Self-contained CPU example script
+└── utils.py             # All 21 utility functions and module-level state
+
+docs/utils/
+├── UTILS_SYSTEM.md      # Architecture and technical reference (this file)
+└── UTILS_USAGE.md       # Practical usage guide and examples
+tests/utils/test_utils.py
+examples/utils/example_utils.py
+reports/utils_analysis.md
 ```
 
 ## 3. Function Inventory
@@ -45,15 +44,15 @@ All functions live in [`positronixlab/utils/utils.py`](file:///home/cesare/Proje
 | **Metrics & Tracking** | `truth_table_from_cm` | `(confusion_matrix: np.ndarray)` | Computes per-class `(tp, fp, fn, tn)` rows from an `N x N` confusion matrix. |
 | | `f1s_from_truth_table` | `(tt: np.ndarray)` | Computes per-class F1 scores from a `(N, 4)` truth table. |
 | | `set_best` | `(bests, key, val, min=True)` | Tracks best (min or max) value per key in a dict; returns `(rel_improvement, old_val)` or `(-1, current_best)`. |
-| **Data Serialization** | `save_data` | `(path: str, data)` | Saves `.json`, `.yaml`, `.pkl`/`.pickle`, or `.pt`/`.pth`; creates parent dirs. |
-| | `load_data` | `(path: str)` | Loads `.json`, `.yaml` (currently broken on PyYAML 6+), `.pkl`/`.pickle`, or `.pt`/`.pth` (`weights_only=True`). |
+| **Data Serialization** | `save_data` | `(path: str, data: Any, **kwargs: Any) -> bool` | Saves `.json` (default `indent=2`), `.yaml`/`.yml` (`yaml.safe_dump`), `.pkl`/`.pickle`, or `.pt`/`.pth` (case-insensitive extensions); creates parent dirs; forwards `**kwargs`. |
+| | `load_data` | `(path: str, **kwargs: Any) -> Any` | Loads `.json`, `.yaml`/`.yml` (`yaml.safe_load`, or `yaml.load` if `'Loader'` in `kwargs`), `.pkl`/`.pickle`, or `.pt`/`.pth` (defaults `weights_only=True`); case-insensitive; forwards `**kwargs`. |
 
 ## 4. Module-Level State & Side Effects
 
 `utils.py` defines three module-level globals:
 - `debug = False` (`line 18`): Intended as a global debug flag for `check_tensor` and `info_tensor`, but bound early as default argument values at import time (mutating `utils.debug` at runtime does not affect default arguments).
 - `last_session_path = None` (`line 20`): Process-global cache mutated by `session_path()`. Not thread-safe.
-- `logger = logging.getLogger(__name__)` (`line 23`): Currently unused (`save_data`/`load_data` call root `logging.error`).
+- `logger = logging.getLogger(__name__)` (`line 23`): Module logger used by `save_data`/`load_data` for error reporting.
 
 ### Dependency Profile
 Importing `positronixlab.utils.utils` eagerly imports `torch`, `numpy`, `yaml` (PyYAML), `pickle`, `multiprocessing`, `hashlib`, `json`, `re`, and `threading`.
@@ -63,5 +62,4 @@ Importing `positronixlab.utils.utils` eagerly imports `torch`, `numpy`, `yaml` (
 - **Thread safety**: `suppress_output()` mutates process-wide file descriptors `1` or `2` and is not thread-safe. `session_path()` mutates module global `last_session_path` without locking.
 - **Python stdio buffering**: `suppress_output()` operates on OS-level file descriptors without flushing `sys.stdout`/`sys.stderr`. Always flush Python streams inside the block (or use it specifically for C/C++ library output such as FAISS).
 - **Truthiness of `is_valid_tensor()`**: Always check `is_valid_tensor(t) is True`, never `if is_valid_tensor(t):`, because failure codes are non-empty (truthy) strings.
-- **YAML loading**: `load_data()` currently calls `yaml.load(f)` without `Loader`, raising `TypeError` under PyYAML 6+. Use `.json`, `.pkl`, or `.pt` until fixed.
-- **PyTorch `weights_only=True`**: `load_data()` loads `.pt`/`.pth` files with `weights_only=True`; only tensors and safe primitives can be deserialized.
+- **PyTorch `weights_only=True`**: `load_data()` defaults to `weights_only=True` for `.pt`/`.pth` files; pass `weights_only=False` (or `map_location=...`) via `**kwargs` when loading arbitrary checkpoints.

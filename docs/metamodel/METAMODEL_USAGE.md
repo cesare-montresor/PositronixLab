@@ -118,7 +118,7 @@ You can also register a custom loss directly on `model.criterion` after `MetaMod
 
 ## 5. Sample Transforms with `MetaTransform`
 
-`MetaTransform` builds a `torchvision.transforms.Compose` pipeline from string names and executes it via `.apply(x)`:
+`MetaTransform` builds a `torchvision.transforms.Compose` pipeline from string names and is callable directly (`t(sample)`) or via `t.apply(sample)`:
 
 ```python
 import torch
@@ -150,5 +150,5 @@ reloaded.load(saved_path)
 Run the bundled CPU example from the repository root:
 
 ```bash
-.venv/bin/python positronixlab/metamodel/examples/example_metamodel.py
+.venv/bin/python examples/metamodel/example_metamodel.py
 ```

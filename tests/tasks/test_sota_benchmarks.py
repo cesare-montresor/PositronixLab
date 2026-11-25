@@ -9,14 +9,17 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
-from positronixlab.dataprovider.sota import DataProviderLoader
-from positronixlab.metamodel.sota import MASKABLE_LAYER_TYPES, ModelLoader
+from positronixlab.baselines import (
+    MASKABLE_LAYER_TYPES,
+    CsordasGumbelDiscoverer,
+    DataProviderLoader,
+    ModelLoader,
+)
 from positronixlab.modularobserver.modularobserver import ModularObserver
 from positronixlab.pipeline import PipelineConfig
 from positronixlab.spacemath.reducers import get_reducer
-from positronixlab.tasks.sota import (
+from positronixlab.tasks import (
     AtlasDiscoverer,
-    CsordasGumbelDiscoverer,
     ModularityBenchmark,
 )
 

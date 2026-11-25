@@ -44,7 +44,6 @@ Callback-driven training, validation, and evaluation engine for PyTorch models i
 | `positronixlab/deeplearning/deeplearning_base.py` | `DeeplearningBase`: core batch/epoch loop, metric registry, and lifecycle callbacks. |
 | `positronixlab/deeplearning/deeplearning_train.py` | `DeeplearningTrain` (train/val/inference orchestrator) and `EarlyStopping`. |
 | `positronixlab/deeplearning/deeplearning_eval.py` | `DeeplearningEval`: evaluation wrapper around `DeeplearningBase`. |
-| `positronixlab/deeplearning/deeplearning_legacy.py` | Archived pre-refactor implementation (do not use). |
 
 ---
 
@@ -58,13 +57,12 @@ Callback-driven training, validation, and evaluation engine for PyTorch models i
 - `DeeplearningBase.__init__` reads `config.task`.
 - `DeeplearningTrain.__init__` reads `config.optimizer` (`"adamw"`, `"sgd"`, or `"adam"`) and `config.learning_rate`.
 - `DeeplearningTrain.inference()` reads `config.task` (computes accuracy and optional confusion matrix when `config.task == "classification"`).
-- Note: `TrainConfig` alone does **not** define `task`; compose it with `DataConfig` (or a custom `BaseConfig` subclass defining `task: str`) before passing it to `Deeplearning*`.
+- Note: `TrainConfig` alone does **not** define `task`; compose it with `MetaModelConfig` (which defines `task: str = "classification"`) or a custom `BaseConfig` subclass defining `task: str` before passing it to `Deeplearning*`.
 
 ### DataLoader / Batch Contract
-- `DeeplearningBase.process_batch()` accepts either:
+- Both `DeeplearningBase.process_batch()` and `DeeplearningTrain.inference()` accept either:
   - 2-tuples `(x, y)` (standard supervised batches), or
   - 3-tuples `(x, y, idx)` (indexed batches from `IndexedDataset`).
-- `DeeplearningTrain.inference()` currently only unpacks 2-tuples `(x, y)`.
 - `DeeplearningTrain` expects a `DataProvider`-like object exposing `.train` and `.val` `DataLoader` attributes.
 
 ---
@@ -142,7 +140,7 @@ DeeplearningTrain(config: PipelineConfig, model: nn.Module, dp: DataProvider, dr
 
 #### Key Methods
 - `add_metric(name, criterion=None, minimize=True, backward=False)`: registers the metric on both `trainer` and `validator`.
-- `add_early_stopping(max_attempts=3, min_gain=0.01, metric="loss")`: attaches an `EarlyStopping` instance monitoring `val_metrics[metric]`.
+- `add_early_stopping(max_attempts=3, min_gain=0.01, metric="loss", minimize=None)`: attaches an `EarlyStopping` instance monitoring `val_metrics[metric]`. When `minimize is None`, auto-infers `minimize = "loss" in metric.lower()`.
 - `on_prediction / on_batch_start / on_batch_end / on_epoch_start / on_epoch_end(..., phase="both")`: forwards callbacks to `"train"`, `"val"`, or `"both"`. *(Note: `on_batch_start` does not currently forward `with_data`.)*
 - `sanity_check(must_backward=True)`: verifies at least one metric (and one `backward=True` metric when `must_backward=True`) is registered.
 - `train(epoch_total: int) -> dict`: runs `epoch_total` epochs (forced to `1` when `draft=True`) of train + validate, appends to `self.history`, and checks early stopping.
@@ -155,10 +153,9 @@ DeeplearningTrain(config: PipelineConfig, model: nn.Module, dp: DataProvider, dr
 ### `EarlyStopping` (`deeplearning_train.py`)
 
 ```python
-EarlyStopping(max_attempts: int = 3, min_gain: float = 0.01)
+EarlyStopping(max_attempts: int = 3, min_gain: float = 0.01, minimize: bool = False)
 ```
-- `should_stop(metric) -> bool`: computes `gain = metric - self.metric_last`. Resets `num_attempts` when `gain >= min_gain`; returns `True` when `num_attempts > max_attempts`.
-- > **Warning:** Currently maximizes `metric` only and initializes `metric_last = 0`. See `analysis.md` (Bug B1) before enabling with `metric="loss"`.
+- `should_stop(metric) -> bool`: records the first observed value as baseline (`metric_last` initializes to `None`, returning `False`). On subsequent calls, computes `gain = self.metric_last - metric` when `minimize=True` or `metric - self.metric_last` when `minimize=False`, resets `num_attempts` when `gain >= min_gain`, and returns `True` when `num_attempts >= max_attempts`.
 
 ---
 

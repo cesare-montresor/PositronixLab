@@ -73,6 +73,7 @@ All ingestion methods are thread-safe and accept Python scalars, NumPy arrays, o
 - `ui.set_model_graph(graph: dict)` — `{"nodes": {id: {"class_name": ...}}, "edges": [{"source": ..., "target": ...}]}`.
 - `ui.set_observed_layers(observed_layers)` — `{layer_id: {"class_name": ..., "unit_type": ..., "in_units": ..., "out_units": ..., "activation_fn": ...}}` or a list of layer IDs.
 - `ui.set_space_stats(stats: dict)` — `{layer_id: array_of_shape_(num_cus, 2)}` with `[count_on, count_off]` per CU (controls marker size in `LayerBoardDisplay`).
+- `ui.set_position_progress(progress: Optional[Dict[str, Any]])` — updates UMAP collection progress (`{"required": n, "layers": {layer: count}}`) displayed before initial projection is ready.
 
 ### Scalar Metrics
 - `ui.ingest_stat(family: str, msg: dict)` — primary entry point for `StatsPlugin` messages `{"layer_id", "label", "value", "seq", "t"}`.
@@ -115,7 +116,7 @@ metrics_tree = ui.home_layout.training_metrics.render()
 board_tree = ui.home_layout.layer_board.render(visible_layers=["fc1"])
 ```
 
-See [example_modularui_headless.py](file:///home/cesare/Projects/PositronixLab/positronixlab/modularui/examples/example_modularui_headless.py) for a complete runnable example.
+See [example_modularui_headless.py](file:///home/cesare/Projects/PositronixLab/examples/modularui/example_modularui_headless.py) for a complete runnable example.
 
 ---
 
@@ -125,4 +126,4 @@ See [example_modularui_headless.py](file:///home/cesare/Projects/PositronixLab/p
 - Pass a 2-tuple `(epoch, epochs)` to `ui.set_var("epoch", ...)` — scalar integers are not accepted by `HomeLayout._format_epoch`.
 - Keep `add_position_step(..., index=...)` contiguous (`0, 1, 2, ...`) when pairing with `add_cluster` so `_position_offset_locked` aligns relative and absolute indices.
 - Avoid passing a `dict` of CUDA tensors to `add_spaceloss_point`; move scalar values to CPU/Python floats first.
-- See [analysis.md](file:///home/cesare/Projects/PositronixLab/positronixlab/modularui/analysis.md) for the full list of known defects and design notes.
+- See [`reports/modularui_analysis.md`](file:///home/cesare/Projects/PositronixLab/reports/modularui_analysis.md) for the full list of known defects and design notes.

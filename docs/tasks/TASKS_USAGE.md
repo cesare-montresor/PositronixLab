@@ -1,151 +1,151 @@
 # Tasks Usage Guide
 
-How to run downstream modularity and compositionality evaluations on a trained
-PyTorch model using `positronixlab.tasks.compositionality`.
-
-## Prerequisites
-
-- A trained PyTorch `nn.Module` (must expose `.device` if used with `AtlasCheck`;
-  `MetaModel` provides this automatically).
-- A `DataProvider` (or compatible object) exposing `.num_classes`, `.train`, and
-  `.test` (or `.val`) `DataLoader`s yielding `(x, y)` or `(x, y, idx)`.
-- For `AtlasCheck`: a `PipelineConfig` and per-layer 1D cluster assignment
-  tensors `clusters: Dict[str, torch.Tensor]` (one integer cluster ID per output
-  neuron of each observable `nn.Linear` layer, placed on `model.device`).
+Practical recipes for discovering subnetworks (`AtlasDiscoverer`, `RandomMaskDiscoverer`), applying and manipulating `SubnetworkMask`s (`MaskApplier`), and running multi-method comparisons (`ModularityBenchmark`), plus the earlier `compositionality` prototype.
 
 ---
 
-## 1. Evaluating Cluster Modularity (`AtlasCheck`)
+## 1. Discovering Subnetworks with `AtlasDiscoverer`
 
 ```python
-import torch
+from positronixlab.baselines import ModelLoader, DataProviderLoader
+from positronixlab.tasks import AtlasDiscoverer, MaskApplier, default_eval_accuracy
+
+dp = DataProviderLoader.create("csordas:add_mul", batch_size=32, num_workers=0)
+model = ModelLoader.create(
+    "csordas:mlp",
+    n_inputs=dp.num_features,
+    n_outputs=dp.num_classes,
+    layer_sizes=[64, 64],
+)
+target_layers = model.maskable_layers()
+
+atlas = AtlasDiscoverer(atlas_epochs=3, space_dim=8, top_cluster_fraction=0.5)
+
+# Discover masks for every subtask using one shared atlas fit
+subtask_loaders = {name: dp.get_subtask(name).train_loader() for name in dp.list_subtasks()}
+atlas_masks = atlas.discover_subtasks(
+    model,
+    reference_dataloader=dp.train,
+    subtask_dataloaders=subtask_loaders,
+    target_layers=target_layers,
+)
+
+# Apply a discovered mask cleanly without mutating model weights
+add_mask = atlas_masks["add"]
+with MaskApplier(model, add_mask, mode="retain"):
+    retained_acc = default_eval_accuracy(model, dp.get_subtask("add").test_loader())
+
+with MaskApplier(model, add_mask, mode="zero_ablate"):
+    ablated_acc = default_eval_accuracy(model, dp.get_subtask("add").test_loader())
+```
+
+### Decoupled Attribution & Sparsity Sweeps
+
+Fit the atlas once, then sweep `top_cluster_fraction` cheaply without re-fitting:
+
+```python
+positions, clusters = atlas.fit_atlas(model, dp.train, target_layers=target_layers)
+masks = atlas.attribute_from_clusters(model, clusters, subtask_loaders, top_cluster_fraction=0.4)
+```
+
+---
+
+## 2. Manipulating & Comparing `SubnetworkMask`s
+
+```python
+from positronixlab.tasks import SubnetworkMask
+
+m_add = atlas_masks["add"]
+m_mul = atlas_masks["mul"]
+
+# Set algebra
+shared = m_add & m_mul
+union = m_add | m_mul
+add_only = m_add - m_mul
+complement = m_add.invert()
+
+# Projection & metrics
+weight_mask = m_add.to_weight_mask(model)
+print("Sparsity:", m_add.sparsity(), "IoU:", m_add.iou(m_mul), "IoMin:", m_add.iomin(m_mul))
+
+# Persistence
+m_add.save("/tmp/add_mask.pt")
+reloaded = SubnetworkMask.load("/tmp/add_mask.pt")
+```
+
+---
+
+## 3. Multi-Method Benchmarking (`ModularityBenchmark`)
+
+Compare `AtlasDiscoverer` against `CsordasGumbelDiscoverer`, `NeuroSurgeonDiscoverer`, and `RandomMaskDiscoverer` on the exact same model and subtasks:
+
+```python
+from positronixlab.baselines import CsordasGumbelDiscoverer, NeuroSurgeonDiscoverer
+from positronixlab.tasks import ModularityBenchmark, RandomMaskDiscoverer
+
+csordas = CsordasGumbelDiscoverer(epochs=5)
+rand = RandomMaskDiscoverer(density=0.5, seed=42)
+
+masks_by_method = {
+    "atlas": atlas_masks,
+    "csordas": {
+        name: csordas.discover(model, loader, target_layers=target_layers, mask_name=f"csordas_{name}")
+        for name, loader in subtask_loaders.items()
+    },
+    "random": {
+        name: rand.discover(model, loader, target_layers=target_layers, mask_name=f"rand_{name}")
+        for name, loader in subtask_loaders.items()
+    },
+}
+
+test_loaders = {name: dp.get_subtask(name).test_loader() for name in dp.list_subtasks()}
+bench = ModularityBenchmark(modes=("retain", "zero_ablate"), seed=42)
+report = bench.compare_methods(
+    model,
+    masks_by_method,
+    test_loaders,
+    dataset_name="csordas:add_mul",
+    model_arch="csordas:mlp",
+    reference_method="atlas",
+)
+
+print(report.summary_metrics())
+report.save_json("/tmp/benchmark_report.json")
+report.save_csv("/tmp/benchmark_report.csv")
+```
+
+---
+
+## 4. Earlier Compositionality Prototype (`tasks.compositionality`)
+
+For confusion-matrix analysis with pre-computed cluster assignments:
+
+```python
 from positronixlab.pipeline import PipelineConfigV1
 from positronixlab.tasks.compositionality.atlas_check import AtlasCheck
 
-config = PipelineConfigV1()
-atlas = AtlasCheck(
-    config=config,
-    model=model,
-    dataprovider=dp,
-    clusters=clusters,  # {layer_name: LongTensor[out_features]} on model.device
-)
+atlas = AtlasCheck(config=PipelineConfigV1(), model=model, dataprovider=dp, clusters=clusters)
 atlas.run()
-
-# Per-layer and model-wide purity, entropy, KL divergence
-scores = atlas.modularity_score(kld_target="y")  # or "uniform"
-print(scores["model"])
-
-# Extract per-class neuron masks (excess probability > threshold)
-raw_atlas_masks = atlas.extract_weightmasks(threshold=0.05)
-
-# IMPORTANT: Detach observer forward hooks before running other tasks on `model`
-atlas.observer.on_forward_layer(None)
-```
-
-### Adapting Atlas Masks for `StaticMaskApplier`
-
-`AtlasCheck.extract_weightmasks()` returns 1D neuron masks keyed by dotted module
-names (e.g. `"net.0"`), whereas `StaticMaskApplier` expects underscore-sanitized
-keys (`"net_0"`) and tensors broadcastable to `module.weight.shape`
-(`(out_features, in_features)`):
-
-```python
-def adapt_atlas_masks_for_applier(raw_masks):
-    adapted = {}
-    for cls_id, layer_masks in raw_masks.items():
-        adapted[cls_id] = {
-            layer_name.replace(".", "_"): mask.float().unsqueeze(1)
-            for layer_name, mask in layer_masks.items()
-        }
-    return adapted
-
-atlas_masks = adapt_atlas_masks_for_applier(raw_atlas_masks)
+scores = atlas.modularity_score(kld_target="y")
+raw_masks = atlas.extract_weightmasks(threshold=0.05)
+atlas.observer.on_forward_layer(None)  # detach observer hooks
 ```
 
 ---
 
-## 2. Optimizing Csordás Weight Masks (`WeightmaskCheck`)
-
-```python
-from positronixlab.tasks.compositionality.weightmask_check import (
-    WeightmaskCheck,
-    WeightMasksMetrics,
-)
-
-# Select target layers (e.g. Linear layers with a `weight` attribute)
-target_layers = {
-    name: mod for name, mod in model.named_modules()
-    if isinstance(mod, torch.nn.Linear)
-}
-
-# Save requires_grad state (WeightmaskCheck currently leaves params frozen)
-orig_requires_grad = {p: p.requires_grad for p in model.parameters()}
-
-# Ensure every batch contains at least one sample per class to avoid NaN loss
-csordas = WeightmaskCheck(model=model, dataprovider=dp)
-csordas_masks = csordas.run(target_layers=target_layers, num_epochs=5, lr=1e-2)
-
-# Restore requires_grad
-for p, req in orig_requires_grad.items():
-    p.requires_grad = req
-
-# Inspect mask overlap between two classes
-overlap = WeightMasksMetrics.evaluate_network_modularity(
-    csordas_masks[0], csordas_masks[1]
-)
-print("Class 0 vs Class 1 overlap:", overlap)
-```
-
----
-
-## 3. Running Compositionality & Interference Checks (`CompositionalityCheck`)
-
-```python
-from positronixlab.tasks.compositionality.compositionality import (
-    CompositionalityCheck,
-    StaticMaskApplier,
-)
-
-checker = CompositionalityCheck(
-    model=model,
-    dataloader=dp.test,
-    num_classes=dp.num_classes,
-)
-
-results = checker.run(
-    atlas_masks=atlas_masks,
-    csordas_masks=csordas_masks,
-)
-
-print(f"Untainted accuracy: {results['untainted']['accuracy']:.4f}")
-for c, comp in results["comparison"].items():
-    print(
-        f"Class {c}: Atlas recall={comp['atlas_target_recall']:.3f}, "
-        f"Csordas recall={comp['csordas_target_recall']:.3f}, "
-        f"CM Fro diff={comp['cm_frobenius_diff']:.3f}"
-    )
-```
-
-### Applying a Single Mask Manually
-
-```python
-with StaticMaskApplier(model, atlas_masks[0]):
-    logits = model(x_batch)
-# Original nn.Parameter weights are automatically restored on exit
-```
-
----
-
-## 4. End-to-End Example (CPU, No Fixtures Required)
-
-Run the synthetic CPU example from the repository root:
+## 5. Running Examples & Tests
 
 ```bash
-.venv/bin/python positronixlab/tasks/examples/example_compositionality.py
-```
+# Head-to-head Atlas vs SOTA CPU benchmark
+.venv/bin/python examples/tasks/example_atlas_vs_sota.py
 
-And run the unit test suite:
+# ModularityBenchmark comparison example
+.venv/bin/python examples/tasks/example_sota_benchmark.py
 
-```bash
-.venv/bin/pytest positronixlab/tasks/tests -v
+# Earlier compositionality prototype example
+.venv/bin/python examples/tasks/example_compositionality.py
+
+# Run all tasks unit tests
+TRITON_CACHE_DIR=/tmp/triton_cache TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_cache \
+  .venv/bin/pytest tests/tasks -v
 ```

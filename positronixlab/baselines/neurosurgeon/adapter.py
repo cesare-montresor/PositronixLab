@@ -21,49 +21,42 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import torch
 import torch.nn as nn
 
-from positronixlab.metamodel.sota.base import get_maskable_layer_names
+from positronixlab.baselines.base import get_maskable_layer_names
 
 
 def _import_neurosurgeon():
-    """Import ``NeuroSurgeon`` (Models + Masking), falling back to ``libs/NeuroSurgeon``.
+    """Import pip-installed ``NeuroSurgeon`` (Models + Masking).
 
     Handles ``NeuroSurgeon``'s undeclared ``torchmetrics`` dependency in
     ``NeuroSurgeon.Probing.circuit_probe`` so ``Models`` and ``Masking`` work
     even when ``torchmetrics`` is not installed.
     """
     import importlib
+    import importlib.util
     import types
-
-    repo_root = Path(__file__).resolve().parents[3]
-    libs_ns = repo_root / "libs" / "NeuroSurgeon"
-    if libs_ns.exists() and str(libs_ns) not in sys.path:
-        sys.path.insert(0, str(libs_ns))
 
     try:
         return importlib.import_module("NeuroSurgeon")
     except ModuleNotFoundError as exc:
         if exc.name != "torchmetrics":
             raise ImportError(
-                "NeuroSurgeon is not installed or accessible. "
-                "Install it with `pip install -e libs/NeuroSurgeon`."
+                "NeuroSurgeon is not installed. Install with `pip install NeuroSurgeon` "
+                "(or `pip install positronixlab[baselines]`)."
             ) from exc
 
-        # Load NeuroSurgeon.Masking & NeuroSurgeon.Models without triggering Probing
-        ns_pkg_dir = libs_ns / "NeuroSurgeon"
-        if not ns_pkg_dir.is_dir():
-            # Try locating via existing spec if installed in site-packages
-            spec = importlib.util.find_spec("NeuroSurgeon")
-            if spec and spec.submodule_search_locations:
-                ns_pkg_dir = Path(list(spec.submodule_search_locations)[0])
-        if not ns_pkg_dir.is_dir():
-            raise ImportError(
-                "NeuroSurgeon requires `torchmetrics` for `Probing`; install "
-                "`torchmetrics` or ensure `libs/NeuroSurgeon` is present."
-            ) from exc
-
-        # Clean any half-initialized submodules before creating lightweight package stub
+        # Clean any half-initialized submodules before locating the installed package dir
         for k in [k for k in sys.modules if k == "NeuroSurgeon" or k.startswith("NeuroSurgeon.")]:
             sys.modules.pop(k, None)
+
+        spec = importlib.util.find_spec("NeuroSurgeon")
+        ns_pkg_dir: Optional[Path] = None
+        if spec and spec.submodule_search_locations:
+            ns_pkg_dir = Path(list(spec.submodule_search_locations)[0])
+        if ns_pkg_dir is None or not ns_pkg_dir.is_dir():
+            raise ImportError(
+                "NeuroSurgeon requires `torchmetrics` for `Probing`; install "
+                "`torchmetrics` or reinstall `NeuroSurgeon`."
+            ) from exc
 
         pkg = types.ModuleType("NeuroSurgeon")
         pkg.__path__ = [str(ns_pkg_dir)]  # type: ignore[attr-defined]
@@ -74,8 +67,8 @@ def _import_neurosurgeon():
         return pkg
     except ImportError as exc:
         raise ImportError(
-            "NeuroSurgeon is not installed or accessible. "
-            "Install it with `pip install -e libs/NeuroSurgeon`."
+            "NeuroSurgeon is not installed. Install with `pip install NeuroSurgeon` "
+            "(or `pip install positronixlab[baselines]`)."
         ) from exc
 
 
@@ -229,7 +222,7 @@ class NeuroSurgeonWrappedModel(nn.Module):
 
     def extract_subnetwork_mask(self, name: str = "neurosurgeon") -> Any:
         """Export discovered mask as a canonical :class:`SubnetworkMask`."""
-        from positronixlab.tasks.sota.masks import SubnetworkMask
+        from positronixlab.tasks.masks import SubnetworkMask
 
         granularity = "unit" if self.mask_unit == "neuron" else "weight"
         binary_masks, raw_scores = self.extract_mask_tensors(binarize=True)

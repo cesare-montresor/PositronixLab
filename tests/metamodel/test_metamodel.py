@@ -487,10 +487,6 @@ class TestMetaTransform:
         with pytest.raises(ValueError, match="Unsupported transform type"):
             MetaTransform(["does_not_exist"])
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Design gap in metatransform.py:17-57: MetaTransform does not implement __call__",
-    )
     def test_metatransform_is_callable(self):
         t = MetaTransform(["flatten"])
         out = t(torch.ones(2, 3))

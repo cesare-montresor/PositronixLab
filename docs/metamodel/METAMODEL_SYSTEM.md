@@ -33,11 +33,11 @@ For `task="autoencoder"`, `nn_output` mirrors `nn_input` in reverse order (swapp
 
 | File | Public Exports | Responsibility |
 |---|---|---|
-| `positronixlab/metamodel/__init__.py` | `BaseModel`, `MetaCriterion`, `MetaMetric`, `MetaModel`, `MetaModelConfig`, `MetaTransform`, `ResNet` | Package re-exports. |
+| `positronixlab/metamodel/__init__.py` | `BaseModel`, `MetaCriterion`, `MetaMetric`, `MetaModel`, `MetaModelConfig`, `MetaTransform`, `ResNet`, plus lazy `ModelLoader`, `SOTAModel`, `OddOneOutHead` (from `positronixlab.baselines`) | PEP 562 lazy package re-exports (no eager `parallelazy` import). |
 | `positronixlab/metamodel/config.py` | `MetaModelConfig` | Composable `BaseConfig` dataclass holding architecture, task, criterion, and block hyperparameters. |
 | `positronixlab/metamodel/metamodel.py` | `BaseModel`, `MetaModel`, `ResNet` | Base checkpoint/device module, 3-stage configurable model builder, and residual wrapper. |
 | `positronixlab/metamodel/metacriterion.py` | `MetaCriterion`, `MetaMetric` | Task-aware loss dispatch and evaluation metric helpers with custom registration hooks. |
-| `positronixlab/metamodel/metatransform.py` | `MetaTransform` | String-configured `torchvision.transforms.Compose` wrapper with `.apply(x)`. |
+| `positronixlab/metamodel/metatransform.py` | `MetaTransform` | String-configured `torchvision.transforms.Compose` wrapper implementing both `.apply(x)` and `__call__(x)`. |
 
 ---
 
@@ -149,7 +149,7 @@ Builds a `torchvision.transforms.Compose` pipeline from a list of string keys an
 
 ## Known Limitations & Caveats
 
-See [`analysis.md`](../analysis.md) for the complete defect catalog. Key current caveats:
+See [`reports/metamodel_analysis.md`](file:///home/cesare/Projects/PositronixLab/reports/metamodel_analysis.md) for the complete defect catalog. Key current caveats:
 
 - **`MetaModel.__init__` ignores `device`**: always invokes `to_gpu()` on construction; call `model.to_cpu()` explicitly for CPU execution.
 - **`output_num_layers=1`**: sets output dimension to `input_hidden_dim` instead of `output_data_shape` (use `output_num_layers >= 2`).
@@ -158,4 +158,3 @@ See [`analysis.md`](../analysis.md) for the complete defect catalog. Key current
 - **`dropout_every=0`**: enables dropout on layer 0 rather than disabling it; pass `-1` to disable dropout.
 - **CNN classification/regression & multi-layer CNN autoencoders**: currently broken (missing flatten + `BatchNorm2d` after `Linear` for classification/regression; `layer_size` lacks `ConvTranspose2d` for multi-layer CNN autoencoders).
 - **`MetaMetric.custom_metric`**: instance dict shadows the `custom_metric(name, fn)` method.
-- **`MetaTransform`**: uses `.apply(x)` and does not implement `__call__`.

@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import torch
 
-from positronixlab.dataprovider.sota import DataProviderLoader
-from positronixlab.metamodel.sota import ModelLoader, is_neurosurgeon_available
-from positronixlab.tasks.sota import (
-    AtlasDiscoverer,
+from positronixlab.baselines import (
     CsordasGumbelDiscoverer,
-    MaskApplier,
+    DataProviderLoader,
+    ModelLoader,
     NeuroSurgeonDiscoverer,
+    is_neurosurgeon_available,
 )
+from positronixlab.tasks import AtlasDiscoverer, MaskApplier
 
 
 def eval_acc(model: torch.nn.Module, loader) -> float:

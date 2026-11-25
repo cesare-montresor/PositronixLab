@@ -20,11 +20,12 @@ positronixlab/modularspace/
 ├── layerspace.py          # Current per-layer CU embedding space (LayerSpace)
 ├── modularspace.py        # Legacy V1 per-layer space (ModularSpace)
 ├── modularoverspace.py    # Per-layer wrapper around ClusterTracker (ModularOverSpace)
-├── custertracker.py       # Cluster identity tracker (ClusterTracker / ClusterIdentityTracker)
-├── layerspace_old.py      # Superseded SpaceStep-delegating LayerSpace (pending archival)
-├── docs/                  # System/usage docs + design notes (layerloss.md, cluster_identity_tracking.md)
-├── tests/                 # Unit tests for LayerSpace, SpaceStep, config/presets, ModularSpace, ClusterTracker
-└── examples/              # Runnable CPU examples & Dash demos
+└── custertracker.py       # Cluster identity tracker (ClusterTracker / ClusterIdentityTracker)
+
+# Companion top-level directories:
+# docs/modularspace/       # System/usage docs + design notes (layerloss.md, cluster_identity_tracking.md)
+# tests/modularspace/      # Unit tests for LayerSpace, SpaceStep, config/presets, ModularSpace, ClusterTracker
+# examples/modularspace/   # Runnable CPU examples & Dash demos
 ```
 
 ## Components
@@ -59,6 +60,8 @@ Named configurations reproducing the four main space formulations:
 ### 4. `LayerSpace` (`layerspace.py`)
 Manages per-layer `positions`, `optimizers`, and optional `stats` tensors (marked with `torch._dynamo.mark_static_address` for `torch.compile` compatibility in `spacemath.contrast`).
 - Resolves parameters from `LayerSpaceConfig` (or compatible config) with optional keyword overrides in `__init__`.
+- `get_space(layer_id)` returns the per-layer state bundle (`positions`, `optimizer`, `stats`, metadata).
+- `score_activations(layer_id, activations)` and `compute_loss(positions, scores, *, stats=None, clusters_labels=None, unit_mask=None)` expose the decoupled scoring and loss stages directly.
 - `process_activations(layer_id, activations, clusters_labels=None, unit_mask=None)` scores activations and calls `process_scores(...)`.
 - `process_scores(...)` updates `stats` in-place (if enabled), computes the composite loss, steps Adam, and returns `(losses_dict, positions.detach(), stats_copy)`.
 

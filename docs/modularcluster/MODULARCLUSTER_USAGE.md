@@ -2,7 +2,7 @@
 
 Practical recipes for `ModularClusterKmeans`, `ModularClusterKmeansStream`, and `StreamingClusterTracker`.
 
-> For a runnable end-to-end script, see [../examples/example_modularcluster.py](../examples/example_modularcluster.py).
+> For a runnable end-to-end script, see [example_modularcluster.py](../../examples/modularcluster/example_modularcluster.py).
 
 ---
 
@@ -140,4 +140,4 @@ def on_positions(layer_id: str, positions: np.ndarray):
 ## Tips
 - Use `precompute_distances=False` if `N` is large (e.g. `N > 5000`) to avoid allocating an `(N, N)` distance matrix.
 - Keep `k_min` and `k_max` tight when you know the expected cluster-count range to speed up silhouette search.
-- See [../analysis.md](../analysis.md) for current known bugs and workarounds.
+- See [`reports/modularcluster_analysis.md`](file:///home/cesare/Projects/PositronixLab/reports/modularcluster_analysis.md) for module review notes.

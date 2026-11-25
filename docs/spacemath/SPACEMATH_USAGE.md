@@ -2,7 +2,7 @@
 
 This guide shows how to use `positronixlab.spacemath` primitives to score neural activations, compute scoped contrastive updates, and apply geometric regularizers.
 
-A complete runnable script is available at [example_spacemath.py](../examples/example_spacemath.py).
+A complete runnable script is available at [example_spacemath.py](../../examples/spacemath/example_spacemath.py).
 
 ---
 
@@ -62,9 +62,9 @@ loss.backward()
 
 ---
 
-## 2. Scoring Convolutional Feature Maps
+## 2. Scoring Convolutional & Sequence Activations
 
-Pass 4D `(bs, C, H, W)` activations with `layer_type="conv"` and choose a spatial reducer (`"conv_locality"`, `"conv_l2"`, `"conv_mean_abs"`, or `"conv_max"`):
+Pass 4D `(bs, C, H, W)` feature maps with `layer_type="conv"` and a spatial reducer (`"conv_locality"`, `"conv_l2"`, `"conv_mean_abs"`, or `"conv_max"`), or 3D `(bs, T, U)` sequence activations with `layer_type="transformer"`/`"lstm"`/`"rnn"` and a sequence reducer (`"seq_mean"`, `"seq_max"`, `"seq_cls"`, or `"seq_energy"`):
 
 ```python
 from torch import nn
@@ -81,6 +81,10 @@ scores = activations_to_scores(
     active_q=0.75,
 )
 # scores.shape == (16, 32)
+
+seq = torch.randn(16, 12, 64)
+seq_scores = activations_to_scores(seq, layer_type="transformer", reducer="seq_mean", active_q=0.75)
+# seq_scores.shape == (16, 64)
 ```
 
 ---
@@ -171,5 +175,5 @@ Because `contrast_*` functions compile on first invocation, set writable cache d
 
 ```bash
 TRITON_CACHE_DIR=/tmp/triton_cache TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_cache \
-  .venv/bin/python positronixlab/spacemath/examples/example_spacemath.py
+  .venv/bin/python examples/spacemath/example_spacemath.py
 ```

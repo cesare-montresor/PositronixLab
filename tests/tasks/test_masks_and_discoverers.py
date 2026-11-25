@@ -6,11 +6,14 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from positronixlab.metamodel.sota import ModelLoader, is_neurosurgeon_available
-from positronixlab.tasks.sota import (
+from positronixlab.baselines import (
     CsordasGumbelDiscoverer,
-    MaskApplier,
+    ModelLoader,
     NeuroSurgeonDiscoverer,
+    is_neurosurgeon_available,
+)
+from positronixlab.tasks import (
+    MaskApplier,
     RandomMaskDiscoverer,
     SubnetworkMask,
 )

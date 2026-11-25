@@ -12,9 +12,9 @@ _LAZY_EXPORTS = {
     "MetaModel": ("positronixlab.metamodel.metamodel", "MetaModel"),
     "ResNet": ("positronixlab.metamodel.metamodel", "ResNet"),
     "MetaTransform": ("positronixlab.metamodel.metatransform", "MetaTransform"),
-    "ModelLoader": ("positronixlab.metamodel.sota", "ModelLoader"),
-    "SOTAModel": ("positronixlab.metamodel.sota", "SOTAModel"),
-    "OddOneOutHead": ("positronixlab.metamodel.sota", "OddOneOutHead"),
+    "ModelLoader": ("positronixlab.baselines", "ModelLoader"),
+    "SOTAModel": ("positronixlab.baselines", "SOTAModel"),
+    "OddOneOutHead": ("positronixlab.baselines", "OddOneOutHead"),
 }
 
 __all__ = sorted(_LAZY_EXPORTS.keys())

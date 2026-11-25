@@ -37,7 +37,7 @@ ModularClusterKmeans(
 - `max_iter` (`int`, default `100`): Maximum FAISS K-Means iterations (`niter`).
 - `tol` (`float`, default `1e-5`): Stored on `self.tol` (currently unused by FAISS K-Means).
 - `n_init` (`int`, default `1`): Number of FAISS random restarts (`nredo`).
-- `device` (`torch.device | None`): Target PyTorch device (default CPU). *Note: currently only CPU tensors are accepted by `faiss.Kmeans.train()`.*
+- `device` (`torch.device | None`): Target PyTorch device (default CPU). Inputs are automatically detached to CPU NumPy `float32` before FAISS training, and `ModularClusterKmeans` enables FAISS GPU mode when `device.type == 'cuda'`.
 - `verbose` (`bool`, default `False`): Print search progress.
 - `precompute_distances` (`bool`, default `True`): Precompute the `(n, n)` pairwise distance matrix once per `fit()` for faster silhouette evaluation.
 
@@ -157,4 +157,4 @@ Processes one timestep of positions (shape `(n_samples, n_features)`, NumPy arra
 ## See Also
 - [MODULARCLUSTER_SYSTEM.md](MODULARCLUSTER_SYSTEM.md) — Architecture, search phases, and design notes
 - [MODULARCLUSTER_USAGE.md](MODULARCLUSTER_USAGE.md) — Practical examples and recipes
-- [../analysis.md](../analysis.md) — Known defects and module review
+- [`reports/modularcluster_analysis.md`](file:///home/cesare/Projects/PositronixLab/reports/modularcluster_analysis.md) — Module review notes

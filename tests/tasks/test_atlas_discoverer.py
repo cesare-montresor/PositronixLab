@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import torch
 
-from positronixlab.dataprovider.sota import DataProviderLoader
-from positronixlab.metamodel.sota import ModelLoader
-from positronixlab.tasks.sota import AtlasDiscoverer, MaskApplier
+from positronixlab.baselines import DataProviderLoader, ModelLoader
+from positronixlab.tasks import AtlasDiscoverer, MaskApplier
 
 
 def test_atlas_discoverer_mlp_and_subtasks_no_hook_leaks():

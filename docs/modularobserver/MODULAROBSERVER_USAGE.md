@@ -44,7 +44,6 @@ from positronixlab.spacemath.common import is_layer
 class SimpleMLP(nn.Module):
     def __init__(self):
         super().__init__()
-        self.device = torch.device("cpu")  # required by ModelMapper.map(..., data=...)
         self.fc1 = nn.Linear(8, 16)
         self.fc2 = nn.Linear(16, 4)
 
@@ -60,7 +59,7 @@ print("fc1 activation:", graph.nodes["fc1"].activation_fn)
 print("fc2 activation:", graph.nodes["fc2"].activation_fn)
 ```
 
-> **Tip**: If your `nn.Module` does not have a `.device` attribute (e.g., `nn.Sequential`), either attach `model.device = torch.device("cpu")` or drive tracing directly via `trace_context()` (below).
+> **Tip**: `ModelMapper.map(..., data=...)` automatically infers the target device from `model.device`, then `next(model.parameters()).device`, falling back to CPU, so standard `nn.Module`s work without a `.device` attribute.
 
 ### Tracing Inside an Existing Training/Eval Loop (`trace_context`)
 
@@ -102,7 +101,7 @@ edges_list = mapper.edges()    # List[dict]
 
 ## 3. Observing Activations & Gradients (`ModularObserver`)
 
-`ModularObserver` combines `ModelMapper` with hook registration across all observable layers (currently learnable linear layers).
+`ModularObserver` combines `ModelMapper` with hook registration across observable layers. By default it observes learnable `nn.Linear` layers, and can be configured via `observable_types`, `target_layers`, and `exclude_patterns`.
 
 ```python
 import torch
@@ -112,7 +111,6 @@ from positronixlab.modularobserver.modularobserver import ModularObserver
 class TinyNet(nn.Module):
     def __init__(self):
         super().__init__()
-        self.device = torch.device("cpu")
         self.fc1 = nn.Linear(8, 12)
         self.act = nn.ReLU()
         self.fc2 = nn.Linear(12, 3)
@@ -157,24 +155,29 @@ print("Captured grad_outputs:", {k: tuple(v.shape) for k, v in grad_outputs.item
 
 ---
 
-## 4. Hook Lifecycle Best Practices (Current Caveats)
+## 4. Customizing Observable Layers & Hook Cleanup
 
-Until the hook lifecycle issues documented in [analysis.md](../analysis.md) are fixed:
+`ModularObserver` supports observing arbitrary layer types (e.g. `nn.Conv2d`, `nn.Linear`, `nn.LSTM`) or explicit layer lists directly via constructor arguments:
 
-1. **Always unregister before re-registering** a callback to avoid leaking the previous hook handle:
-   ```python
-   observer.on_forward_layer(None)
-   observer.on_forward_layer(new_callback)
-   ```
-2. **Unregister pre-forward hooks explicitly before `clear()`**, because `ModularObserver.clear()` currently omits `on_pre_forward_layer(None)`:
-   ```python
-   observer.on_pre_forward_layer(None)
-   observer.clear()
-   ```
-3. **Avoid `on_grad_weights` on multi-layer/multi-parameter models** until the late-binding closure bug (`modularobserver.py:125`) is fixed; if you need parameter gradients today, read `param.grad` after `loss.backward()` or register `param.register_hook(lambda g, n=node.name, p=param: ...)` directly.
-4. **Customizing observable layers**: Subclass `ModularObserver` and override `_is_observable_layer(self, module, name)` if you need to observe `nn.Conv2d` or custom `nn.Linear` subclasses:
-   ```python
-   class ConvAndLinearObserver(ModularObserver):
-       def _is_observable_layer(self, module, name):
-           return isinstance(module, (nn.Linear, nn.Conv2d))
-   ```
+```python
+# Observe both Linear and Conv2d layers, excluding embeddings/classifier heads
+observer = ModularObserver(
+    config=None,
+    model=model,
+    observable_types=(nn.Linear, nn.Conv2d),
+    exclude_patterns=("embedding", "head"),
+)
+
+# Or target an explicit list of dotted layer names
+observer = ModularObserver(
+    config=None,
+    model=model,
+    target_layers=["conv1", "fc1", "fc2"],
+)
+```
+
+Re-registering any `on_*` callback automatically removes the previous hook handles, and `observer.clear()` detaches all pre-forward, forward, backward, and parameter-gradient hooks:
+
+```python
+observer.clear()
+```

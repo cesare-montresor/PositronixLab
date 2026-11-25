@@ -51,7 +51,7 @@ TemplateBase
 | `TemplateCovertype` | `template_covertype.py` | `TemplateFC` | `'covertype'` | `54` | `7` | `0.70` |
 | `TemplateHiggs` | `template_higgs.py` | `TemplateFC` | `'higgs'` | `28` | `2` | `0.70` |
 
-*\*Known issues: `DataProviderFactory` expects `'fashion_mnist'` rather than `'fmnist'`, and `TemplateFMnistCNN` currently inherits `0.95` from `TemplateDL` instead of `0.85` (see `analysis.md`).*
+*\*Note: `'fmnist'` is supported as a `DataProviderFactory` alias for `FashionMnistDataProvider`; `TemplateFMnistCNN` currently inherits `nas_min_acc=0.95` from `TemplateDL` instead of `0.85` (see [`reports/template_analysis.md`](file:///home/cesare/Projects/PositronixLab/reports/template_analysis.md)).*
 
 ### 4. `TemplateFactory` & `TemplateVariantFactory` (`template_factory.py`)
 
@@ -96,16 +96,13 @@ positronixlab/template/
 ├── template_mnist.py         # TemplateMnistFC, TemplateMnistCNN
 ├── template_fmnist.py        # TemplateFMnistFC, TemplateFMnistCNN
 ├── template_covertype.py     # TemplateCovertype
-├── template_higgs.py         # TemplateHiggs
-├── analysis.md               # Module audit, bugs, and recommendations
-├── docs/
-│   ├── CONFIG_SYSTEM.md      # This file
-│   └── CONFIG_USAGE.md       # Usage guide
-├── examples/
-│   └── example_template.py   # Runnable CPU example
-└── tests/
-    ├── __init__.py
-    └── test_template.py      # Unit tests
+└── template_higgs.py         # TemplateHiggs
+
+# Companion top-level directories:
+# docs/template/{CONFIG_SYSTEM.md,CONFIG_USAGE.md}
+# examples/template/example_template.py
+# tests/template/test_template.py
+# reports/template_analysis.md
 ```
 
 ## Dependencies

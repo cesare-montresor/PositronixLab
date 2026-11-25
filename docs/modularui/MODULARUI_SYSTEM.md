@@ -28,6 +28,7 @@ Thread-safe Dash / Plotly / Cytoscape view layer for live monitoring of Positron
 
 | File | Contents |
 |---|---|
+| `positronixlab/modularui/__init__.py` | Empty package marker (import from submodules directly). |
 | `positronixlab/modularui/modularui.py` | `UILocks` (frozen dataclass of `threading.Lock`s), `_to_numpy`, and `ModularUI` (store + Werkzeug/Dash server). |
 | `positronixlab/modularui/layouts.py` | `HomeLayout` (5-panel dashboard page layout & callback wiring) and `_BoundWidget`. |
 | `positronixlab/modularui/docks.py` | `Panel` (card with collapse/maximize header buttons) and `DashboardLayout` (static 3-column CSS Grid). |

@@ -17,8 +17,9 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 import torch
 import torch.nn as nn
 
-from positronixlab.tasks.sota.discoverers import _unpack_batch
-from positronixlab.tasks.sota.masks import AblationMode, MaskApplier, SubnetworkMask
+from positronixlab.tasks.discoverer import unpack_batch as _unpack_batch
+from positronixlab.tasks.masks import AblationMode, MaskApplier, SubnetworkMask
+from positronixlab.utils.utils import save_data
 
 
 def default_eval_accuracy(model: nn.Module, dataloader: Iterable[Any]) -> float:
@@ -144,10 +145,12 @@ class BenchmarkReport:
             summary[f"{method}_weight_sparsity"] = sum(r.weight_sparsity for r in rows) / len(rows)
         return summary
 
-    def save_json(self, path: str | Path) -> Path:
+    def save_json(self, path: str | Path, **kwargs: Any) -> Path:
         out = Path(path)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(self.to_dict(), indent=2, sort_keys=True, default=str), encoding="utf-8")
+        kwargs.setdefault("indent", 2)
+        kwargs.setdefault("sort_keys", True)
+        kwargs.setdefault("default", str)
+        save_data(str(out), self.to_dict(), **kwargs)
         return out
 
     def save_csv(self, path: str | Path) -> Path:

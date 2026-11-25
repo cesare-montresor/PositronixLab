@@ -12,7 +12,7 @@ The v2 primitive architecture splits a single embedding-space update step into f
 
 ```mermaid
 flowchart LR
-    A["Raw Activations<br/>(bs, U) or (bs, C, H, W)"] --> R["1. Reducer<br/>reducers.py"]
+    A["Raw Activations<br/>(bs, U), (bs, T, U), (bs, C, L), or (bs, C, H, W)"] --> R["1. Reducer<br/>reducers.py"]
     R -->|"values (bs, U)"| S["2. Scorer<br/>scoring.py"]
     S -->|"scores in [-1, 1]<br/>(bs, U)"| W["3. Weighter & Masks<br/>weighting.py"]
     W -->|"w_on, w_off (bs, U)<br/>scope_mask (K, U)"| C["4. Contrastive Step<br/>contrast.py (compiled)"]
@@ -43,13 +43,17 @@ Reducers collapse architecture-specific activations into per-unit scalar summari
 
 | Registry Key (`REDUCERS`) | Function | Input Shape | Behavior |
 | :--- | :--- | :--- | :--- |
-| `"linear"` | `reduce_linear` | `(bs, U)` or `(bs, ...)` | Identity for 2D; flattens trailing dims otherwise |
-| `"conv_locality"` | `reduce_conv_locality` | `(bs, C, H, W)` | Blend of per-channel L2 norm and local max-pool concentration |
+| `"linear"` | `reduce_linear` | `(bs, U)`, `(bs, T, U)`, or `(bs, ...)` | Identity for 2D; `mean(dim=1)` for 3D; flattens trailing dims for 4D+ |
+| `"conv_locality"` | `reduce_conv_locality` | `(bs, C)`, `(bs, C, L)`, or `(bs, C, H, W)` | Pass-through for 2D; L2 over `dim=2` for 3D; blend of per-channel L2 norm and local max-pool concentration for 4D |
 | `"conv_l2"` | `reduce_conv_l2` | `(bs, C, ...)` | Per-channel spatial L2 norm |
 | `"conv_mean_abs"` | `reduce_conv_mean_abs` | `(bs, C, ...)` | Per-channel spatial mean of `|x|` |
 | `"conv_max"` | `reduce_conv_max` | `(bs, C, ...)` | Per-channel spatial maximum |
+| `"seq_mean"` | `reduce_seq_mean` | `(bs, T, U)` | Mean over sequence dimension (`dim=1`) |
+| `"seq_max"` | `reduce_seq_max` | `(bs, T, U)` | Max over sequence dimension (`dim=1`) |
+| `"seq_cls"` | `reduce_seq_cls` | `(bs, T, U)` | First / CLS token slice (`activations[:, 0, :]`) |
+| `"seq_energy"` | `reduce_seq_energy` | `(bs, T, U)` | L2 norm over sequence dimension (`dim=1`) |
 
-`DEFAULT_REDUCER_BY_LAYER` maps `"linear" -> "linear"` and `"conv" -> "conv_locality"`.
+`DEFAULT_REDUCER_BY_LAYER` maps `"linear" -> "linear"`, `"conv" / "conv2d" -> "conv_locality"`, `"conv1d" -> "conv_l2"`, and `"rnn" / "lstm" / "transformer" -> "seq_mean"`.
 
 ### 2.3 Activation Scoring (`scoring.py`)
 
@@ -119,7 +123,7 @@ The inner cores (`_distance_contrast_core`, `_softmax_ce_contrast_core`) are dec
 
 ## 3. Known Caveats
 
-See [analysis.md](../analysis.md) for the full defect audit. Key operational notes:
+See [`reports/spacemath_analysis.md`](file:///home/cesare/Projects/PositronixLab/reports/spacemath_analysis.md) for the full defect audit. Key operational notes:
 - `contrast_*` functions trigger `torch.compile` on first call; in read-only-home environments, set `TRITON_CACHE_DIR` and `TORCHINDUCTOR_CACHE_DIR` to a writable directory (e.g., `/tmp`).
 - `score_normalize_by_threshold` currently assumes `values >= threshold` are non-negative; for all-negative pre-activation rows, prefer `score_sign_preserving_row` or apply a non-negative activation (e.g., `nn.ReLU`) first.
 - Keep `loss_sigreg_centers` outside compiled regions because `centers[mixed > 0]` has data-dependent shape.

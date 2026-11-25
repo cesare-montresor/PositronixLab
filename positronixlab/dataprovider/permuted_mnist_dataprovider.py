@@ -7,19 +7,25 @@ matching ``are_neural_nets_modular/dataset/image/permuted_mnist.py``.
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from pathlib import Path
+from typing import Optional, Union, Unpack
 
 import numpy as np
 import torch
 from torch import nn
-from torch.utils.data import Dataset, random_split
 from torchvision import datasets
 
-from positronixlab.dataprovider.dataprovider import DataProvider
+from positronixlab.dataprovider.dataprovider import (
+    BaseTensorDataset,
+    DataProvider,
+    DataProviderOptions,
+    TransformLike,
+    resolve_data_root,
+)
 
 
-class PermutedMnistDataset(Dataset):
-    """MNIST dataset with a fixed deterministic pixel permutation."""
+class PermutedMnistDataset(BaseTensorDataset):
+    """MNIST dataset with a fixed deterministic pixel permutation and zero-copy splits."""
 
     def __init__(
         self,
@@ -28,27 +34,19 @@ class PermutedMnistDataset(Dataset):
         indices=None,
         flatten: bool = True,
         normalize: bool = True,
-        transforms=None,
-        data_root: str = "./data",
+        transforms: Optional[TransformLike] = None,
+        data_root: Optional[Union[str, Path]] = None,
     ) -> None:
-        super().__init__()
         self.permutation = int(permutation)
         self.train = train
-        self.indices = indices
         self.flatten = flatten
-        self.normalize = normalize
-        self.transforms = transforms
-        self.data_root = data_root
+        self.data_root = str(resolve_data_root(data_root))
 
-        self.ds = datasets.MNIST(data_root, train=train, download=True)
-        self.name_class = self.ds.classes
-        self.num_class = len(self.name_class)
-
+        self.ds = datasets.MNIST(self.data_root, train=train, download=True)
         x = self.ds.data.to(dtype=torch.float32) / 255.0  # (N, 28, 28)
         y = self.ds.targets.long()
 
-        if self.normalize:
-            # Standard MNIST channel mean/std on [0, 1] scale
+        if normalize:
             x = (x - 0.1307) / 0.3081
 
         flat = x.reshape(x.shape[0], 28 * 28)
@@ -57,55 +55,43 @@ class PermutedMnistDataset(Dataset):
             perm = torch.from_numpy(rng.permutation(28 * 28)).long()
             flat = flat[:, perm]
 
-        self.x = flat if self.flatten else flat.reshape(-1, 1, 28, 28)
-        self.y = y
-
-        if indices is not None:
-            self.x = self.x[indices]
-            self.y = self.y[indices]
-
-    def copy(self, indices=None) -> "PermutedMnistDataset":
-        return PermutedMnistDataset(
-            permutation=self.permutation,
-            train=self.train,
+        tensor_x = flat if self.flatten else flat.reshape(-1, 1, 28, 28)
+        super().__init__(
+            tensor_x,
+            y,
             indices=indices,
-            flatten=self.flatten,
-            normalize=self.normalize,
-            transforms=self.transforms,
-            data_root=self.data_root,
+            transforms=transforms,
+            normalize=False,  # already applied above
+            name_class=self.ds.classes,
         )
-
-    def random_split(self, split):
-        subsets = random_split(self, split)
-        return [self.copy(subset.indices) for subset in subsets]
-
-    def __len__(self) -> int:
-        return len(self.x)
-
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        x = self.x[idx]
-        if self.transforms is not None:
-            x = self.transforms.apply(x)
-        return x, self.y[idx]
+        self.normalize = normalize
 
 
-class PermutedMnistDataProvider(DataProvider):
+class PermutedMnistDataProvider(
+    DataProvider,
+    plugin_name="permuted_mnist",
+    aliases=("csordas:permuted_mnist",),
+):
     """Unified PositronixLab ``DataProvider`` for Csordas et al.'s Permuted MNIST."""
+
+    supports_flatten = True
 
     def __init__(
         self,
         permutation: int = 0,
         flatten: bool = True,
         normalize: bool = True,
-        data_root: str = "./data",
-        **kwargs,
+        data_root: Optional[Union[str, Path]] = None,
+        **kwargs: Unpack[DataProviderOptions],
     ) -> None:
+        if data_root is not None and "root" not in kwargs:
+            kwargs["root"] = data_root
         super().__init__(**kwargs)
         self.name = "permuted_mnist"
         self.permutation = int(permutation)
         self.flatten = flatten
         self.normalize = normalize
-        self.data_root = data_root
+        self.data_root = str(self.root)
 
         self.num_features = 784
         self.num_classes = 10
@@ -119,17 +105,21 @@ class PermutedMnistDataProvider(DataProvider):
             flatten=flatten,
             normalize=normalize,
             transforms=self.transforms,
-            data_root=data_root,
+            data_root=self.root,
         )
-        self.dataset_train, self.dataset_val = self.dataset.random_split(self.dataset_split)
-        self.dataset_test = PermutedMnistDataset(
-            permutation=self.permutation,
-            train=False,
-            flatten=flatten,
-            normalize=normalize,
-            transforms=self.transforms,
-            data_root=data_root,
+        test_ds = (
+            PermutedMnistDataset(
+                permutation=self.permutation,
+                train=False,
+                flatten=flatten,
+                normalize=normalize,
+                transforms=self.transforms,
+                data_root=self.root,
+            )
+            if len(self.dataset_split) == 2
+            else None
         )
+        self._split_dataset(self.dataset, test_dataset=test_ds)
 
     def with_permutation(self, permutation: int) -> "PermutedMnistDataProvider":
         """Return a provider for a different permutation index (0..10)."""
@@ -137,10 +127,15 @@ class PermutedMnistDataProvider(DataProvider):
             permutation=permutation,
             flatten=self.flatten,
             normalize=self.normalize,
-            data_root=self.data_root,
+            root=self.root,
             batch_size=self.batch_size,
             split=self.dataset_split,
             num_workers=self.num_workers,
             transforms=self.transforms,
             indexed_dataset=self.indexed_dataset,
+            seed=self.seed,
+            shuffle_train=self.shuffle_train,
+            drop_last=self.drop_last,
+            persistent_workers=self.persistent_workers,
+            pin_memory=self.pin_memory,
         )

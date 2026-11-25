@@ -22,7 +22,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from positronixlab.metamodel.sota.base import SOTAModel
+from positronixlab.baselines.base import SOTAModel
 
 
 def strip_csordas_mask_keys(

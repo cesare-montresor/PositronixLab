@@ -123,17 +123,18 @@ diff, old = set_best(bests, "val_acc", 0.88, min=False)  # (0.1, 0.80)
 
 ## 4. Multi-Format Data I/O
 
-Supported formats for round-trip `save_data()` / `load_data()`: `.json`, `.pkl`, `.pickle`, `.pt`, `.pth`. Parent directories are created automatically.
+Supported formats for round-trip `save_data()` / `load_data()` (case-insensitive extensions): `.json`, `.yaml`, `.yml`, `.pkl`, `.pickle`, `.pt`, `.pth`. Parent directories are created automatically, and extra `**kwargs` are forwarded to the underlying serializer/loader.
 
 ```python
 save_data("artifacts/metrics.json", {"epoch": 5, "loss": 0.123})
 metrics = load_data("artifacts/metrics.json")
 
-save_data("artifacts/weights.pt", {"w": torch.ones(2, 2)})
-weights = load_data("artifacts/weights.pt")  # uses weights_only=True
-```
+save_data("artifacts/config.yaml", {"lr": 1e-3, "epochs": 10})
+cfg = load_data("artifacts/config.yaml")
 
-> **Known Issue:** `load_data()` currently fails on `.yaml` files under PyYAML 6+ (missing `Loader` argument). Use `.json` or `.pkl` for config/dict persistence until fixed.
+save_data("artifacts/weights.pt", {"w": torch.ones(2, 2)})
+weights = load_data("artifacts/weights.pt")  # defaults to weights_only=True; override via **kwargs
+```
 
 ---
 

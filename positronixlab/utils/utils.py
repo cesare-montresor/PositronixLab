@@ -185,45 +185,64 @@ def signature_settings(data:dict, algo: str = "md5") -> str:
 
 
 
-def save_data(path:str, data):
+def save_data(path: str, data: Any, **kwargs: Any) -> bool:
+    """Save *data* to *path*, dispatching by file extension.
+
+    Supported extensions (case-insensitive): ``.json``, ``.yaml``/``.yml``,
+    ``.pkl``/``.pickle``, ``.pt``/``.pth``. Extra ``**kwargs`` are forwarded to
+    the underlying serializer (e.g., ``indent``, ``sort_keys``, ``default`` for
+    JSON; ``protocol`` for pickle; ``pickle_protocol`` for ``torch.save``).
+    """
     path = os.path.abspath(str(path))
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    ext = os.path.splitext(path)[1]
+    ext = os.path.splitext(path)[1].strip().lower()
     if ext == '.json':
-        with open(path, 'w') as f: 
-            json.dump(data, f, indent=2)
-    elif ext == '.yaml':
-        with open(path, 'w') as f: 
-            yaml.dump(data, f)
-    elif ext in ['.pkl', '.pickle']:
-        with open(path, 'wb') as f: 
-            pickle.dump(data, f)
-    elif ext in ['.pt', '.pth']:
-        torch.save(data, path)
+        kwargs.setdefault('indent', 2)
+        with open(path, 'w') as f:
+            json.dump(data, f, **kwargs)
+    elif ext in ('.yaml', '.yml'):
+        with open(path, 'w') as f:
+            yaml.safe_dump(data, f, **kwargs)
+    elif ext in ('.pkl', '.pickle'):
+        with open(path, 'wb') as f:
+            pickle.dump(data, f, **kwargs)
+    elif ext in ('.pt', '.pth'):
+        torch.save(data, path, **kwargs)
     else:
-        logging.error(f"Unsupported extension: {ext}")
+        logger.error(f"Unsupported extension: {ext}")
         return False
     return True
 
 
-def load_data(path:str):
+def load_data(path: str, **kwargs: Any) -> Any:
+    """Load data from *path*, dispatching by file extension.
+
+    Supported extensions (case-insensitive): ``.json``, ``.yaml``/``.yml``,
+    ``.pkl``/``.pickle``, ``.pt``/``.pth``. Extra ``**kwargs`` are forwarded to
+    the underlying loader (e.g., ``map_location`` and ``weights_only`` for
+    ``torch.load``, which defaults to ``weights_only=True``).
+    """
     path = os.path.abspath(str(path))
-    if not os.path.exists(path): return None
-    ext = os.path.splitext(path)[1].strip()
-    
+    if not os.path.exists(path):
+        return None
+    ext = os.path.splitext(path)[1].strip().lower()
+
     if ext == '.json':
         with open(path, 'r') as f:
-            return json.load(f)
-    elif ext in ['.yaml', '.yml']:
+            return json.load(f, **kwargs)
+    elif ext in ('.yaml', '.yml'):
         with open(path, 'r') as f:
+            if 'Loader' in kwargs:
+                return yaml.load(f, **kwargs)
             return yaml.safe_load(f)
-    elif ext in ['.pkl', '.pickle']:
+    elif ext in ('.pkl', '.pickle'):
         with open(path, 'rb') as f:
-            return pickle.load(f)
-    elif ext in ['.pt', '.pth']:
-        return torch.load(path, weights_only=True)
+            return pickle.load(f, **kwargs)
+    elif ext in ('.pt', '.pth'):
+        kwargs.setdefault('weights_only', True)
+        return torch.load(path, **kwargs)
     else:
-        logging.error(f"Unsupported extension: {ext}")
+        logger.error(f"Unsupported extension: {ext}")
     return None
 
 def safe_tensor(val: Any) -> torch.Tensor:

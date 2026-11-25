@@ -15,6 +15,8 @@ from typing import Any, Dict, Iterable, Literal, Optional, Set, Tuple
 import torch
 import torch.nn as nn
 
+from positronixlab.utils.utils import load_data, save_data
+
 Granularity = Literal["unit", "weight"]
 AblationMode = Literal[
     "retain",
@@ -246,9 +248,8 @@ class SubnetworkMask:
     # ------------------------------------------------------------------
     # Serialization
     # ------------------------------------------------------------------
-    def save(self, path: str | Path) -> str:
+    def save(self, path: str | Path, **kwargs: Any) -> str:
         resolved = Path(path).resolve()
-        resolved.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "name": self.name,
             "granularity": self.granularity,
@@ -260,12 +261,16 @@ class SubnetworkMask:
             ),
             "metadata": self.metadata,
         }
-        torch.save(payload, resolved)
+        save_data(str(resolved), payload, **kwargs)
         return str(resolved)
 
     @classmethod
-    def load(cls, path: str | Path) -> "SubnetworkMask":
-        payload = torch.load(path, map_location="cpu", weights_only=False)
+    def load(cls, path: str | Path, **kwargs: Any) -> "SubnetworkMask":
+        kwargs.setdefault("map_location", "cpu")
+        kwargs.setdefault("weights_only", False)
+        payload = load_data(str(path), **kwargs)
+        if payload is None:
+            raise FileNotFoundError(f"Could not load SubnetworkMask from {path}")
         return cls(
             name=payload["name"],
             granularity=payload["granularity"],

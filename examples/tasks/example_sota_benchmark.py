@@ -11,14 +11,13 @@ from __future__ import annotations
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from positronixlab.metamodel.sota import ModelLoader, is_neurosurgeon_available
-from positronixlab.tasks.sota import (
+from positronixlab.baselines import (
     CsordasGumbelDiscoverer,
-    MaskApplier,
+    ModelLoader,
     NeuroSurgeonDiscoverer,
-    RandomMaskDiscoverer,
-    SubnetworkMask,
+    is_neurosurgeon_available,
 )
+from positronixlab.tasks import MaskApplier, RandomMaskDiscoverer, SubnetworkMask
 
 
 def evaluate_acc(model: torch.nn.Module, loader: DataLoader) -> float:

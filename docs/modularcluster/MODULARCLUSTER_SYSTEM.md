@@ -99,7 +99,7 @@ They can be composed: `StreamingClusterTracker` stabilizes online clustering, an
 
 - **Distance precomputation (`precompute_distances=True`)**: allocates an `(N, N)` float32 matrix (~400 MB for `N = 10,000`). Set `precompute_distances=False` for large `N`.
 - **Silhouette bottleneck**: `sklearn.metrics.silhouette_score` is $O(N^2)$ per evaluated `K`. Narrowing `[k_min, k_max]` or using `StreamingClusterTracker` warm-starts significantly reduces wall time.
-- **Known caveats**: see [../analysis.md](../analysis.md) for current bugs (including CUDA tensor handling, `float32` labels in `ModularClusterKmeans`, and `_distance()` diagonal zeroing).
+- **Historical audit**: see [`reports/modularcluster_analysis.md`](file:///home/cesare/Projects/PositronixLab/reports/modularcluster_analysis.md) for module review notes.
 
 ---
 
@@ -107,8 +107,8 @@ They can be composed: `StreamingClusterTracker` stabilizes online clustering, an
 
 ```bash
 # Synchronous K-Means tests
-.venv/bin/pytest positronixlab/modularcluster/tests/test_kmeans.py -v
+.venv/bin/pytest tests/modularcluster/test_kmeans.py -v
 
 # Streaming K-Means & StreamingClusterTracker tests
-.venv/bin/pytest positronixlab/modularcluster/tests/test_streaming_kmeans.py -v
+.venv/bin/pytest tests/modularcluster/test_streaming_kmeans.py -v
 ```

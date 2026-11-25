@@ -419,13 +419,27 @@ def test_save_and_load_yaml_roundtrip(tmp_path):
     assert load_data(str(p)) == payload
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug B12: save_data() only accepts '.yaml' and rejects the standard '.yml' extension",
-)
 def test_save_data_supports_yml_extension(tmp_path):
     p = tmp_path / "config.yml"
     assert save_data(str(p), {"a": 1}) is True
+    assert load_data(str(p)) == {"a": 1}
+
+
+def test_save_and_load_data_kwargs_forwarding(tmp_path):
+    from pathlib import Path
+
+    # JSON kwargs (sort_keys, indent, default=str)
+    jp = tmp_path / "META.JSON"
+    assert save_data(str(jp), {"b": 1, "a": Path("x")}, sort_keys=True, indent=None, default=str) is True
+    assert load_data(str(jp)) == {"a": "x", "b": 1}
+
+    # Torch kwargs (map_location, weights_only=False for arbitrary dict payload)
+    pt = tmp_path / "bundle.pt"
+    payload = {"meta": {"step": 5}, "t": torch.tensor([1.0, 2.0])}
+    assert save_data(str(pt), payload) is True
+    loaded = load_data(str(pt), map_location="cpu", weights_only=False)
+    assert loaded["meta"]["step"] == 5
+    assert torch.equal(loaded["t"], payload["t"])
 
 
 # ---------------------------------------------------------------------------

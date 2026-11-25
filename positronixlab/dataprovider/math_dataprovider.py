@@ -1,56 +1,65 @@
-# positronixlab/dataprovider/math_dataprovider.py
+"""DeepMind Math dataset provider (.pt preprocessed or offline dummy fallback)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Optional, Union, Unpack
+import warnings
+
 import torch
-import os
-from torch.utils.data import Dataset, random_split
-from positronixlab.dataprovider.dataprovider import DataProvider
 
-class MathDataProvider(DataProvider):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.name = 'deepmind_math'
-        self.num_features = None 
-        self.num_classes = None  
-        
-        self.dataset = MathDataset(transforms=self.transforms)
-        self.dataset_train, self.dataset_val = self.dataset.random_split(self.dataset_split)
-        self.dataset_train.transforms = self.transforms
-        self.dataset_val.transforms = self.transforms
-        self.dataset_test = MathDataset(train=False, transforms=self.transforms)
+from positronixlab.dataprovider.dataprovider import (
+    BaseTensorDataset,
+    DataProvider,
+    DataProviderOptions,
+    TransformLike,
+    resolve_data_root,
+)
 
-class MathDataset(Dataset):
-    def __init__(self, train=True, indices=None, transforms=None):
-        super().__init__()
+
+class MathDataset(BaseTensorDataset):
+    """Preprocessed DeepMind Math tensor dataset with zero-copy split views."""
+
+    def __init__(
+        self,
+        train: bool = True,
+        indices=None,
+        transforms: Optional[TransformLike] = None,
+        root: Optional[Union[str, Path]] = None,
+    ) -> None:
         self.train = train
-        self.indices = indices
-        self.transforms = transforms
-        
-        # NOTE: Requires a tokenized representation of the math text files.
-        file_path = './data/math/train.pt' if train else './data/math/test.pt'
-        
-        if os.path.exists(file_path):
-            data = torch.load(file_path)
-            self.x = data['inputs']
-            self.y = data['targets']
+        self.root = resolve_data_root(root)
+        file_path = self.root / "math" / ("train.pt" if train else "test.pt")
+
+        if file_path.exists():
+            data = torch.load(file_path, weights_only=True)
+            x = data["inputs"]
+            y = data["targets"]
         else:
-            self.x = torch.zeros((100, 50), dtype=torch.long)
-            self.y = torch.zeros((100, 10), dtype=torch.long)
+            warnings.warn(
+                f"Math data file not found at {file_path}; using dummy tensors.",
+                UserWarning,
+                stacklevel=2,
+            )
+            x = torch.zeros((100, 50), dtype=torch.long)
+            y = torch.zeros((100, 10), dtype=torch.long)
 
-        if indices is not None:
-            self.x = self.x[indices]
-            self.y = self.y[indices]
-            
-    def copy(self, indices=None):
-        return MathDataset(self.train, indices=indices, transforms=self.transforms)
+        super().__init__(x, y, indices=indices, transforms=transforms)
 
-    def random_split(self, split):
-        subsets = random_split(self, split)
-        return [self.copy(subset.indices) for subset in subsets]
 
-    def __len__(self):
-        return len(self.x)
+class MathDataProvider(DataProvider, plugin_name="deepmind_math"):
+    """DataProvider for preprocessed DeepMind Math tensors."""
 
-    def __getitem__(self, idx):
-        if self.transforms is not None:
-            x = self.transforms.apply(self.x[idx])
-            return x, self.y[idx]
-        return self.x[idx], self.y[idx]
+    def __init__(self, **kwargs: Unpack[DataProviderOptions]) -> None:
+        super().__init__(**kwargs)
+        self.name = "deepmind_math"
+        self.num_features = None
+        self.num_classes = None
+
+        self.dataset = MathDataset(train=True, transforms=self.transforms, root=self.root)
+        test_ds = (
+            MathDataset(train=False, transforms=self.transforms, root=self.root)
+            if len(self.dataset_split) == 2
+            else None
+        )
+        self._split_dataset(self.dataset, test_dataset=test_ds)

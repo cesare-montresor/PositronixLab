@@ -55,3 +55,6 @@ class MetaTransform():
 
     def apply(self, x):
         return self.transforms(x)
+
+    def __call__(self, x):
+        return self.apply(x)

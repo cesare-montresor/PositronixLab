@@ -1,16 +1,7 @@
-"""Unified SOTA Model Loader for PositronixLab.
+"""Unified registries: :class:`ModelLoader` and :class:`DataProviderLoader`.
 
-Provides a single, registry-driven entry point (:class:`ModelLoader`) to create
-and load checkpoints for architectures across all three integrated SOTA repos:
-
-- **Csordas et al.** (``are_neural_nets_modular``):
-  ``csordas:mlp``, ``csordas:conv``, ``csordas:lstm``, ``csordas:resnet110``,
-  ``csordas:transformer``
-- **Lepori et al.** (``Compositional_Subnetworks``):
-  ``lepori:cvr_resnet18``, ``lepori:cvr_resnet50``, ``lepori:cvr_wideresnet50``,
-  ``lepori:cvr_vit``, ``lepori:syneval_bert``
-- **NeuroSurgeon** (``libs/NeuroSurgeon``):
-  ``ModelLoader.wrap_neurosurgeon(...)`` or ``load(..., wrap_neurosurgeon=True)``
+Provides a single entry point to create or load models and compositional
+benchmarks across all baseline works (``csordas``, ``lepori``, ``neurosurgeon``).
 """
 
 from __future__ import annotations
@@ -21,8 +12,18 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import torch
 import torch.nn as nn
 
-from positronixlab.metamodel.sota.base import SOTAModel, SOTAModelSpec
-from positronixlab.metamodel.sota.csordas_models import (
+from positronixlab.baselines.base import (
+    CompositionalDataProvider,
+    SOTADatasetSpec,
+    SOTAModel,
+    SOTAModelSpec,
+)
+from positronixlab.baselines.csordas.datasets import (
+    AddMulDataProvider,
+    ClassRemovalDataProvider,
+    TupleArithmeticDataProvider,
+)
+from positronixlab.baselines.csordas.models import (
     CsordasConvModel,
     CsordasFeedforwardModel,
     CsordasLSTMModel,
@@ -30,21 +31,26 @@ from positronixlab.metamodel.sota.csordas_models import (
     CsordasTransformerEncDec,
     strip_csordas_mask_keys,
 )
-from positronixlab.metamodel.sota.lepori_models import (
+from positronixlab.baselines.lepori.datasets import (
+    CVROddOneOutSOTAProvider,
+    SynEvalOddOneOutSOTAProvider,
+)
+from positronixlab.baselines.lepori.models import (
     CVRResNetModel,
     CVRViTModel,
     SynEvalBertModel,
     strip_lepori_l0_keys,
 )
-from positronixlab.metamodel.sota.neurosurgeon_adapter import (
+from positronixlab.baselines.neurosurgeon.adapter import (
     NeuroSurgeonWrappedModel,
     strip_neurosurgeon_mask_keys,
     wrap_with_neurosurgeon,
 )
+from positronixlab.utils.utils import load_data, save_data
 
 
 def _detect_checkpoint_format(state_dict: Dict[str, Any]) -> str:
-    """Heuristically detect whether a checkpoint came from Csordas, Lepori, NeuroSurgeon, or plain PyTorch."""
+    """Detect whether a checkpoint came from Csordas, Lepori, NeuroSurgeon, or plain PyTorch."""
     keys = list(state_dict.keys())
     if "model" in state_dict and isinstance(state_dict["model"], dict):
         keys = list(state_dict["model"].keys())
@@ -61,7 +67,7 @@ def _detect_checkpoint_format(state_dict: Dict[str, Any]) -> str:
 
 
 class ModelLoader:
-    """Unified factory & checkpoint loader for SOTA modularity architectures."""
+    """Unified factory & checkpoint loader for baseline modularity architectures."""
 
     _REGISTRY: Dict[str, SOTAModelSpec] = {}
 
@@ -86,7 +92,6 @@ class ModelLoader:
 
     @classmethod
     def list_models(cls, source: Optional[str] = None) -> List[str]:
-        """Return sorted list of registered architecture identifiers."""
         if source is None:
             return sorted(cls._REGISTRY.keys())
         return sorted(k for k, v in cls._REGISTRY.items() if v.source == source)
@@ -106,10 +111,7 @@ class ModelLoader:
         device: Optional[torch.device | str] = None,
         **kwargs: Any,
     ) -> SOTAModel:
-        """Instantiate a fresh standard-PyTorch SOTA model."""
-        spec = cls.get_spec(arch)
-        model = spec.builder(device=device, **kwargs)
-        return model
+        return cls.get_spec(arch).builder(device=device, **kwargs)
 
     @classmethod
     def save(
@@ -136,7 +138,7 @@ class ModelLoader:
             "metadata": dict(metadata or {}),
             "state_dict": {k: v.detach().cpu() for k, v in model.state_dict().items()},
         }
-        torch.save(bundle, out_path)
+        save_data(str(out_path), bundle)
         return out_path
 
     @classmethod
@@ -153,7 +155,7 @@ class ModelLoader:
         Returns ``(model, info)`` where ``info`` contains ``arch``, ``model_kwargs``,
         ``dataset_name``, ``metrics``, and ``metadata``.
         """
-        bundle = torch.load(path, map_location="cpu", weights_only=False)
+        bundle = load_data(str(path), map_location="cpu", weights_only=False)
         if not isinstance(bundle, dict) or bundle.get("format") != "positronix_sota_bundle_v1":
             raise ValueError(
                 f"File {path} is not a positronix_sota_bundle_v1 checkpoint. "
@@ -187,24 +189,11 @@ class ModelLoader:
         return_mask: bool = False,
         **model_kwargs: Any,
     ) -> Any:
-        """Create a model and optionally load weights (auto-detecting SOTA checkpoint formats).
-
-        Supports:
-        - Plain PyTorch ``state_dict`` (``.pt`` / ``.pth`` or dict)
-        - Csordas ``MaskedModel`` checkpoints (strips ``masks.*`` and ``model.`` prefix)
-        - Lepori ``Compositional_Subnetworks`` checkpoints (single file or split
-          ``backbone_checkpoint`` + ``mlp_checkpoint``, stripping ``*.mask_weight``)
-        - NeuroSurgeon ``CircuitModel`` checkpoints (stripping ``*.weight_mask_params``)
-
-        When ``return_mask=True``, returns ``(model, extracted_mask_or_None)`` where
-        ``extracted_mask_or_None`` is a :class:`SubnetworkMask` if mask parameters
-        were present in the checkpoint.
-        """
+        """Create a model and optionally load weights (auto-detecting checkpoint format)."""
         model = cls.create(arch, device=device, **model_kwargs)
         extracted_scores: Dict[str, torch.Tensor] = {}
         ckpt_format = "plain"
 
-        # Lepori split-component loading (backbone.pt + mlp.pt)
         if (backbone_checkpoint is not None or mlp_checkpoint is not None) and isinstance(
             model, CVRResNetModel
         ):
@@ -218,7 +207,7 @@ class ModelLoader:
             raw = (
                 checkpoint
                 if isinstance(checkpoint, dict)
-                else torch.load(checkpoint, map_location=model.device, weights_only=True)
+                else load_data(str(checkpoint), map_location=model.device, weights_only=True)
             )
             ckpt_format = _detect_checkpoint_format(raw)
             if ckpt_format == "neurosurgeon":
@@ -242,7 +231,7 @@ class ModelLoader:
         if not extracted_scores:
             return model, None
 
-        from positronixlab.tasks.sota.masks import SubnetworkMask
+        from positronixlab.tasks.masks import SubnetworkMask
 
         binary = {k: (v > 0).detach().clone() for k, v in extracted_scores.items()}
         mask = SubnetworkMask(
@@ -253,53 +242,6 @@ class ModelLoader:
             metadata={"source_format": ckpt_format, "arch": arch},
         )
         return model, mask
-
-    @classmethod
-    def from_config(
-        cls,
-        config: Any,
-        arch: Optional[str] = None,
-        name: Optional[str] = None,
-        device: Optional[torch.device | str] = None,
-        **kwargs: Any,
-    ) -> nn.Module:
-        """Unified model loader accepting either a ``PipelineConfig`` (``MetaModel``) or SOTA arch.
-
-        - If ``arch`` is ``None`` or ``"positronix:metamodel"`` (and ``config`` has no
-          ``sota_arch`` override), instantiates :class:`MetaModel`.
-        - If ``arch == "csordas:mlp"``, automatically derives ``n_inputs``, ``n_outputs``,
-          and ``layer_sizes`` from ``config`` unless explicitly overridden in ``kwargs``.
-        - For other registered architectures (e.g. ``csordas:conv``, ``csordas:resnet110``,
-          ``csordas:lstm``, ``csordas:transformer``), delegates to :meth:`create`
-          (placeholder/non-FC architectures can be invoked explicitly once ready).
-        """
-        resolved_arch = arch or getattr(config, "sota_arch", None) or "positronix:metamodel"
-        if resolved_arch == "positronix:metamodel":
-            from positronixlab.metamodel.metamodel import MetaModel
-
-            model_name = name or getattr(config, "name", None) or "MetaModel"
-            return MetaModel(name=model_name, config=config, device=device)
-
-        if resolved_arch == "csordas:mlp":
-            n_inputs = kwargs.pop("n_inputs", getattr(config, "input_data_shape", None))
-            n_outputs = kwargs.pop("n_outputs", getattr(config, "output_data_shape", None))
-            if n_inputs is None or n_outputs is None:
-                raise ValueError(
-                    "csordas:mlp requires n_inputs and n_outputs (either in config or kwargs)."
-                )
-            if "layer_sizes" not in kwargs and hasattr(config, "input_hidden_dim"):
-                n_hidden = max(1, int(getattr(config, "input_num_layers", 3)))
-                kwargs["layer_sizes"] = [int(config.input_hidden_dim)] * n_hidden
-            return cls.create(
-                resolved_arch,
-                device=device,
-                n_inputs=n_inputs,
-                n_outputs=n_outputs,
-                name=name,
-                **kwargs,
-            )
-
-        return cls.create(resolved_arch, device=device, name=name, **kwargs)
 
     @classmethod
     def wrap_neurosurgeon(
@@ -313,7 +255,6 @@ class ModelLoader:
         l0_lambda: float = 1e-8,
         deepcopy_model: bool = True,
     ) -> NeuroSurgeonWrappedModel:
-        """Wrap any ``nn.Module`` / :class:`SOTAModel` in ``NeuroSurgeon``."""
         return wrap_with_neurosurgeon(
             model=model,
             target_layers=target_layers,
@@ -326,23 +267,47 @@ class ModelLoader:
         )
 
 
+class DataProviderLoader:
+    """Unified factory for baseline compositional benchmark datasets."""
+
+    _REGISTRY: Dict[str, SOTADatasetSpec] = {}
+
+    @classmethod
+    def register(
+        cls,
+        name: str,
+        source: str,
+        task_type: str,
+        builder: Callable[..., CompositionalDataProvider],
+        description: str = "",
+    ) -> None:
+        cls._REGISTRY[name] = SOTADatasetSpec(
+            name=name,
+            source=source,
+            task_type=task_type,
+            builder=builder,
+            description=description,
+        )
+
+    @classmethod
+    def list_datasets(cls, source: Optional[str] = None) -> List[str]:
+        if source is None:
+            return sorted(cls._REGISTRY.keys())
+        return sorted(k for k, v in cls._REGISTRY.items() if v.source == source)
+
+    @classmethod
+    def create(cls, name: str, **kwargs: Any) -> CompositionalDataProvider:
+        if name not in cls._REGISTRY:
+            raise ValueError(
+                f"Unknown baseline dataset {name!r}. Available: {cls.list_datasets()}"
+            )
+        return cls._REGISTRY[name].builder(**kwargs)
+
+
 # ---------------------------------------------------------------------------
-# Default Registrations
+# Default Model Registrations
 # ---------------------------------------------------------------------------
 
-def _build_metamodel(config: Any, name: str = "MetaModel", device: Optional[torch.device | str] = None, **kwargs: Any):
-    from positronixlab.metamodel.metamodel import MetaModel
-
-    return MetaModel(name=name, config=config, device=device)
-
-
-ModelLoader.register(
-    arch="positronix:metamodel",
-    source="positronix",
-    task_type="classification",
-    builder=_build_metamodel,
-    description="PositronixLab config-driven MetaModel (nn_input -> nn_latent -> nn_output)",
-)
 ModelLoader.register(
     arch="csordas:mlp",
     source="csordas",
@@ -417,3 +382,47 @@ ModelLoader.register(
     description="Lepori et al. SynEval Odd-One-Out BERT-small (upstream transformers)",
     default_exclude_patterns=("embeddings",),
 )
+
+# ---------------------------------------------------------------------------
+# Default Dataset Registrations
+# ---------------------------------------------------------------------------
+
+DataProviderLoader.register(
+    name="csordas:tuple_arithmetic",
+    source="csordas",
+    task_type="arithmetic",
+    builder=TupleArithmeticDataProvider,
+    description="Csordas et al. Double Addition / Multiplication (synthetic, zero download)",
+)
+DataProviderLoader.register(
+    name="csordas:add_mul",
+    source="csordas",
+    task_type="arithmetic",
+    builder=AddMulDataProvider,
+    description="Csordas et al. Add vs. Mul (synthetic, zero download)",
+)
+DataProviderLoader.register(
+    name="csordas:class_removal",
+    source="csordas",
+    task_type="classification",
+    builder=ClassRemovalDataProvider,
+    description="Csordas et al. Leave-One-Class-Out wrapper",
+)
+
+for _fam in ("inside_contact", "inside_count", "contact_count"):
+    DataProviderLoader.register(
+        name=f"lepori:cvr_{_fam}",
+        source="lepori",
+        task_type="odd_one_out",
+        builder=lambda _f=_fam, **kw: CVROddOneOutSOTAProvider(family=_f, **kw),
+        description=f"Lepori et al. CVR Odd-One-Out compositional family ({_fam})",
+    )
+
+for _fam in ("sv_singular", "sv_plural", "pro_ant_singular", "pro_ant_plural"):
+    DataProviderLoader.register(
+        name=f"lepori:syneval_{_fam}",
+        source="lepori",
+        task_type="odd_one_out",
+        builder=lambda _f=_fam, **kw: SynEvalOddOneOutSOTAProvider(family=_f, **kw),
+        description=f"Lepori et al. SynEval syntactic Odd-One-Out family ({_fam})",
+    )

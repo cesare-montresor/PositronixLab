@@ -132,8 +132,8 @@ losses, positions, stats = space.process_activations("fc1", torch.randn(8, 16))
 
 ```bash
 TRITON_CACHE_DIR=/tmp/triton_cache TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_cache \
-  .venv/bin/pytest positronixlab/modularspace/tests -v
+  .venv/bin/pytest tests/modularspace -v
 
 TRITON_CACHE_DIR=/tmp/triton_cache TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_cache \
-  .venv/bin/python positronixlab/modularspace/examples/example_layerspace.py
+  .venv/bin/python examples/modularspace/example_layerspace.py
 ```

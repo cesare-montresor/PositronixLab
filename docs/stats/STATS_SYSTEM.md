@@ -123,11 +123,7 @@ REDUCERS = {
 
 Processors run downstream of `reducer.drain()` in the main loop.
 
-> **Import caveat:** `processor.py` currently has an unconditional
-> `from cuml.manifold.umap import UMAP` at line 14 before its `try/except`
-> fallback to `umap-learn`. Importing `processor.py` (or `stream.py`) fails on
-> environments without a working `cuml` installation until that import is made
-> lazy/optional.
+> **UMAP backend fallback:** `processor.py` tries `cuml.manifold.UMAP` first, falls back to CPU `umap.UMAP` (`umap-learn`), and sets `UMAP = None` if neither is installed (raising only if `UmapProcessor` is actually instantiated).
 
 ### `Processor` (ABC)
 

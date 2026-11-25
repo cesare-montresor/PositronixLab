@@ -426,70 +426,51 @@ class TestOfflineConcreteProviders:
 
 
 # ---------------------------------------------------------------------------
-# 6. Confirmed Bugs (strict xfail regression pins)
+# 6. Regression tests for previously confirmed bugs (B1-B14) & new features
 # ---------------------------------------------------------------------------
 
-class TestConfirmedBugs:
-    @pytest.mark.xfail(
-        strict=True,
-        reason="B2: DataProviderFactory.from_config() accesses config.model_type, crashing on DataConfig.",
-    )
+class TestFixedBugsAndNewFeatures:
     def test_b2_factory_accepts_data_config(self):
         cfg = DataConfig(dataset_name="iris", batch_size=16)
         p = DataProviderFactory.from_config(cfg, num_workers=0)
         assert isinstance(p, IrisDataProvider)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="B3: DataProviderFactory.from_config(..., split=None) overrides HIGGS 3-way split default with [0.7, 0.3].",
-    )
-    def test_b3_factory_preserves_higgs_three_way_split(self, mock_higgs_dir, monkeypatch):
+    def test_b3_factory_preserves_higgs_three_way_split(self, mock_higgs_dir):
         root, _ = mock_higgs_dir
-        monkeypatch.chdir(root.parent)
-        # Point HIGGSDataProvider default root to mock_higgs_dir
-        orig_init = HIGGSDataProvider.__init__
-
-        def _patched_init(self, root=str(mock_higgs_dir[0]), **kwargs):
-            return orig_init(self, root=root, **kwargs)
-
-        monkeypatch.setattr(HIGGSDataProvider, "__init__", _patched_init)
-        cfg = types.SimpleNamespace(dataset_name="higgs", batch_size=16, model_type="fc")
+        cfg = DataConfig(dataset_name="higgs", batch_size=16, root=str(root))
         p = DataProviderFactory.from_config(cfg, num_workers=0)
         assert p.dataset_test is not None
+        assert p.dataset_split == [0.7, 0.15, 0.15]
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="B5: _load_or_build_npy() uses np.save(Path('HIGGS.npy.tmp'), ...) which writes HIGGS.npy.tmp.npy and fails rename().",
-    )
     def test_b5_higgs_csv_to_npy_conversion(self, tmp_path: Path):
-        # Create a tiny valid 5-row HIGGS.csv (1 label + 28 features)
         rows = np.zeros((5, 29), dtype=np.float32)
         np.savetxt(tmp_path / "HIGGS.csv", rows, delimiter=",")
         full_x, full_y = _load_or_build_npy(tmp_path)
         assert full_x.shape == (5, 28)
         assert full_y.shape == (5,)
+        assert (tmp_path / "HIGGS.npy").exists()
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="B6: IrisDataProvider assigns identical unsplit dataset to train/val/test (100% leakage).",
-    )
-    def test_b6_iris_splits_are_disjoint(self):
-        p = IrisDataProvider(batch_size=16, split=[0.7, 0.3], num_workers=0)
+    def test_b6_iris_splits_are_disjoint_and_support_transforms(self):
+        p = IrisDataProvider(
+            batch_size=16,
+            split=[0.7, 0.3],
+            num_workers=0,
+            transforms=lambda x: x * 2.0,
+        )
         assert p.dataset_train is not p.dataset_val
         assert len(p.dataset_train) + len(p.dataset_val) == len(p.dataset)
+        assert set(p.dataset_train.indices.tolist()).isdisjoint(
+            set(p.dataset_val.indices.tolist())
+        )
+        x0, _ = p.dataset_train[0]
+        raw_idx = int(p.dataset_train.indices[0])
+        assert torch.allclose(x0, p.dataset._full_x[raw_idx] * 2.0)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="B7: 9 providers unconditionally unpack 2 splits and crash on 3-way split=[0.7, 0.15, 0.15].",
-    )
     def test_b7_three_way_split_supported_on_math_provider(self):
         p = MathDataProvider(batch_size=8, split=[0.7, 0.15, 0.15], num_workers=0)
         assert p.dataset_test is not None
+        assert len(p.dataset_train) + len(p.dataset_val) + len(p.dataset_test) == len(p.dataset)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="B9: HIGGS 2-way split uses contiguous np.arange() without shuffling and ignores split_seed.",
-    )
     def test_b9_higgs_two_way_split_respects_split_seed(self, mock_higgs_dir):
         root, _ = mock_higgs_dir
         p1 = HIGGSDataProvider(
@@ -512,11 +493,172 @@ class TestConfirmedBugs:
         )
         assert not np.array_equal(p1.train_indices, p2.train_indices)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="B10: Datasets call self.transforms.apply(x) instead of self.transforms(x), crashing on torchvision.transforms.Compose.",
-    )
-    def test_b10_torchvision_compose_accepted(self):
+    def test_b10_torchvision_compose_and_metatransform_callable(self):
+        from positronixlab.metamodel.metatransform import MetaTransform
+
         compose = tv_transforms.Compose([tv_transforms.Lambda(lambda x: x)])
         p = MathDataProvider(batch_size=8, num_workers=0, transforms=compose)
         _ = p.dataset_train[0]
+
+        mt = MetaTransform(["flatten"])
+        out = mt(torch.zeros(1, 4, 4))
+        assert out.shape == (16,)
+
+    def test_base_tensor_dataset_zero_copy_and_idempotent_normalization(self):
+        from positronixlab.dataprovider import BaseTensorDataset
+
+        x = torch.arange(100, dtype=torch.float32).reshape(20, 5)
+        y = torch.arange(20, dtype=torch.long)
+        ds = BaseTensorDataset(x, y, normalize=True, norm_cols=slice(0, 2))
+        tr, va = ds.random_split([0.8, 0.2], seed=0)
+        # Zero-copy: backing tensor is shared
+        assert tr._full_x is ds._full_x
+        assert va._full_x is ds._full_x
+
+        mean, std = tr.compute_normalization()
+        first_x0, _ = tr[0]
+        # Calling compute_normalization / apply_normalization twice does not double-normalize
+        tr.compute_normalization()
+        va.apply_normalization(mean, std)
+        va.apply_normalization(mean, std)
+        second_x0, _ = tr[0]
+        assert torch.allclose(first_x0, second_x0)
+
+    def test_higgs_sampler_resamples_across_epochs_with_loader(self, mock_higgs_dir):
+        root, _ = mock_higgs_dir
+        p = HIGGSDataProvider(
+            root=str(root),
+            batch_size=16,
+            epoch_size=0.2,
+            normalize=False,
+            num_workers=0,
+        )
+        p.set_epoch(0)
+        b0 = next(iter(p.train))[0].clone()
+        p.set_epoch(1)
+        b1 = next(iter(p.train))[0].clone()
+        assert not torch.equal(b0, b1)
+        p.set_epoch(0)
+        b0_again = next(iter(p.train))[0].clone()
+        assert torch.equal(b0, b0_again)
+
+    def test_get_loader_overrides_and_drop_last_default(self):
+        p = IrisDataProvider(batch_size=16, num_workers=0)
+        assert p.train.drop_last is True
+        assert p.val.drop_last is True
+        custom = p.get_loader("val", batch_size=10, drop_last=False, shuffle=False)
+        assert custom.batch_size == 10
+        assert custom.drop_last is False
+
+    def test_registry_lookup_and_aliases(self):
+        assert DataProvider.get("iris") is IrisDataProvider
+        assert "iris" in DataProviderFactory.list_available()
+        assert "odd_one_out" in DataProviderFactory.list_available()
+        p = DataProviderFactory.create("odd_one_out", batch_size=8, num_workers=0)
+        assert isinstance(p, OddOneOutDataProvider)
+
+
+# ---------------------------------------------------------------------------
+# 7. Unified Baseline Compositional DataProviders under dataprovider
+# ---------------------------------------------------------------------------
+
+class TestUnifiedCompositionalProviders:
+    def test_class_removal_from_provider_and_factory(self):
+        from positronixlab.dataprovider import ClassRemovalDataProvider, CompositionalDataProvider
+
+        iris = IrisDataProvider(batch_size=8, num_workers=0)
+        cr = ClassRemovalDataProvider.from_provider(iris)
+        assert isinstance(cr, CompositionalDataProvider)
+        assert isinstance(cr, DataProvider)
+        assert cr.list_subtasks() == ["all", "without_0", "without_1", "without_2"]
+        assert set(cr.eval_matrix_spec().keys()) == {"without_0", "without_1", "without_2"}
+        for _, by in cr.get_subtask("without_1").train_loader():
+            assert (by != 1).all()
+        # Both standard DataProvider (.train) and Compositional (.train_loader()) work
+        bx, _ = next(iter(cr.train))
+        assert bx.shape == (8, 4)
+
+    def test_addmul_and_tuple_arithmetic_subtasks_and_modes(self):
+        from positronixlab.dataprovider import AddMulDataProvider, TupleArithmeticDataProvider
+
+        # Original per-digit mode
+        am_digits = AddMulDataProvider(
+            n_digits=2, n_train=64, n_val=16, n_test=16, batch_size=16, target_mode="digits"
+        )
+        assert am_digits.list_subtasks() == ["full", "add", "mul"]
+        assert am_digits.eval_matrix_spec() == {
+            "add": ["full", "add", "mul"],
+            "mul": ["full", "add", "mul"],
+        }
+        bx, by = next(iter(am_digits.train))
+        assert bx.shape == (16, 42)
+        assert by.shape == (16, 2)
+
+        # Single-head integer mode via factory alias
+        am_int = DataProviderFactory.create(
+            "csordas:add_mul",
+            n_digits=1,
+            n_train=64,
+            n_val=16,
+            n_test=16,
+            batch_size=16,
+            target_mode="integer",
+        )
+        bx_i, by_i = next(iter(am_int.get_subtask("add").val_loader()))
+        assert bx_i.shape == (16, 22)
+        assert by_i.shape == (16,)
+        assert (bx_i[:, -2] == 1).all()
+
+        # TupleArithmetic subtasks via factory alias
+        ta = DataProviderFactory.create(
+            "csordas:tuple_arithmetic",
+            n_digits=1,
+            n_tuples=2,
+            n_train=64,
+            n_val=16,
+            n_test=16,
+            batch_size=16,
+            target_mode="integer",
+        )
+        assert ta.list_subtasks() == ["full", "tuple_0", "tuple_1"]
+        t1_x, t1_y = next(iter(ta.get_subtask("tuple_1").val_loader()))
+        assert (t1_x[:, :20] == 0).all()
+        assert t1_y.shape == (16,)
+
+    def test_lepori_cvr_and_syneval_via_dataprovider_factory(self):
+        from positronixlab.dataprovider import (
+            CVR_FAMILIES,
+            SYNEVAL_FAMILIES,
+            CompositionalDataProvider,
+        )
+
+        cvr = DataProviderFactory.create(
+            "lepori:cvr_inside_count",
+            n_train=16,
+            n_val=8,
+            n_test=8,
+            image_size=32,
+            batch_size=4,
+            use_real_generator=False,
+        )
+        assert isinstance(cvr, CompositionalDataProvider)
+        assert set(cvr.list_subtasks()) == set(CVR_FAMILIES["inside_count"].keys())
+        assert set(cvr.eval_matrix_spec().keys()) == {"inside", "count"}
+        bx, by = next(iter(cvr.train))
+        assert bx.shape == (4, 4, 3, 32, 32)
+        assert by.shape == (4,)
+
+        syn = DataProviderFactory.create(
+            "lepori:syneval_pro_ant_plural",
+            n_train=16,
+            n_val=8,
+            n_test=8,
+            max_length=16,
+            batch_size=4,
+        )
+        assert isinstance(syn, CompositionalDataProvider)
+        assert set(syn.list_subtasks()) == set(SYNEVAL_FAMILIES["pro_ant_plural"].keys())
+        assert syn.get_subtask("ablate_pro").train_loader() is None
+        sx, sy = next(iter(syn.train))
+        assert sx.shape == (4, 2, 4, 16)
+        assert sy.shape == (4,)

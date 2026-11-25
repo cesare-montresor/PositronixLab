@@ -155,4 +155,4 @@ with MyPipeline(cfg, opts) as pipe:
 | `PipelineConfigV1` | Legacy `ModularSpace` (V1) runs that expect `modular_space_loss_centers` / `modular_space_loss_alignment`. |
 | `PipelineConfigV2` | Flat Ax sweeps targeting `LayerSpace` + composable `SpaceStep` stages (`modular_space_scoring`, `modular_space_contrast`, `modular_space_loss_sigreg`, etc.). |
 
-See [`positronixlab/pipeline/examples/example_pipeline_config.py`](file:///home/cesare/Projects/PositronixLab/positronixlab/pipeline/examples/example_pipeline_config.py) for a runnable end-to-end configuration example.
+See [`examples/pipeline/example_pipeline_config.py`](file:///home/cesare/Projects/PositronixLab/examples/pipeline/example_pipeline_config.py) for a runnable end-to-end configuration example.

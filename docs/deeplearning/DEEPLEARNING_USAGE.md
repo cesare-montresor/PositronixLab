@@ -6,7 +6,7 @@ Practical recipes for configuring and running `DeeplearningTrain`, `Deeplearning
 
 ## 1. Composing a Config
 
-`TrainConfig` is a composable `BaseConfig` mixin. Because `DeeplearningBase` and `DeeplearningTrain.inference()` read `config.task`, compose `TrainConfig` with `DataConfig` (or a small config defining `task`):
+`TrainConfig` is a composable `BaseConfig` mixin. Because `DeeplearningBase` and `DeeplearningTrain.inference()` read `config.task`, compose `TrainConfig` with `MetaModelConfig` (which defines `task: str = "classification"`) or a small config defining `task`:
 
 ```python
 from dataclasses import dataclass
@@ -19,15 +19,15 @@ class ExperimentConfig(TrainConfig):
 cfg = ExperimentConfig(optimizer="adamw", learning_rate=1e-3, epochs=5)
 ```
 
-With `positronixlab.dataprovider.config.DataConfig`:
+With `positronixlab.metamodel.MetaModelConfig`:
 
 ```python
 from dataclasses import dataclass
-from positronixlab.dataprovider.config import DataConfig
+from positronixlab.metamodel import MetaModelConfig
 from positronixlab.deeplearning import TrainConfig
 
 @dataclass
-class ExperimentConfig(TrainConfig, DataConfig):
+class ExperimentConfig(TrainConfig, MetaModelConfig):
     pass
 ```
 
@@ -155,26 +155,25 @@ print(f"Accuracy: {acc:.2%}, forward time: {sec_per_sample * 1e3:.3f} ms/sample"
 print("Confusion matrix:\n", cm)
 ```
 
-> **Known Caveats in `inference()`:**
-> - Only supports 2-tuple `(x, y)` batches (not 3-tuple `(x, y, idx)`).
-> - `avg_loss` currently divides the sum of per-batch mean losses by total sample count `N`, making it `~batch_size` times smaller than `DeeplearningEval`'s loss (see `analysis.md`, Bug B2). Use `DeeplearningEval` or `validate()` for comparable loss values.
+`inference()` supports both 2-tuple `(x, y)` and 3-tuple `(x, y, idx)` batches and computes sample-weighted average loss.
 
 ---
 
 ## 6. Early Stopping
 
-```python
-# Recommended currently ONLY for positive maximized metrics (e.g. "acc")
-trainer.add_early_stopping(max_attempts=3, min_gain=0.01, metric="acc")
-```
+`add_early_stopping()` auto-infers `minimize=True` when `"loss"` appears in `metric` (or pass `minimize=True/False` explicitly):
 
-> **Warning (Known Bug B1):** `EarlyStopping.should_stop()` currently **maximizes** its metric (`gain = metric - self.metric_last`) with `metric_last = 0`. Do **not** use the default `metric="loss"` until Bug B1 is fixed, as decreasing losses will trigger premature stopping.
+```python
+trainer.add_early_stopping(max_attempts=3, min_gain=0.01, metric="loss")
+# Or for a maximized metric:
+# trainer.add_early_stopping(max_attempts=3, min_gain=0.01, metric="acc", minimize=False)
+```
 
 ---
 
 ## 7. Draft Mode (Fast Smoke Runs)
 
-Pass `draft=True` to `DeeplearningTrain` or `DeeplearningEval` to cap execution to 1 epoch and ~20 batches per epoch (currently 21 due to an off-by-one — see `analysis.md`, Bug B7):
+Pass `draft=True` to `DeeplearningTrain` or `DeeplearningEval` to cap execution to 1 epoch and ~20 batches per epoch (see [`reports/deeplearning_analysis.md`](file:///home/cesare/Projects/PositronixLab/reports/deeplearning_analysis.md)):
 
 ```python
 trainer = DeeplearningTrain(config=cfg, model=model, dp=dp, draft=True)
@@ -187,5 +186,5 @@ trainer = DeeplearningTrain(config=cfg, model=model, dp=dp, draft=True)
 Run the bundled CPU example:
 
 ```bash
-.venv/bin/python positronixlab/deeplearning/examples/example_deeplearning_train.py
+.venv/bin/python examples/deeplearning/example_deeplearning_train.py
 ```

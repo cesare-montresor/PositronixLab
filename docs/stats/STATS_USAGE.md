@@ -21,14 +21,12 @@ How to use the `positronixlab/stats` building blocks (`Stream`, `Reducer`,
 | `umap` | `UmapProcessor` | `n_components=2`, `n_samples=50`, `min_dist=0.1`, `min_neighbors=10`, `max_neighbors=50`, `seed=42` | Per-layer 2D points + progressive `index` via initial fit + warm-start `fit_transform`. Compute 2D cluster centroids with `centroids_2d(layer, labels)`. |
 | `overall` | `OverallProcessor` | `topic`, `key="overall"` | Pass-through of all items + one extra message on `topic` with the mean across all keys seen so far. |
 
-> **Note:** `PcaProcessor` was removed in favor of warm-start `UmapProcessor`.
-> Note also that `processor.py` currently requires a working `cuml` import at
-> module load time (see `analysis.md`).
+> **Note:** `PcaProcessor` was removed in favor of warm-start `UmapProcessor` (which automatically falls back from `cuml.manifold.UMAP` to CPU `umap-learn` when `cuml` is unavailable).
 
 ## Using the Building Blocks Directly
 
 All components are plain Python classes usable outside any plugin runtime.
-See also the runnable script [example_stats.py](../examples/example_stats.py).
+See also the runnable script [example_stats.py](../../examples/stats/example_stats.py).
 
 ### Reducers & `DisplacementFilter`
 
@@ -188,7 +186,7 @@ Rules of thumb:
 
 | Symptom | Cause / Fix |
 |---|---|
-| `ImportError` / `OSError` importing `stats.processor` or `stats.stream` | `processor.py:14` unconditionally imports `cuml.manifold.umap.UMAP`. Requires a working cuML/CUDA environment until made optional. |
+| `ImportError` when instantiating `UmapProcessor` | Neither `cuml` nor `umap-learn` is installed; install `umap-learn` (CPU) or `cuml` (GPU). |
 | No output from `UmapProcessor` while `progress()` grows | Expected during the initial `n_samples` collection phase; wait or lower `n_samples`. |
 | `Stream.drain()` returns `({}, n)` with `DisplacementReducer` | Messages were ingested (incrementing `_count`), but none exceeded `threshold`. Skip calling `OverallProcessor.process({})` on empty blocks. |
 | `RuntimeError` in `WindowReducer.drain()` after a shape change | `WindowReducer` does not reset its deque when tensor shape changes; recreate the reducer or use `EmaReducer`/`MeanReducer`. |

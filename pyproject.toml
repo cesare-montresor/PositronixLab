@@ -41,7 +41,14 @@ dependencies = [
     "cuml-cu12",
     "parametric_umap",
     "parallelazy",
-    "NeuroSurgeon"
+    "NeuroSurgeon",
+]
+
+[project.optional-dependencies]
+baselines = [
+    "NeuroSurgeon",
+    "transformers",
+    "opencv-python-headless",
 ]
 
 

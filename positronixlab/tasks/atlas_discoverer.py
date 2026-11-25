@@ -14,12 +14,12 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import torch
 import torch.nn as nn
 
-from positronixlab.metamodel.sota.base import get_maskable_layer_names
+from positronixlab.baselines.base import get_maskable_layer_names
 from positronixlab.modularcluster.modularcluster_kmeans import ModularClusterKmeans
 from positronixlab.modularspace.config import LayerSpaceConfig
 from positronixlab.modularspace.layerspace import LayerSpace
-from positronixlab.tasks.sota.discoverers import SubnetworkDiscoverer, _unpack_batch
-from positronixlab.tasks.sota.masks import SubnetworkMask
+from positronixlab.tasks.discoverer import SubnetworkDiscoverer, unpack_batch as _unpack_batch
+from positronixlab.tasks.masks import SubnetworkMask
 
 
 def _reduce_activation_to_2d(act: torch.Tensor) -> torch.Tensor:

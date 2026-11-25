@@ -1,63 +1,231 @@
-# positronixlab/dataprovider/syneval_oddoneout_dataprovider.py
-import torch
-import os
-from torch.utils.data import Dataset, random_split
-from positronixlab.dataprovider.dataprovider import DataProvider
+"""SynEval compositional syntactic Odd-One-Out dataset provider (Lepori et al., NeurIPS 2023).
 
-class SynevalOddOneOutDataProvider(DataProvider):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.name = 'syneval_odd_one_out'
-        self.num_features = None 
-        self.num_classes = 4  
-        
-        self.dataset = SynevalOddOneOutDataset(transforms=self.transforms)
-        self.dataset_train, self.dataset_val = self.dataset.random_split(self.dataset_split)
-        
-        self.dataset_train.transforms = self.transforms
-        self.dataset_val.transforms = self.transforms
-        self.dataset_test = SynevalOddOneOutDataset(train=False, transforms=self.transforms)
+Supports all 4 Lepori et al. SynEval syntactic families (5 subtasks per family):
+- ``sv_singular`` (``base``, ``s``, ``v``, ``ablate_s``, ``ablate_v``)
+- ``sv_plural`` (``base``, ``s``, ``v``, ``ablate_s``, ``ablate_v``)
+- ``pro_ant_singular`` (``base``, ``pro``, ``ant``, ``ablate_pro``, ``ablate_ant``)
+- ``pro_ant_plural`` (``base``, ``pro``, ``ant``, ``ablate_pro``, ``ablate_ant``)
+
+Loads pickled sentence quartets + HuggingFace ``AutoTokenizer`` when
+``<root>/<task_name>/{train,val,test}.pkl`` exists, otherwise generates
+deterministic synthetic ``(2, 4, max_length)`` ``[input_ids, attention_mask]``
+tensors for offline/CI runs.
+"""
+
+from __future__ import annotations
+
+import pickle
+from pathlib import Path
+from typing import Dict, List, Literal, Optional, Tuple, Union, Unpack
+
+import torch
+from torch import nn
+from torch.utils.data import Dataset
+
+from positronixlab.dataprovider.dataprovider import (
+    CompositionalDataProvider,
+    DataProviderOptions,
+    SubtaskSplit,
+    TransformLike,
+    apply_transform,
+)
+
+SynEvalFamily = Literal["sv_singular", "sv_plural", "pro_ant_singular", "pro_ant_plural"]
+
+# Exact Lepori et al. SynEval compositional syntactic families (indices 0..19)
+SYNEVAL_FAMILIES: Dict[str, Dict[str, str]] = {
+    "sv_singular": {
+        "base": "sn_task_1_sv_singular",
+        "s": "sn_task_1_s_singular",
+        "v": "sn_task_1_v_singular",
+        "ablate_s": "sn_task_1_sv_singular_ablate_s",
+        "ablate_v": "sn_task_1_sv_singular_ablate_v",
+    },
+    "sv_plural": {
+        "base": "sn_task_2_sv_plural",
+        "s": "sn_task_2_s_plural",
+        "v": "sn_task_2_v_plural",
+        "ablate_s": "sn_task_2_sv_plural_ablate_s",
+        "ablate_v": "sn_task_2_sv_plural_ablate_v",
+    },
+    "pro_ant_singular": {
+        "base": "sn_task_3_pro_ant_singular",
+        "pro": "sn_task_3_pro_singular",
+        "ant": "sn_task_3_ant_singular",
+        "ablate_pro": "sn_task_3_pro_ant_singular_ablate_pro",
+        "ablate_ant": "sn_task_3_pro_ant_singular_ablate_ant",
+    },
+    "pro_ant_plural": {
+        "base": "sn_task_4_pro_ant_plural",
+        "pro": "sn_task_4_pro_plural",
+        "ant": "sn_task_4_ant_plural",
+        "ablate_pro": "sn_task_4_pro_ant_plural_ablate_pro",
+        "ablate_ant": "sn_task_4_pro_ant_plural_ablate_ant",
+    },
+}
+
 
 class SynevalOddOneOutDataset(Dataset):
-    def __init__(self, train=True, indices=None, transforms=None):
+    """4-way Syntactic Odd-One-Out dataset yielding ``(stacked[2, 4, L], target_idx)``."""
+
+    def __init__(
+        self,
+        task_name: str = "sn_task_1_sv_singular",
+        split: str = "train",
+        n_samples: int = 64,
+        max_length: int = 50,
+        vocab_size: int = 1000,
+        root: Optional[Union[str, Path]] = None,
+        tokenizer_name: str = "prajjwal1/bert-small",
+        seed: int = 0,
+        transforms: Optional[TransformLike] = None,
+    ) -> None:
         super().__init__()
-        self.train = train
-        self.indices = indices
+        self.task_name = task_name
         self.transforms = transforms
-        
-        # Expected input shape: (N, 4, max_seq_len)
-        # Expected target shape: (N,) containing indices 0-3
-        file_path = './data/syneval_odd_one_out/train.pt' if train else './data/syneval_odd_one_out/test.pt'
-        
-        if os.path.exists(file_path):
-            data = torch.load(file_path)
-            self.x = data['inputs']
-            self.y = data['targets']
+        pkl_path = Path(root) / task_name / f"{split}.pkl" if root is not None else None
+
+        if pkl_path is not None and pkl_path.exists():
+            from transformers import AutoTokenizer
+
+            with open(pkl_path, "rb") as f:
+                problems: List[List[str]] = pickle.load(f)[:n_samples]
+            tok = AutoTokenizer.from_pretrained(tokenizer_name)
+            flat_sents = [s for prob in problems for s in prob]
+            enc = tok(
+                flat_sents,
+                max_length=max_length,
+                padding="max_length",
+                truncation=True,
+                return_tensors="pt",
+            )
+            n = len(problems)
+            ids = enc["input_ids"].reshape(n, 4, max_length)
+            attn = enc["attention_mask"].reshape(n, 4, max_length)
+            gen = torch.Generator().manual_seed(seed)
+            perms = torch.stack([torch.randperm(4, generator=gen) for _ in range(n)])
+            batch_idx = torch.arange(n).unsqueeze(1)
+            self.x = torch.stack([ids[batch_idx, perms], attn[batch_idx, perms]], dim=1)
+            self.y = perms.argmax(dim=1)
         else:
-            self.x = torch.zeros((100, 4, 32), dtype=torch.long)
-            self.y = torch.randint(0, 4, (100,), dtype=torch.long)
+            gen = torch.Generator().manual_seed(seed)
+            base_ids = torch.randint(5, vocab_size, (n_samples, 1, max_length), generator=gen)
+            ids = base_ids.expand(-1, 4, -1).clone()
+            ids[:, 3, :4] = torch.randint(1, 5, (n_samples, 4), generator=gen)
+            attn = torch.ones((n_samples, 4, max_length), dtype=torch.long)
+            perms = torch.stack([torch.randperm(4, generator=gen) for _ in range(n_samples)])
+            batch_idx = torch.arange(n_samples).unsqueeze(1)
+            self.x = torch.stack([ids[batch_idx, perms], attn[batch_idx, perms]], dim=1)
+            self.y = perms.argmax(dim=1)
 
-        if indices is not None:
-            self.x = self.x[indices]
-            self.y = self.y[indices]
-            
-    def copy(self, indices=None):
-        return SynevalOddOneOutDataset(self.train, indices=indices, transforms=self.transforms)
+    def __len__(self) -> int:
+        return int(self.x.shape[0])
 
-    def random_split(self, split):
-        subsets = random_split(self, split)
-        return [self.copy(subset.indices) for subset in subsets]
-
-    def __len__(self):
-        return len(self.x)
-
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         x = self.x[idx]
-        
         if self.transforms is not None:
-            try:
-                x = torch.stack([self.transforms.apply(seq) for seq in x])
-            except AttributeError:
-                x = torch.stack([self.transforms(seq) for seq in x])
-                
+            x = apply_transform(self.transforms, x)
         return x, self.y[idx]
+
+
+class SynevalOddOneOutDataProvider(
+    CompositionalDataProvider,
+    plugin_name="syneval_odd_one_out",
+):
+    """Lepori et al. SynEval syntactic Odd-One-Out provider (5 subtasks per family)."""
+
+    source = "lepori"
+    task_type = "odd_one_out"
+
+    def __init__(
+        self,
+        family: SynEvalFamily = "sv_singular",
+        n_train: int = 128,
+        n_val: int = 32,
+        n_test: int = 32,
+        max_length: int = 32,
+        vocab_size: int = 1000,
+        batch_size: int = 16,
+        root: Optional[Union[str, Path]] = None,
+        tokenizer_name: str = "prajjwal1/bert-small",
+        seed: int = 0,
+        **kwargs: Unpack[DataProviderOptions],
+    ) -> None:
+        if family not in SYNEVAL_FAMILIES:
+            raise ValueError(
+                f"Unknown SynEval family {family!r}. Choose from {sorted(SYNEVAL_FAMILIES.keys())}."
+            )
+        super().__init__(
+            name=f"lepori:syneval_{family}",
+            batch_size=batch_size,
+            root=root,
+            seed=seed,
+            **kwargs,
+        )
+        self.family = family
+        self.max_length = max_length
+        self.vocab_size = vocab_size
+        self.tokenizer_name = tokenizer_name
+        self.num_features = None
+        self.num_classes = 4
+        self.x_shape = (2, 4, max_length)
+        self.y_shape = ()
+        self.criterion = nn.CrossEntropyLoss()
+
+        spec = SYNEVAL_FAMILIES[family]
+        split_kw = dict(
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            drop_last=self.drop_last,
+            indexed_dataset=self.indexed_dataset,
+            persistent_workers=self.persistent_workers,
+            pin_memory=self.pin_memory,
+        )
+
+        for offset, (sub_key, task_name) in enumerate(spec.items()):
+            is_ablate = sub_key.startswith("ablate_")
+            self.subtasks[sub_key] = SubtaskSplit(
+                name=sub_key,
+                dataset_train=(
+                    None
+                    if is_ablate
+                    else SynevalOddOneOutDataset(
+                        task_name,
+                        "train",
+                        n_train,
+                        max_length,
+                        vocab_size,
+                        root,
+                        tokenizer_name=tokenizer_name,
+                        seed=seed + offset * 100,
+                        transforms=self.transforms,
+                    )
+                ),
+                dataset_val=SynevalOddOneOutDataset(
+                    task_name,
+                    "val",
+                    n_val,
+                    max_length,
+                    vocab_size,
+                    root,
+                    tokenizer_name=tokenizer_name,
+                    seed=seed + offset * 100 + 10,
+                    transforms=self.transforms,
+                ),
+                dataset_test=SynevalOddOneOutDataset(
+                    task_name,
+                    "test",
+                    n_test,
+                    max_length,
+                    vocab_size,
+                    root,
+                    tokenizer_name=tokenizer_name,
+                    seed=seed + offset * 100 + 20,
+                    transforms=self.transforms,
+                ),
+                **split_kw,
+            )
+
+        subroutines = [k for k in spec if k != "base" and not k.startswith("ablate_")]
+        self._eval_matrix = {sr: list(spec.keys()) for sr in subroutines}
+        self._sync_base_split()

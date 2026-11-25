@@ -196,5 +196,5 @@ cfg = TrialConfig.from_trial(
 Run the included self-contained CPU example:
 
 ```bash
-.venv/bin/python positronixlab/template/examples/example_template.py
+.venv/bin/python examples/template/example_template.py
 ```

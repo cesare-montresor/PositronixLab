@@ -165,5 +165,5 @@ new_exp.run(n_trials=attached + 10)
 ## 8. Running the Example
 
 ```bash
-.venv/bin/python positronixlab/nas/examples/example_nas_trial.py
+.venv/bin/python examples/nas/example_nas_trial.py
 ```

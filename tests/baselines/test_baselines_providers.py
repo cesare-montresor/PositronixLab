@@ -6,10 +6,8 @@ import pytest
 import torch
 from torch.utils.data import TensorDataset
 
-from positronixlab.dataprovider.sota import (
-    ClassRemovalDataProvider,
-    DataProviderLoader,
-)
+from positronixlab.baselines import DataProviderLoader
+from positronixlab.baselines.csordas import ClassRemovalDataProvider
 
 
 def test_dataprovider_loader_registry():
@@ -23,7 +21,7 @@ def test_dataprovider_loader_registry():
     assert "lepori:syneval_sv_singular" in all_ds
     assert "lepori:syneval_pro_ant_plural" in all_ds
 
-    with pytest.raises(ValueError, match="Unknown SOTA dataset"):
+    with pytest.raises(ValueError, match="Unknown baseline dataset"):
         DataProviderLoader.create("unknown:dataset")
 
 

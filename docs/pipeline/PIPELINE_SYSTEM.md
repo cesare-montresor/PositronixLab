@@ -164,7 +164,7 @@ __init__(config, options)
 - `get_env(key=None)` — reads a single key or the entire shared environment dict.
 - `all_plugins_terminated()` — `True` iff at least one plugin is loaded and none have `process_alive == True`.
 - `is_error()` — `True` if any plugin's `worker_status.state == "error"`.
-- `get_errors()` — returns `{plugin_id: [error_msgs]}` preferring `worker_status.errors` and falling back to `plugin_errors(plugin_id)` when alive.
+- `get_errors()` — returns `{plugin_id: [error_msgs]}` preferring `worker_status.errors` (stringifying list/tuple entries), falling back to `plugin_errors(plugin_id)` (wrapped in `try/except`) when alive, or formatting a positive integer error count as `["Worker reported N error(s)"]`.
 - `shutdown()` / `close()` — idempotent teardown; `Pipeline` supports `with MyPipeline(...) as p:`.
 
 ---
@@ -173,4 +173,4 @@ __init__(config, options)
 
 - `pipeline_config.py` imports `parallelazy.plugin_data.ManagerOptions` at module level, so importing `PipelineConfig` (or `V1`/`V2`) currently requires `parallelazy` to be importable. Import `BaseConfig` directly from `positronixlab.pipeline` (or `positronixlab.pipeline.config`) for `parallelazy`-free code.
 - `BaseConfig.from_dict()` string-matches `"Optional[T]"` annotations; subclasses without `from __future__ import annotations` (including `PipelineConfigV2`) skip coercion for `Optional[...]` fields.
-- See [`analysis.md`](file:///home/cesare/Projects/PositronixLab/positronixlab/pipeline/analysis.md) for the full list of known defects and refactor recommendations.
+- See [`reports/pipeline_analysis.md`](file:///home/cesare/Projects/PositronixLab/reports/pipeline_analysis.md) for the full list of known defects and refactor recommendations.

@@ -33,10 +33,11 @@ It sits between a PyTorch model and downstream consumers such as `ModularSpace` 
 ┌──────────────────────────┐     ┌────────────────────────────────┐
 │      GraphFormatter      │     │        ModularObserver         │
 │  • to_cytoscape(graph)   │     │  • filters observable layers   │
-│  • to_dict(graph)        │     │    (currently learnable linear)│
-│  • nodes_dict/nodes_list │     │  • on_pre_forward_layer(cb)    │
-│  • edges_list/edges_dict │     │  • on_forward_layer(cb)        │
-└──────────────────────────┘     │  • on_backward_layer(cb)       │
+│  • to_dict(graph)        │     │    (target_layers / types /    │
+│  • nodes_dict/nodes_list │     │     default learnable linear)  │
+│  • edges_list/edges_dict │     │  • on_pre_forward_layer(cb)    │
+└──────────────────────────┘     │  • on_forward_layer(cb)        │
+                                 │  • on_backward_layer(cb)       │
                                  │  • on_grad_weights(cb)         │
                                  │  • clear()                     │
                                  └────────────────────────────────┘
@@ -46,8 +47,8 @@ It sits between a PyTorch model and downstream consumers such as `ModularSpace` 
 
 `ModularObserver` separates **graph visibility** from **hook observation**:
 
-1. **Graph suitability (`_is_suitable_layer`)**: Passed to `ModelMapper.is_suitable_layer`. Uses `spacemath.common.is_layer(module)` (matches `torch.nn.modules.{linear,conv,rnn,transformer}`). Every matching leaf module becomes a `ModelNode` in `observer.graph()`.
-2. **Hook observability (`_is_observable_layer`)**: Filters graph nodes synced into `nodes_list` / `nodes_by_name` / `nodes_by_layer`. Currently requires `len(list(module.parameters())) > 0` and `is_linear(module)`. Only observable layers receive hooks from `on_*` methods.
+1. **Graph suitability (`_is_suitable_layer`)**: Passed to `ModelMapper.is_suitable_layer`. Accepts any module whose name is in `target_layers`, whose type matches `observable_types`, or for which `spacemath.common.is_layer(module)` is `True` (`torch.nn.modules.{linear,conv,rnn,transformer}`). Every matching leaf module becomes a `ModelNode` in `observer.graph()`.
+2. **Hook observability (`_is_observable_layer`)**: Filters graph nodes synced into `nodes_list` / `nodes_by_name` / `nodes_by_layer`. Rejects zero-parameter modules and names containing any substring in `exclude_patterns`, then matches `target_layers` (if provided), else `observable_types` (if provided), else falls back to `is_linear(module)`. Only observable layers receive hooks from `on_*` methods.
 
 ---
 
@@ -59,7 +60,6 @@ It sits between a PyTorch model and downstream consumers such as `ModularSpace` 
 | `positronixlab/modularobserver/modelmapper.py` | `TRACE_ALWAYS`, `extract_layer_io_metrics`, `ModelNode`, `ModelEdge`, `ModelGraph`, `GraphFormatter`, `_MapperInterceptor`, `ModelMapper` | Active |
 | `positronixlab/modularobserver/modularobserver.py` | `ModularObserver` and callback type aliases (`PreForwardCallback`, `ForwardCallback`, `WeightCallback`) | Active |
 | `positronixlab/modularobserver/layerobserver.py` | `LayerObserver` standalone per-layer hook wrapper (not currently wired into `ModularObserver`) | Orphaned |
-| `positronixlab/modularobserver/layerobserver_old.py` | Legacy PubSub observer (archived; do not modify) | Legacy |
 
 ---
 
@@ -81,7 +81,7 @@ Inspects a single module (non-recursive `parameters(recurse=False)`) and returns
     "param_ids": Set[int],  # id(p) for direct trainable parameters
 }
 ```
-Recognized module families: `nn.Linear`, `nn.Conv{1,2,3}d`, `nn.ConvTranspose{1,2}d`, `nn.Embedding`, `nn.RNNBase`/`RNN`/`LSTM`/`GRU`, `nn.MultiheadAttention`, `nn.BatchNorm{1,2}d`, `nn.LayerNorm`.
+Recognized module families: `nn.Linear`, `nn.Conv{1,2,3}d`, `nn.ConvTranspose{1,2}d`, `nn.Embedding`, `nn.RNNBase`/`RNN`/`LSTM`/`GRU`, `nn.MultiheadAttention`, `nn.BatchNorm{1,2}d`, `nn.LayerNorm`, `nn.GroupNorm`.
 
 #### `ModelNode` (dataclass)
 Represents one mapped leaf module:
@@ -129,18 +129,23 @@ ModularObserver(
     config: PipelineConfig,
     model: nn.Module,
     device: torch.device = None,
+    observable_types: tuple[type[nn.Module], ...] | None = None,
+    target_layers: List[str] | None = None,
+    exclude_patterns: tuple[str, ...] = (),
 )
 ```
+When `device` is omitted, `ModularObserver` infers it from `model.device`, then `next(model.parameters()).device`, falling back to `torch.device("cpu")`.
+
 - `map(dummy_data: torch.Tensor = None, trace_samples: int = 1)`: Delegates to `self.mapper.map(self.model, dummy_data, trace_samples=trace_samples)` and triggers `_on_graph_discovered` -> `_sync_observers_with_mapper`.
 - `graph() -> ModelGraph`: Returns `self.mapper.graph`.
 - `layer_names() -> List[str]`: Names of observable layers.
 - `by_name(name: str) -> Optional[ModelNode]` / `by_layer(layer: nn.Module) -> Optional[ModelNode]`: Look up an observable `ModelNode`.
 - `on_graph_update(callback)`: Registers a callback invoked with `ModelGraph` whenever `ModelMapper` reports a graph change.
-- `on_pre_forward_layer(callback=None)`: Registers or removes (`callback=None`) `register_forward_pre_hook` on every observable layer.
-- `on_forward_layer(callback=None)`: Registers or removes `register_forward_hook` on every observable layer.
-- `on_backward_layer(callback=None)`: Registers or removes `register_full_backward_hook` on every observable layer.
-- `on_grad_weights(callback=None)`: Registers or removes `Tensor.register_hook` on parameters of observable layers.
-- `clear()`: Removes forward, backward, and weight-grad hooks and clears internal node registries.
+- `on_pre_forward_layer(callback=None)`: Registers or removes (`callback=None`) `register_forward_pre_hook` on every observable layer (automatically removes any existing handles before re-registering).
+- `on_forward_layer(callback=None)`: Registers or removes `register_forward_hook` on every observable layer (removes prior handles first).
+- `on_backward_layer(callback=None)`: Registers or removes `register_full_backward_hook` on every observable layer (removes prior handles first).
+- `on_grad_weights(callback=None)`: Registers or removes `Tensor.register_hook` on parameters of observable layers (removes prior handles first; captures `(module_ref, param)` via default arguments).
+- `clear()`: Removes pre-forward, forward, backward, and weight-grad hooks and clears internal node registries.
 
 ---
 
@@ -153,14 +158,9 @@ Lightweight per-layer hook wrapper initialized with `(observer, layer_id, node)`
 
 ## Known Limitations & Caveats
 
-See [analysis.md](../analysis.md) for the complete defect inventory with exact line numbers. Key caveats to be aware of when working with the current code:
+See [`reports/modularobserver_analysis.md`](file:///home/cesare/Projects/PositronixLab/reports/modularobserver_analysis.md) for the historical audit. Remaining caveats:
 
-1. **`.device` requirement in `ModelMapper.map`**: Dynamic tracing calls `data.to(device=model.device)`, which raises `AttributeError` on standard `nn.Module`s that do not define `.device` (unlike `MetaModel`/`BaseModel`).
-2. **Observable layer filter**: `ModularObserver._is_observable_layer` accepts `is_linear(module)` only; Conv/RNN/Transformer layers are mapped in `graph()` but excluded from hooks. Also, `is_linear(nn.Identity())` is `True` (filtered out only by the zero-parameter check).
-3. **Execution-order edges**: Dynamic edges reflect forward-hook invocation order (`sequence[-1] -> current`), not tensor dataflow, so parallel branches produce sequential edges and skip connections are omitted.
-4. **Hook lifecycle caveats**:
-   - Re-registering a callback without first passing `None` leaks the previous handle.
-   - `ModularObserver.clear()` does not remove `pre_forward` hooks (call `on_pre_forward_layer(None)` explicitly before `clear()`).
-   - `on_grad_weights` has a late-binding closure bug across layers/parameters.
-5. **Probabilistic `trace_samples` (float)**: Currently does not perform a random draw and decrements to `0` after the first pass. Use integer budgets (`0`, `1`, `N`) or `TRACE_ALWAYS`.
-6. **Import-time dependencies**: `modelmapper.py` has an unused `graphviz` import, `layerobserver.py` has an unused `pymoo` import, and `modularobserver.py` imports `PipelineConfig` (pulling in `parallelazy`) at module load time.
+1. **Execution-order edges**: Dynamic edges reflect forward-hook invocation order (`sequence[-1] -> current`), not tensor dataflow, so parallel branches produce sequential edges and skip connections are omitted.
+2. **Probabilistic `trace_samples` (float)**: Currently does not perform a random draw and decrements to `0` after the first pass. Use integer budgets (`0`, `1`, `N`) or `TRACE_ALWAYS`.
+3. **Import-time dependencies**: `modelmapper.py` has an unused `graphviz` import, `layerobserver.py` has an unused `pymoo` import, and `modularobserver.py` imports `PipelineConfig` (pulling in `parallelazy`) at module load time.
+4. **Orphaned `layerobserver.py`**: Still contains the old late-binding closure in `on_grad_weights` (fixed in `ModularObserver`).

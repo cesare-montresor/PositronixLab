@@ -1,140 +1,95 @@
-# =============================================================================
-# HIGGS Dataset
-# =============================================================================
-#
-# Design notes (why this looks the way it does):
-#
-# 1. SINGLE SHARED LOAD. The raw array is loaded/memmapped exactly once by the
-#    provider and handed to every split as a *view* (indices), never copied.
-#    Old version: dataset_full, dataset_train, dataset_val, dataset_test each
-#    called _load_full_data() independently -> 4x the RAM for the same data.
-#
-# 2. MEMMAP, NOT A FULL IN-RAM ARRAY. HIGGS.npy is opened with
-#    np.load(..., mmap_mode='r'). Pages are lazily faulted in by the OS and,
-#    critically, shared across DataLoader worker processes (they're the same
-#    file-backed pages) instead of being duplicated on fork/copy-on-write.
-#
-# 3. REAL PER-EPOCH RESAMPLING. Previously _sample_epoch() only ran once
-#    (guarded by `if self.x is None`), so the "epoch_size samples per epoch"
-#    behavior described in the docstring never actually happened after epoch 0.
-#    This version exposes set_epoch(epoch), matching the standard
-#    DistributedSampler-style contract: call dataset.set_epoch(e) at the start
-#    of each training epoch and it resamples deterministically from a local
-#    RNG. If the caller never calls it, the dataset still resamples on first
-#    access, but with a clear, documented, single-owner mechanism instead of
-#    a silent no-op after the first call.
-#
-# 4. LOCAL RNG. No more np.random.seed(...) global mutation, which previously
-#    clobbered RNG state for every other consumer of np.random in the process.
-#
-# 5. EDGE CASES. epoch_size is floored to >=1 with a warning instead of
-#    silently producing a zero-length (and therefore empty/crashing) split.
-#
-# 6. SEEDS ARE SPLIT INTO THREE INDEPENDENT CONCERNS:
-#    - test_seed: carves the test set out of the FULL dataset first, before
-#      anything else is split. It has its own default (1234) so that test
-#      membership never moves when you change split_seed to try different
-#      train/val partitions.
-#    - split_seed: splits whatever's left (after test is removed) into
-#      train/val. Safe to vary across experiments.
-#    - epoch_seed: drives per-epoch resampling within a split (see
-#      HIGGSDataset.set_epoch), independent of which rows belong to which
-#      split. Train/val/test each get an offset from epoch_seed so their
-#      resampling streams don't collide.
-#    dataset_test is sampled once (epoch 0, test_seed) and held fixed for
-#    the whole run -- it does not participate in HIGGSDataProvider.set_epoch.
+"""HIGGS physics binary classification dataset provider (memmap + per-epoch subsampling)."""
 
-from pathlib import Path
+from __future__ import annotations
+
 import gzip
+from pathlib import Path
 import shutil
+from typing import Any, Optional, Sequence, Tuple, Union, Unpack
 import warnings
 
 import numpy as np
 import pandas as pd
 import requests
 import torch
-from torch.utils.data import Dataset, random_split
+from torch import nn
+from torch.utils.data import Dataset, Sampler, random_split
 
-from positronixlab.dataprovider.dataprovider import DataProvider
+from positronixlab.dataprovider.dataprovider import (
+    DataProvider,
+    DataProviderOptions,
+    DataReader,
+    EpochSubsampleSampler,
+    SplitName,
+    TransformLike,
+    apply_transform,
+    resolve_data_root,
+)
 
 
-class HIGGSDataProvider(DataProvider):
-    """
-    HIGGS Dataset Provider for binary classification - optimized for large datasets.
+class _HIGGSPoolDataset(Dataset):
+    """Non-mutating view over a split's full index pool, driven by ``EpochSubsampleSampler``."""
+
+    def __init__(self, dataset: "HIGGSDataset") -> None:
+        self._ds = dataset
+
+    def __len__(self) -> int:
+        return self._ds.split_size
+
+    def __getitem__(self, pool_idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        real_idx = int(self._ds.indices[pool_idx])
+        return self._ds._get_raw_item(real_idx)
+
+
+class HIGGSDataProvider(DataProvider, plugin_name="higgs"):
+    """HIGGS Dataset Provider for binary classification — optimized for large datasets.
 
     Features:
-    - 21 low-level features (raw detector measurements)
-    - 7 high-level features (physics-derived quantities)
-    - Total: 28 features
-    - 11M samples (process via epoch_size for efficiency)
+    - 21 low-level features + 7 high-level features = 28 features
+    - 11M samples (subsampled via ``epoch_size`` per epoch)
     - Binary classification: signal (1) vs background (0)
 
-    Design for large physics datasets:
-    - Loads/memmaps the raw array exactly once and shares it across splits
-    - Within each split, randomly (re)samples epoch_size samples per epoch
-    - Ideal for multi-job / multi-worker scenarios on shared hardware, since
-      the memmap is OS-page-cache-shared rather than duplicated per split
-      or per DataLoader worker
-
-    Args:
-        batch_size: Batch size for dataloaders
-        split: Train/val/test split ratios (default [0.7, 0.15, 0.15])
-        num_workers: Number of dataloader workers
-        transforms: Optional transforms
-        normalize: Whether to normalize features (computed from train set)
-        epoch_size: Samples per epoch. Two modes:
-            - Float (0.0-1.0): percentage applied independently to each split
-              e.g., 0.1 = 10% of train, 10% of val, 10% of test
-            - Int (>1): absolute sample count for training set; percentage
-              computed and applied to val/test as well
-        root: Root directory for data
-        split_seed: seed for the train/val partition. Safe to vary across
-            experiments -- it only reshuffles which rows land in train vs val.
-        test_seed: seed for carving the test set out of the full dataset.
-            Deliberately separate from split_seed and defaulted differently,
-            so the test set stays identical across experiments even if you
-            change split_seed for train/val ablations. Test is carved out
-            FIRST, before train/val are split from what's left.
-        epoch_seed: base seed for per-epoch subsampling (see
-            HIGGSDataset.set_epoch). Controls which rows get drawn into a
-            given epoch's `epoch_size` subsample, independent of the
-            partition seeds above.
+    Key properties:
+    - Loads/memmaps ``HIGGS.npy`` once and shares it across splits & worker processes.
+    - Uses :class:`EpochSubsampleSampler` for DataLoader workers so calling
+      :meth:`set_epoch` resamples cleanly even when ``persistent_workers=True``.
+    - Three independent seeds: ``test_seed`` (carves test first), ``split_seed``
+      (train/val partition), and ``epoch_seed`` (per-epoch resampling).
     """
 
-    def __init__(self,
-                 root='./data',
-                 epoch_size=0.1,
-                 normalize=True,
-                 split=[0.7, 0.15, 0.15],
-                 split_seed=42,
-                 test_seed=1234,
-                 epoch_seed=42,
-                 **kwargs):
-        super().__init__(split=split, **kwargs)
+    default_split = (0.7, 0.15, 0.15)
 
-        self.name = 'higgs'
+    def __init__(
+        self,
+        *,
+        epoch_size: Union[float, int] = 0.1,
+        normalize: bool = True,
+        split_seed: int = 42,
+        test_seed: int = 1234,
+        epoch_seed: int = 42,
+        **kwargs: Unpack[DataProviderOptions],
+    ) -> None:
+        super().__init__(**kwargs)
+
+        self.name = "higgs"
         self.num_features = 28
         self.num_classes = 2
         self.x_shape = (28,)
         self.y_shape = ()
+        self.criterion = nn.CrossEntropyLoss()
         self.normalize = normalize
-        self.root = Path(root)
         self.epoch_size = epoch_size
         self.split_seed = split_seed
         self.test_seed = test_seed
         self.epoch_seed = epoch_seed
 
-        # Load (or memmap) the raw array exactly once. Shared by every split.
+        # Load (or memmap) the raw array once. Shared by every split.
         full_x, full_y = _load_or_build_npy(self.root)
         self.full_x = full_x
         self.full_y = full_y
         true_dataset_size = len(full_x)
 
         # ---- split into index arrays only (no data copies) ----
-        # Test is carved out FIRST with its own dedicated seed so it stays
-        # fixed across runs even if split_seed is changed to try different
-        # train/val partitions. Only the remainder is then split into
-        # train/val using split_seed.
         if len(self.dataset_split) == 3:
             train_frac, val_frac, test_frac = self.dataset_split
             test_size = int(test_frac * true_dataset_size)
@@ -143,12 +98,11 @@ class HIGGSDataProvider(DataProvider):
             test_split = random_split(
                 np.arange(true_dataset_size),
                 [remainder_size, test_size],
-                generator=torch.Generator().manual_seed(self.test_seed)
+                generator=torch.Generator().manual_seed(self.test_seed),
             )
             remainder_indices = np.asarray(test_split[0].indices)
-            self.test_indices = np.asarray(test_split[1].indices)
+            self.test_indices: Optional[np.ndarray] = np.asarray(test_split[1].indices)
 
-            # train/val ratios renormalized over the remainder
             train_ratio = train_frac / (train_frac + val_frac)
             train_size = int(train_ratio * remainder_size)
             val_size = remainder_size - train_size
@@ -156,149 +110,238 @@ class HIGGSDataProvider(DataProvider):
             trainval_split = random_split(
                 remainder_indices,
                 [train_size, val_size],
-                generator=torch.Generator().manual_seed(self.split_seed)
+                generator=torch.Generator().manual_seed(self.split_seed),
             )
             self.train_indices = remainder_indices[np.asarray(trainval_split[0].indices)]
             self.val_indices = remainder_indices[np.asarray(trainval_split[1].indices)]
-        else:
+        elif len(self.dataset_split) == 2:
             train_size = int(self.dataset_split[0] * true_dataset_size)
             val_size = true_dataset_size - train_size
             test_size = 0
-            self.train_indices = np.arange(train_size)
-            self.val_indices = np.arange(train_size, true_dataset_size)
+
+            trainval_split = random_split(
+                np.arange(true_dataset_size),
+                [train_size, val_size],
+                generator=torch.Generator().manual_seed(self.split_seed),
+            )
+            self.train_indices = np.asarray(trainval_split[0].indices)
+            self.val_indices = np.asarray(trainval_split[1].indices)
             self.test_indices = None
+        else:
+            raise ValueError(f"split must have 2 or 3 entries, got {self.dataset_split!r}")
 
         # ---- effective epoch_size per split ----
-        if isinstance(epoch_size, int) and epoch_size > 1:
-            percentage = epoch_size / train_size
-            epoch_size_train = epoch_size
-            epoch_size_val = int(percentage * val_size)
-            epoch_size_test = int(percentage * test_size) if test_size > 0 else 0
+        if isinstance(epoch_size, int) and not isinstance(epoch_size, bool):
+            percentage = epoch_size / max(train_size, 1)
+            epoch_size_train: Union[int, float] = epoch_size
+            epoch_size_val: Union[int, float] = max(1, int(percentage * val_size))
+            epoch_size_test: Union[int, float] = (
+                max(1, int(percentage * test_size)) if test_size > 0 else 0
+            )
         else:
             epoch_size_train = epoch_size
             epoch_size_val = epoch_size
             epoch_size_test = epoch_size
 
         # ---- build split datasets as thin views over the shared array ----
-        # epoch_seed offsets keep train/val/test resampling streams
-        # independent of each other despite sharing the same base seed.
         self.dataset_train = HIGGSDataset(
-            full_x, full_y, indices=self.train_indices,
-            epoch_size=epoch_size_train, normalize=normalize, split_name='train',
-            transforms=self.transforms, base_seed=self.epoch_seed,
+            full_x,
+            full_y,
+            indices=self.train_indices,
+            epoch_size=epoch_size_train,
+            normalize=normalize,
+            split_name="train",
+            transforms=self.transforms,
+            base_seed=self.epoch_seed,
         )
         self.dataset_val = HIGGSDataset(
-            full_x, full_y, indices=self.val_indices,
-            epoch_size=epoch_size_val, normalize=normalize, split_name='val',
-            transforms=self.transforms, base_seed=self.epoch_seed + 10_000,
+            full_x,
+            full_y,
+            indices=self.val_indices,
+            epoch_size=epoch_size_val,
+            normalize=normalize,
+            split_name="val",
+            transforms=self.transforms,
+            base_seed=self.epoch_seed + 10_000,
         )
         self.dataset_test = None
         if self.test_indices is not None and len(self.test_indices) > 0:
             self.dataset_test = HIGGSDataset(
-                full_x, full_y, indices=self.test_indices,
-                epoch_size=epoch_size_test, normalize=normalize, split_name='test',
-                transforms=self.transforms, base_seed=self.test_seed,
+                full_x,
+                full_y,
+                indices=self.test_indices,
+                epoch_size=epoch_size_test,
+                normalize=normalize,
+                split_name="test",
+                transforms=self.transforms,
+                base_seed=self.test_seed,
             )
-            # Test is deliberately NOT wired into set_epoch() below: it's
-            # sampled once here, using test_seed, and then held fixed for
-            # the entire run so evaluation numbers stay comparable across
-            # epochs and across experiments that only change epoch_seed.
             self.dataset_test.set_epoch(0)
+
+        # ---- worker-safe per-epoch samplers for persistent DataLoader workers ----
+        self._train_sampler = EpochSubsampleSampler(
+            pool_size=self.dataset_train.split_size,
+            epoch_size=self.dataset_train.epoch_size,
+            base_seed=self.epoch_seed,
+            shuffle=self.shuffle_train,
+        )
+        self._val_sampler = EpochSubsampleSampler(
+            pool_size=self.dataset_val.split_size,
+            epoch_size=self.dataset_val.epoch_size,
+            base_seed=self.epoch_seed + 10_000,
+            shuffle=False,
+            sort_for_locality=True,
+        )
 
         # ---- normalization: computed on train, applied to val/test ----
         if normalize:
             self.dataset_train.compute_normalization()
             self.dataset_val.apply_normalization(self.dataset_train.mean, self.dataset_train.std)
             if self.dataset_test is not None:
-                self.dataset_test.apply_normalization(self.dataset_train.mean, self.dataset_train.std)
+                self.dataset_test.apply_normalization(
+                    self.dataset_train.mean, self.dataset_train.std
+                )
 
-    def set_epoch(self, epoch: int):
+    def get_loader(
+        self,
+        split: SplitName,
+        *,
+        batch_size: Optional[int] = None,
+        shuffle: Optional[bool] = None,
+        drop_last: Optional[bool] = None,
+        num_workers: Optional[int] = None,
+        indexed_dataset: Optional[bool] = None,
+        persistent_workers: Optional[bool] = None,
+        pin_memory: Optional[bool] = None,
+        sampler: Optional[Sampler] = None,
+        **kwargs: Any,
+    ) -> Optional[DataReader]:
+        """Build a worker-safe ``DataReader`` using ``EpochSubsampleSampler`` for train/val."""
+        if split == "train" and sampler is None and self.dataset_train is not None:
+            return DataReader(
+                _HIGGSPoolDataset(self.dataset_train),
+                batch_size=self.batch_size if batch_size is None else batch_size,
+                num_workers=self.num_workers if num_workers is None else num_workers,
+                persistent_workers=(
+                    self.persistent_workers if persistent_workers is None else persistent_workers
+                ),
+                drop_last=self.drop_last if drop_last is None else drop_last,
+                indexed_dataset=(
+                    self.indexed_dataset if indexed_dataset is None else indexed_dataset
+                ),
+                shuffle=False,
+                pin_memory=self.pin_memory if pin_memory is None else pin_memory,
+                sampler=self._train_sampler,
+                **kwargs,
+            )
+        if split == "val" and sampler is None and self.dataset_val is not None:
+            return DataReader(
+                _HIGGSPoolDataset(self.dataset_val),
+                batch_size=self.batch_size if batch_size is None else batch_size,
+                num_workers=self.num_workers if num_workers is None else num_workers,
+                persistent_workers=(
+                    self.persistent_workers if persistent_workers is None else persistent_workers
+                ),
+                drop_last=self.drop_last if drop_last is None else drop_last,
+                indexed_dataset=(
+                    self.indexed_dataset if indexed_dataset is None else indexed_dataset
+                ),
+                shuffle=False,
+                pin_memory=self.pin_memory if pin_memory is None else pin_memory,
+                sampler=self._val_sampler,
+                **kwargs,
+            )
+        return super().get_loader(
+            split,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            drop_last=drop_last,
+            num_workers=num_workers,
+            indexed_dataset=indexed_dataset,
+            persistent_workers=persistent_workers,
+            pin_memory=pin_memory,
+            sampler=sampler,
+            **kwargs,
+        )
+
+    def set_epoch(self, epoch: int) -> None:
+        """Advance epoch for both persistent DataLoader samplers and direct dataset views.
+
+        ``dataset_test`` is intentionally excluded so test membership stays fixed.
         """
-        Per-epoch resampling hook. Call this at the start of every training
-        epoch so dataset_train/dataset_val actually draw a fresh epoch_size
-        subsample (see HIGGSDataset.set_epoch) -- without this call the old
-        bug (subsample fixed after epoch 0) effectively comes back.
-
-        dataset_test is intentionally excluded: it's sampled once at
-        construction time with test_seed and held fixed for the whole run.
-
-        NOTE: I don't have BaseDataProvider's source, so I don't know if it
-        already defines a per-epoch lifecycle hook (possibly under a
-        different name, e.g. on_epoch_start). If it does, rename/route this
-        method to match that hook instead of calling it manually; if it
-        doesn't, call `provider.set_epoch(epoch)` explicitly from the
-        training loop at the top of each epoch.
-        """
-        if hasattr(super(), 'set_epoch'):
-            super().set_epoch(epoch)
+        super().set_epoch(epoch)
+        self._train_sampler.set_epoch(epoch)
+        self._val_sampler.set_epoch(epoch)
         self.dataset_train.set_epoch(epoch)
         self.dataset_val.set_epoch(epoch)
 
-    def get_feature_groups(self):
-        """Returns feature groups: low-level (0-20) and high-level (21-27)"""
+    def get_feature_groups(self) -> dict[str, list[int]]:
+        """Return feature groups: low-level (0-20) and high-level (21-27)."""
         return {
-            'low_level': list(range(21)),
-            'high_level': list(range(21, 28)),
+            "low_level": list(range(21)),
+            "high_level": list(range(21, 28)),
         }
 
 
-def _load_or_build_npy(root: Path):
-    """
-    Ensure HIGGS.npy exists (downloading/converting the CSV if needed), then
-    open it memmap'd so the backing pages are shared OS-wide instead of
-    duplicated per split or per DataLoader worker process.
+def _load_or_build_npy(root: Union[str, Path]) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Ensure ``HIGGS.npy`` exists, then open it read-only memmap'd (zero-copy).
 
-    Returns (full_x, full_y) as torch tensors backed by the memmap (no copy;
-    torch.from_numpy on a memmap array shares the same underlying buffer).
+    Returns ``(full_x, full_y)`` backed directly by the memmap; labels are cast
+    to ``torch.long`` lazily per item in ``__getitem__`` to avoid copying ~88 MB.
     """
-    root = Path(root)
-    root.mkdir(parents=True, exist_ok=True)
+    root_path = resolve_data_root(root)
+    root_path.mkdir(parents=True, exist_ok=True)
 
-    raw_file = root / "HIGGS.csv.gz"
-    processed_file = root / "HIGGS.csv"
-    npy_file = root / "HIGGS.npy"
+    raw_file = root_path / "HIGGS.csv.gz"
+    processed_file = root_path / "HIGGS.csv"
+    npy_file = root_path / "HIGGS.npy"
 
     if not npy_file.exists():
         if not processed_file.exists():
             _download(raw_file, processed_file)
 
         print(f"Converting {processed_file} -> {npy_file} (one-time)...")
-        columns = ['label'] + [f'feature_{i}' for i in range(28)]
+        columns = ["label"] + [f"feature_{i}" for i in range(28)]
         df = pd.read_csv(processed_file, names=columns)
         data = df.values.astype(np.float32)
-        # atomic-ish write: build under a temp name, then rename into place
-        tmp_npy = npy_file.with_suffix('.npy.tmp')
+        # Keep .npy suffix so np.save does not append a second .npy before rename()
+        tmp_npy = npy_file.with_name(f"{npy_file.stem}.tmp.npy")
         np.save(tmp_npy, data)
         tmp_npy.rename(npy_file)
         del df, data
 
-    data = np.load(npy_file, mmap_mode='r')
-    # torch.from_numpy on a memmap keeps the memmap view -- no copy, no cast
-    # here. Casting happens lazily per-item in __getitem__ instead.
-    full_x = torch.from_numpy(data[:, 1:])
-    full_y = torch.from_numpy(data[:, 0].astype(np.int64))
+    data = np.load(npy_file, mmap_mode="r")
+    # Intentional read-only memmap view: never mutated in-place.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="The given NumPy array is not writable",
+            category=UserWarning,
+        )
+        full_x = torch.from_numpy(data[:, 1:])
+        full_y = torch.from_numpy(data[:, 0])
     return full_x, full_y
 
 
-def _download(raw_file: Path, processed_file: Path):
-    """Download + decompress HIGGS with a resumable/atomic-ish tmp file."""
+def _download(raw_file: Path, processed_file: Path) -> None:
+    """Download + decompress HIGGS with atomic temp files."""
     url = "https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz"
-    tmp_file = raw_file.with_suffix('.csv.gz.tmp')
+    tmp_file = raw_file.with_suffix(".csv.gz.tmp")
 
     print(f"Downloading HIGGS dataset to {raw_file}...")
     print("Warning: this is ~2.8GB compressed, ~7.5GB uncompressed.")
 
     with requests.get(url, stream=True, timeout=60) as response:
         response.raise_for_status()
-        with open(tmp_file, 'wb') as f:
+        with open(tmp_file, "wb") as f:
             for chunk in response.iter_content(chunk_size=1 << 20):
                 if chunk:
                     f.write(chunk)
-    tmp_file.rename(raw_file)  # only "commit" the file once fully downloaded
+    tmp_file.rename(raw_file)
 
     print("Decompressing...")
-    tmp_csv = processed_file.with_suffix('.csv.tmp')
-    with gzip.open(raw_file, 'rb') as f_in, open(tmp_csv, 'wb') as f_out:
+    tmp_csv = processed_file.with_suffix(".csv.tmp")
+    with gzip.open(raw_file, "rb") as f_in, open(tmp_csv, "wb") as f_out:
         shutil.copyfileobj(f_in, f_out)
     tmp_csv.rename(processed_file)
 
@@ -306,27 +349,19 @@ def _download(raw_file: Path, processed_file: Path):
 
 
 class HIGGSDataset(Dataset):
-    """
-    A thin, index-based view over a shared HIGGS array with true per-epoch
-    resampling.
+    """Thin, index-based view over a shared HIGGS array with deterministic per-epoch resampling."""
 
-    Call `set_epoch(epoch)` at the start of every training epoch (the same
-    contract as torch's DistributedSampler) to get a fresh random subsample
-    of `epoch_size` items drawn from this split's indices. If you never call
-    it, the first access resamples once with epoch=0 and stays fixed for the
-    life of the object -- which is at least explicit and documented, instead
-    of being an accidental one-shot.
-    """
-
-    def __init__(self,
-                 full_x: torch.Tensor,
-                 full_y: torch.Tensor,
-                 indices=None,
-                 transforms=None,
-                 epoch_size=0.1,
-                 normalize=True,
-                 split_name=None,
-                 base_seed=42):
+    def __init__(
+        self,
+        full_x: torch.Tensor,
+        full_y: torch.Tensor,
+        indices: Optional[Sequence[int] | np.ndarray] = None,
+        transforms: Optional[TransformLike] = None,
+        epoch_size: Union[float, int] = 0.1,
+        normalize: bool = True,
+        split_name: Optional[str] = None,
+        base_seed: int = 42,
+    ) -> None:
         super().__init__()
 
         self.full_x = full_x
@@ -336,24 +371,30 @@ class HIGGSDataset(Dataset):
         self.split_name = split_name
         self.base_seed = base_seed
 
-        self.indices = indices if isinstance(indices, np.ndarray) else np.arange(len(full_x))
+        self.indices = (
+            np.asarray(indices, dtype=np.int64)
+            if indices is not None
+            else np.arange(len(full_x), dtype=np.int64)
+        )
         self.split_size = len(self.indices)
 
         self.epoch_size = self._compute_epoch_size(epoch_size)
 
-        self.mean = None
-        self.std = None
+        self.mean: Optional[torch.Tensor] = None
+        self.std: Optional[torch.Tensor] = None
 
-        self._epoch = -1  # forces a resample on first access
-        self.x = None
-        self.y = None
+        self._epoch = -1
+        self.x: Optional[torch.Tensor] = None
+        self.y: Optional[torch.Tensor] = None
 
-    def _compute_epoch_size(self, epoch_size):
-        if isinstance(epoch_size, int):
+    def _compute_epoch_size(self, epoch_size: Union[float, int]) -> int:
+        if isinstance(epoch_size, int) and not isinstance(epoch_size, bool):
             n = min(epoch_size, self.split_size)
         elif isinstance(epoch_size, float):
             if not (0.0 < epoch_size <= 1.0):
-                raise ValueError(f"epoch_size as float must be in (0.0, 1.0], got {epoch_size}")
+                raise ValueError(
+                    f"epoch_size as float must be in (0.0, 1.0], got {epoch_size}"
+                )
             n = int(epoch_size * self.split_size)
         else:
             raise TypeError(f"epoch_size must be int or float, got {type(epoch_size)}")
@@ -367,21 +408,17 @@ class HIGGSDataset(Dataset):
             n = 1
         return n
 
-    def set_epoch(self, epoch: int):
-        """Resample epoch_size items from this split, deterministically per-epoch."""
+    def set_epoch(self, epoch: int) -> None:
+        """Resample ``epoch_size`` items from this split deterministically for *epoch*."""
         rng = np.random.default_rng(self.base_seed + epoch)
         epoch_indices = rng.choice(self.indices, size=self.epoch_size, replace=False)
 
-        # Sorting before the fancy-index read is friendlier to the memmap's
-        # page cache (fewer random seeks) than reading in shuffled order.
-        order = np.argsort(epoch_indices)
-        sorted_idx = epoch_indices[order]
-
+        sorted_idx = np.sort(epoch_indices)
         self.x = self.full_x[sorted_idx]
-        self.y = self.full_y[sorted_idx]
+        self.y = self.full_y[sorted_idx].long()
         self._epoch = epoch
 
-    def compute_normalization(self):
+    def compute_normalization(self) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute normalization stats from a bounded sample of the split."""
         sample_size = min(100_000, self.split_size)
         rng = np.random.default_rng(self.base_seed)
@@ -390,25 +427,38 @@ class HIGGSDataset(Dataset):
 
         self.mean = x_sample.mean(dim=0)
         self.std = x_sample.std(dim=0)
+        return self.mean, self.std
 
-    def apply_normalization(self, mean, std):
+    def apply_normalization(self, mean: torch.Tensor, std: torch.Tensor) -> None:
         self.mean = mean
         self.std = std
 
-    def __len__(self):
+    def _get_raw_item(self, real_idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        x = self.full_x[real_idx].float()
+        y = self.full_y[real_idx].long()
+
+        if self.normalize and self.mean is not None and self.std is not None:
+            x = (x - self.mean) / (self.std + 1e-8)
+
+        if self.transforms is not None:
+            x = apply_transform(self.transforms, x)
+
+        return x, y
+
+    def __len__(self) -> int:
         return self.epoch_size
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         if self._epoch < 0:
             self.set_epoch(0)
 
         x = self.x[idx].float()
-        y = self.y[idx]
+        y = self.y[idx].long()
 
-        if self.normalize and self.mean is not None:
+        if self.normalize and self.mean is not None and self.std is not None:
             x = (x - self.mean) / (self.std + 1e-8)
 
         if self.transforms is not None:
-            x = self.transforms.apply(x)
+            x = apply_transform(self.transforms, x)
 
         return x, y

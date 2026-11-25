@@ -39,9 +39,8 @@ TemplateBase (search space + fixed constants + constraints)
 | `positronixlab/nas/trial_config.py` | `TrialConfig(PipelineConfig)` and `from_trial(...)` factory |
 | `positronixlab/nas/trial_pipeline.py` | `TrialPipeline(Pipeline)`, `TrialResult`, `MetricValue`, `is_oom_error` |
 | `positronixlab/nas/experiment.py` | `Experiment[TConfig]` orchestration loop, SQLite resume, warm-start, exports |
-| `positronixlab/nas/ax_best_practices.md` | Ax 1.3 guardrails and capability decision tree |
-| `positronixlab/nas/ax_reference_guide.md` | Detailed Ax 1.3 API reference (`§1`–`§12`) |
-| `positronixlab/nas/legacy/` | Archived pre-refactor 2-phase NAS code (do not use for new work) |
+| `docs/nas/ax_best_practices.md` | Ax 1.3 guardrails and capability decision tree |
+| `docs/nas/ax_reference_guide.md` | Detailed Ax 1.3 API reference (`§1`–`§12`) |
 
 ## On-Disk Experiment Layout
 
@@ -168,4 +167,4 @@ Key methods:
 ## Known Constraints & Caveats
 
 - **SQLAlchemy global singleton**: Ax binds `SESSION_FACTORY` process-globally. Avoid interleaving writes across two live `Experiment` objects pointing to different SQLite files in the same process.
-- **Failure-path bug (current HEAD)**: `experiment.py` passes `reason=` instead of `failed_reason=` to `Client.mark_trial_failed()` (see `analysis.md` §2). Until fixed, use `oom_final_status="abandoned"` and `reconcile_running="abandon"`, and catch non-OOM exceptions inside `eval_fn` if needed.
+- See [`reports/nas_analysis.md`](file:///home/cesare/Projects/PositronixLab/reports/nas_analysis.md) for historical audit notes.

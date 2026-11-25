@@ -20,7 +20,25 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from positronixlab.metamodel.sota.base import OddOneOutHead, SOTAModel
+from positronixlab.baselines.base import SOTAModel
+
+
+class OddOneOutHead(nn.Module):
+    """Parameter-free cosine-similarity 4-way Odd-One-Out head (Lepori et al., 2023).
+
+    Given embeddings of shape ``(B, N, D)`` (typically ``N = 4``), computes
+    L2-normalized embeddings and returns ``-sum_j cos(x_i, x_j)`` as logits of
+    shape ``(B, N)`` so the outlier receives the highest logit.
+    """
+
+    def forward(self, embeddings: torch.Tensor) -> torch.Tensor:
+        if embeddings.ndim != 3:
+            raise ValueError(
+                f"OddOneOutHead expects 3D tensor (B, N, D), got shape {tuple(embeddings.shape)}"
+            )
+        normed = F.normalize(embeddings, dim=-1)
+        sim = torch.bmm(normed, normed.transpose(1, 2)).sum(dim=-1)
+        return -sim
 
 
 def strip_lepori_l0_keys(
