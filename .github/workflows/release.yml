@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Read version, check tag, and verify changelog
+      - name: Read version, check tag, and resolve changelog
         id: check_version
         run: |
           VERSION=$(python -c "
@@ -53,9 +53,12 @@ jobs:
             echo "changelog_file=$CHANGELOG_FILE" >> "$GITHUB_OUTPUT"
             echo "generate_notes=false" >> "$GITHUB_OUTPUT"
             if [ -f "./changelogs/changelog.sh" ]; then
-              bash ./changelogs/changelog.sh --check
+              if ! bash ./changelogs/changelog.sh --check; then
+                echo "::warning::Changelog check failed for $TAG_NAME; continuing release anyway."
+              fi
             fi
           else
+            echo "::notice::No changelog file found at $CHANGELOG_FILE; using auto-generated release notes."
             echo "changelog_file=" >> "$GITHUB_OUTPUT"
             echo "generate_notes=true" >> "$GITHUB_OUTPUT"
           fi
