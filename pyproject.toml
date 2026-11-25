@@ -1,62 +1,97 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "positronixlab"
-dynamic = ["version"]
+version="0.1.0"
 description = "A comprehensive framework to explore modularity of neural networks"
 readme = "README.md"
-license = { file = "LICENSE" }
-requires-python = "~=3.12"
+license = "MPL-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+authors = [
+    { name = "Cesare Montresor" },
+]
+keywords = [
+    "pytorch",
+    "neural-networks",
+    "modularity",
+    "mechanistic-interpretability",
+    "subnetworks",
+    "clustering",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
-    "torch",
+    "torch>=2.0",
     "torchvision",
-    "matplotlib",
-    "dash",
-    "plotly",
-    "numpy",
+    "numpy>=1.24",
+    "scipy",
     "scikit-learn",
-    "tk",
-    "hdbscan",
-    "einops",
-    "scikit-image",
+    "pyyaml",
     "tqdm",
-    "wandb",
-    "kneed",
-    "torchsummary",
-    "pytest",
-    "pytest-cov",
-    "pytest-xdist",
-    "kaleido",
     "faiss-cpu",
-    "faiss-gpu",
-    "ax-platform",
-    "sqlalchemy",
-    "tabulate",
-    "dash_bootstrap_components",
-    "dash_bootstrap_templates",
-    "dash-cytoscape",
-    "dash-draggable",
-    "cuml-cu12",
-    "parametric_umap",
+    "torchsummary",
+    "pandas",
+    "requests",
     "parallelazy",
-    "NeuroSurgeon",
 ]
 
 [project.optional-dependencies]
+ui = [
+    "dash",
+    "plotly",
+    "dash-bootstrap-components",
+    "dash-bootstrap-templates",
+    "dash-cytoscape",
+    "flask",
+    "werkzeug",
+]
+nas = [
+    "ax-platform>=1.3",
+]
+umap = [
+    "umap-learn",
+]
 baselines = [
     "NeuroSurgeon",
     "transformers",
     "opencv-python-headless",
+    "pillow",
+]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "pytest-xdist",
+    "build",
+    "twine",
+]
+all = [
+    "positronixlab[ui,nas,umap,baselines]",
 ]
 
-
-[tool.setuptools.dynamic]
-version = {attr = "positronixlab.__version__"}
-
+[project.urls]
+Homepage = "https://github.com/cesare-montresor/PositronixLab"
+Repository = "https://github.com/cesare-montresor/PositronixLab"
+Issues = "https://github.com/cesare-montresor/PositronixLab/issues"
 
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["positronixlab*"]
+
+[tool.setuptools.package-data]
+positronixlab = [
+    "py.typed",
+    "**/*.css",
+    "**/*.md",
+]

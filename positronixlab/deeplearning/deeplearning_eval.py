@@ -1,16 +1,13 @@
 import logging
-from typing import Any, Callable
+from typing import Callable
 
-import torch
 from torch.utils.data import DataLoader
 from torch import nn
 
 
-from positronixlab.dataprovider.dataprovider import DataProvider
 from positronixlab.deeplearning.deeplearning_base import DeeplearningBase
 
 from positronixlab.pipeline import PipelineConfig
-from positronixlab.metamodel.metamodel import MetaModel
 
 
 logger = logging.getLogger(__name__)

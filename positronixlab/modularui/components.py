@@ -2,7 +2,6 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-import dash
 import dash_bootstrap_components as dbc
 import dash_cytoscape as cyto
 from dash import Dash, Input, Output, State, dcc, html, ctx, no_update

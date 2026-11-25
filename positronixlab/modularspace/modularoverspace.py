@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import torch
 

@@ -12,7 +12,7 @@ import csv
 from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 import torch
 import torch.nn as nn

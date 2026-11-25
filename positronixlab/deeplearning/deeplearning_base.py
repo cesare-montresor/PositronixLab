@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Callable, List
+from typing import Any, List
 
 import torch
 from torch import nn
@@ -9,7 +9,6 @@ from torch.utils.data import DataLoader
 from collections import Counter
 
 from tqdm import tqdm
-from positronixlab.dataprovider.dataprovider import DataProvider
 from positronixlab.pipeline import PipelineConfig
 
 

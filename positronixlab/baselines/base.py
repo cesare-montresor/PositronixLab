@@ -15,7 +15,6 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Type
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
 
 # Layer types supported by both Atlas observation and weight/neuron masking
 MASKABLE_LAYER_TYPES: Tuple[Type[nn.Module], ...] = (nn.Linear, nn.Conv2d, nn.Conv1d)

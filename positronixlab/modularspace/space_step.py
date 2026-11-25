@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
 from typing import Any, Dict, Mapping, Optional, Tuple
-import torch
 from torch import Tensor, nn
 
 from positronixlab.spacemath.contrast import ContrastResult, get_contrast

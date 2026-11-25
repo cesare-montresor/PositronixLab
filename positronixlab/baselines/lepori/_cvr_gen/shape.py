@@ -1,10 +1,7 @@
 import copy
 
 import numpy as np
-import matplotlib.pyplot as plt
-from numpy import linalg
 import cv2
-import time
 
 gap_max = 0.006
 

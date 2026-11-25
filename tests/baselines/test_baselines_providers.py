@@ -101,3 +101,67 @@ def test_lepori_cvr_and_syneval_compositional_families():
     sx, sy = next(iter(syn.get_subtask("ablate_s").test_loader()))
     assert sx.shape == (4, 2, 4, 16)
     assert sy.shape == (4,)
+
+
+def test_paper_calibrated_builders_and_configs():
+    from positronixlab.baselines import csordas, lepori
+    from positronixlab.dataprovider import DataProviderFactory
+
+    # Csordas paper configs & builders (override sample counts for fast test)
+    assert set(csordas.PAPER_CONFIGS.keys()) >= {
+        "addmul",
+        "tuple_arithmetic",
+        "permuted_mnist",
+        "scan",
+        "deepmind_math",
+    }
+    assert csordas.PAPER_CONFIGS["addmul"].dataset_kwargs["n_digits"] == 2
+    assert csordas.PAPER_CONFIGS["addmul"].dataset_kwargs["target_mode"] == "digits"
+
+    am = csordas.addmul(n_train=32, n_val=16, n_test=16, batch_size=16)
+    assert am.n_digits == 2
+    assert am.target_mode == "digits"
+    assert am.num_features == 42
+    assert am.num_classes == 20
+    bx, by = next(iter(am.train))
+    assert bx.shape == (16, 42)
+    assert by.shape == (16, 2)
+
+    ta = csordas.tuple_arithmetic(n_train=32, n_val=16, n_test=16, batch_size=16)
+    assert ta.n_digits == 2
+    assert ta.n_tuples == 2
+    assert ta.num_features == 80
+    tx, ty = next(iter(ta.train))
+    assert tx.shape == (16, 80)
+    assert ty.shape == (16, 2, 2)
+
+    # Lepori paper configs & builders
+    assert set(lepori.PAPER_CONFIGS.keys()) == {
+        "cvr_inside_contact",
+        "cvr_inside_count",
+        "cvr_contact_count",
+        "syneval_sv_singular",
+        "syneval_sv_plural",
+        "syneval_pro_ant_singular",
+        "syneval_pro_ant_plural",
+    }
+    assert lepori.PAPER_CONFIGS["cvr_inside_contact"].dataset_kwargs["image_size"] == 128
+    assert lepori.PAPER_CONFIGS["syneval_sv_singular"].dataset_kwargs["max_length"] == 50
+
+    cvr = lepori.cvr_inside_contact(
+        n_train=8, n_val=4, n_test=4, batch_size=4, image_size=32, use_real_generator=False
+    )
+    assert cvr.family == "inside_contact"
+    cx, cy = next(iter(cvr.train))
+    assert cx.shape == (4, 4, 3, 32, 32)
+    assert cy.shape == (4,)
+
+    # DataConfig -> DataProviderFactory round-trip using PAPER_CONFIGS
+    cfg = lepori.PAPER_CONFIGS["syneval_sv_plural"].with_updates(
+        batch_size=4,
+        dataset_kwargs={"n_train": 8, "n_val": 4, "n_test": 4, "max_length": 16},
+    )
+    syn = DataProviderFactory.from_config(cfg)
+    sx, sy = next(iter(syn.train))
+    assert sx.shape == (4, 2, 4, 16)
+    assert sy.shape == (4,)

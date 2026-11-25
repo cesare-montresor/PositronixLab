@@ -3,8 +3,8 @@ from typing import Callable, Dict, List
 from torch import nn
 import torch
 
-from positronixlab.modularobserver.modelmapper import ModelGraph, ModelMapper, ModelNode, ModelEdge
-from positronixlab.spacemath.common import is_layer, is_linear, is_conv
+from positronixlab.modularobserver.modelmapper import ModelGraph, ModelMapper, ModelNode
+from positronixlab.spacemath.common import is_layer, is_linear
 from positronixlab.pipeline import PipelineConfig
 from torch.utils.hooks import RemovableHandle
 

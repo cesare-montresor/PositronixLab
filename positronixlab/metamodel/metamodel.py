@@ -4,7 +4,6 @@ import time
 
 from positronixlab.pipeline import PipelineConfig
 import torch
-from torchvision import transforms
 
 import torch.nn as nn
 from collections import OrderedDict

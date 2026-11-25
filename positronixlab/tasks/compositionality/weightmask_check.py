@@ -1,5 +1,3 @@
-from math import log
-
 from tqdm import tqdm
 
 from positronixlab.dataprovider.dataprovider_factory import DataProvider

@@ -5,7 +5,7 @@ import torch
 from torch import Tensor
 from positronixlab.spacemath.common import staticmethod_compile
 from positronixlab.spacemath.spacemath import ActivationType, SpaceMath
-from positronixlab.pipeline import PipelineConfig, PipelineConfigV1 
+from positronixlab.pipeline import PipelineConfig
 
 
 class ModularSpace():

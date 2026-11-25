@@ -1,6 +1,4 @@
 
-from abc import ABC
-
 from torch import nn
 
 from positronixlab.pipeline import PipelineConfig

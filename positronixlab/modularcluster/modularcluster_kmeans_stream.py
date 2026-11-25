@@ -1,10 +1,6 @@
-import time
-from typing_extensions import override
 import torch
 import torch.nn.functional as F
 from typing import Dict, Literal, Optional, Tuple
-import os
-import contextlib
 
 from sklearn.metrics import silhouette_score
 

@@ -4,11 +4,11 @@ import dash_bootstrap_components as dbc
 import numpy as np
 import plotly.graph_objects as go
 import dash
-from dash import ALL, MATCH, Dash, Input, Output, State, dcc, html, Patch, ctx
+from dash import MATCH, Dash, Input, Output, State, dcc, html, Patch, ctx
 from dash_bootstrap_templates import load_figure_template
 
 from positronixlab.modularui.components import Widget
-from positronixlab.modularui.settings import PLOTLY_PAPER_BGCOLOR, PLOTLY_PLOT_BGCOLOR, PLOTLY_TEMPLATE, GLOBAL_TRACE_NAME, SPACELOSS_FAMILY, THEME_NAME
+from positronixlab.modularui.settings import PLOTLY_PAPER_BGCOLOR, PLOTLY_PLOT_BGCOLOR, PLOTLY_TEMPLATE, SPACELOSS_FAMILY, THEME_NAME
 
 if TYPE_CHECKING:
     from positronixlab.modularui.modularui import ModularUI

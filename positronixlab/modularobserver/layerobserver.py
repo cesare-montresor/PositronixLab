@@ -1,14 +1,11 @@
 
-from pymoo.core import callback
 from torch import nn
 import torch
 
 from positronixlab.modularobserver.modelmapper import ModelNode
-from positronixlab.spacemath.common import  is_activation, is_conv, is_linear, is_layer
 
 from typing import TYPE_CHECKING, Callable
 
-from positronixlab.spacemath.spacemath import ActivationType, LayerType, SpaceMath
 if TYPE_CHECKING:
     from positronixlab.modularobserver.modularobserver import ModularObserver
 

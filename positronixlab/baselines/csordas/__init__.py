@@ -1,11 +1,22 @@
 """Csordas et al. (ICLR 2021) — are_neural_nets_modular baseline."""
 
 from positronixlab.baselines.csordas.datasets import (
+    PAPER_CONFIGS,
     AddMulDataProvider,
     AddMulDataset,
+    AddMulLoss,
     ClassRemovalDataProvider,
     TupleArithmeticDataProvider,
     TupleArithmeticDataset,
+    TupleArithmeticLoss,
+    addmul,
+    addmul_exact_accuracy,
+    cifar10_class_removal,
+    deepmind_math,
+    permuted_mnist,
+    scan,
+    tuple_arithmetic,
+    tuple_arithmetic_accuracy,
 )
 from positronixlab.baselines.csordas.discoverer import CsordasGumbelDiscoverer
 from positronixlab.baselines.csordas.models import (
@@ -20,6 +31,7 @@ from positronixlab.baselines.csordas.models import (
 __all__ = [
     "AddMulDataProvider",
     "AddMulDataset",
+    "AddMulLoss",
     "ClassRemovalDataProvider",
     "CsordasConvModel",
     "CsordasFeedforwardModel",
@@ -27,7 +39,17 @@ __all__ = [
     "CsordasLSTMModel",
     "CsordasResNet110",
     "CsordasTransformerEncDec",
+    "PAPER_CONFIGS",
     "TupleArithmeticDataProvider",
     "TupleArithmeticDataset",
+    "TupleArithmeticLoss",
+    "addmul",
+    "addmul_exact_accuracy",
+    "cifar10_class_removal",
+    "deepmind_math",
+    "permuted_mnist",
+    "scan",
     "strip_csordas_mask_keys",
+    "tuple_arithmetic",
+    "tuple_arithmetic_accuracy",
 ]
