@@ -21,7 +21,7 @@ class BaseConfig:
 
     def signature(self) -> str:
         content = json.dumps(self.to_dict(), sort_keys=True, default=str)
-        return hashlib.md5(content.encode("utf-8")).hexdigest()
+        return hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

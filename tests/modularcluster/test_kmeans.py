@@ -166,6 +166,34 @@ class TestModularClusterKmeans:
         assert "Cluster sizes:" in captured.out
         assert "Silhouette Score:" in captured.out
 
+    @pytest.mark.parametrize("n", [2, 3])
+    def test_kmeans_tiny_n_does_not_return_none(self, n):
+        """Regression test (A6a): tiny n (2 or 3) produces valid 1-cluster fallback instead of None/KeyError."""
+        torch.manual_seed(0)
+        # Default heuristic gives k_min=2, k_max=1 for n in {2, 3}
+        km_default = ModularClusterKmeans(verbose=True)
+        labels_default = km_default.fit_predict(torch.randn(n, 4))
+        assert labels_default is not None
+        assert labels_default.shape == (n,)
+        assert km_default.best_k == 1
+        assert km_default.centroids is not None
+        assert km_default.centroids.shape == (1, 4)
+
+        # Explicit k_min=2, k_max=4 gives (2, 1) for n=2 and (2, 2) for n=3
+        km_explicit = ModularClusterKmeans(k_min=2, k_max=4, verbose=True)
+        labels_explicit = km_explicit.fit_predict(torch.randn(n, 4))
+        assert labels_explicit is not None
+        assert labels_explicit.shape == (n,)
+        assert km_explicit.best_k == (1 if n == 2 else 2)
+
+    def test_kmeans_duplicate_points_no_crash(self):
+        """Regression test (A6b): identical points (1 populated cluster) do not crash silhouette_score."""
+        km = ModularClusterKmeans(metric="euclidean", k_min=2, k_max=4, verbose=False)
+        labels = km.fit_predict(torch.zeros(20, 4))
+        assert labels is not None
+        assert labels.shape == (20,)
+        assert km.best_score == -1.0
+
 
 def test_sync_euclidean(verbose: bool = False):
     """Quick synchronous test for Euclidean KMeans."""

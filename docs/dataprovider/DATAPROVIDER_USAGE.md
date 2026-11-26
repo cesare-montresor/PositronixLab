@@ -47,7 +47,7 @@ cvr = DataProviderFactory.create("lepori:cvr_inside_contact", batch_size=16, num
 ```
 
 > [!TIP]
-> Pass `num_workers=0` in unit tests, scripts on small datasets, or when debugging to avoid multiprocessing overhead. Use `POSITRONIXLAB_DATA_DIR` or `root=...` to override the default `./data` directory.
+> Pass `num_workers=0` in unit tests, scripts on small datasets, or when debugging to avoid multiprocessing overhead. Pass `root=...` to override the default `./data` directory.
 
 ### Custom Loader Overrides (`get_loader`)
 

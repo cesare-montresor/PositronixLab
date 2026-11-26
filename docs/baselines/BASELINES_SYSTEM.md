@@ -40,9 +40,9 @@ It is intentionally decoupled from `positronixlab.pipeline` and `parallelazy` so
 |---|---|
 | `positronixlab/baselines/__init__.py` | Public API exports + `csordas`, `lepori`, `neurosurgeon` subpackages |
 | `positronixlab/baselines/base.py` | `MASKABLE_LAYER_TYPES`, `get_maskable_layer_names`, `SOTAModelSpec`, `SOTADatasetSpec`, `SOTAModel`; re-exports `CompositionalDataProvider`, `SubtaskSplit` |
-| `positronixlab/baselines/loader.py` | `ModelLoader` (10 models, bundle save/load, checkpoint auto-detection), `DataProviderLoader` (10 datasets) |
-| `positronixlab/baselines/csordas/` | `models.py` (5 architectures + `strip_csordas_mask_keys`), `datasets.py` (single-head Csordás wrappers), `discoverer.py` (`CsordasGumbelDiscoverer`) |
-| `positronixlab/baselines/lepori/` | `models.py` (`OddOneOutHead`, `CVRDecisionMLP`, `CVRResNetModel`, `CVRViTModel`, `SynEvalBertModel`, `strip_lepori_l0_keys`), `datasets.py` (CVR & SynEval re-exports), `_cvr_gen/` (procedural CVR generator) |
+| `positronixlab/baselines/loader.py` | `ModelLoader` (12 models, bundle save/load, checkpoint auto-detection), `DataProviderLoader` (14 datasets) |
+| `positronixlab/baselines/csordas/` | `models.py` (5 architectures + `strip_csordas_mask_keys`), `datasets.py` (paper builders, `PAPER_CONFIGS`, single-head Csordás wrappers), `discoverer.py` (`CsordasGumbelDiscoverer`) |
+| `positronixlab/baselines/lepori/` | `models.py` (`OddOneOutHead`, `CVRDecisionMLP`, `CVRResNetModel`, `CVRViTModel`, `SynEvalBertModel`, `CVRSimCLRModel`, `SimCLRLoss`, `simclr_ranking_metrics`, `pretrain_simclr`, `strip_lepori_l0_keys`), `datasets.py` (CVR, CVR SimCLR & SynEval builders + `PAPER_CONFIGS`), `_cvr_gen/` (procedural CVR generator), `_syneval_gen.py` (SynEval `RawData.zip` split generator) |
 | `positronixlab/baselines/neurosurgeon/` | `adapter.py` (`is_neurosurgeon_available`, `HFForwardShim`, `NeuroSurgeonWrappedModel`, `wrap_with_neurosurgeon`, `strip_neurosurgeon_mask_keys`), `discoverer.py` (`NeuroSurgeonDiscoverer`) |
 
 ---
@@ -74,18 +74,18 @@ It is intentionally decoupled from `positronixlab.pipeline` and `parallelazy` so
 | `load(arch, checkpoint=None, backbone_checkpoint=None, mlp_checkpoint=None, device=None, strict=False, return_mask=False, **model_kwargs)` | Creates a model and loads weights, auto-detecting checkpoint format (`"neurosurgeon"`, `"lepori"`, `"csordas"`, `"plain"`), stripping mask keys, and optionally returning `(model, SubnetworkMask | None)` when `return_mask=True`. Supports split `backbone_checkpoint` + `mlp_checkpoint` for `CVRResNetModel`. |
 | `wrap_neurosurgeon(model, ...)` | Convenience wrapper delegating to `wrap_with_neurosurgeon(...)`. |
 
-**Registered Models (10):**
+**Registered Models (12):**
 - **Csordás (`source="csordas"`)**: `"csordas:mlp"` (`CsordasFeedforwardModel`), `"csordas:conv"` (`CsordasConvModel`), `"csordas:lstm"` (`CsordasLSTMModel`), `"csordas:resnet110"` (`CsordasResNet110`), `"csordas:transformer"` (`CsordasTransformerEncDec`, excludes `("embedding", "pos_encoding")`).
-- **Lepori (`source="lepori"`)**: `"lepori:cvr_resnet18"`, `"lepori:cvr_resnet50"`, `"lepori:cvr_wideresnet50"` (`CVRResNetModel`), `"lepori:cvr_vit"` (`CVRViTModel`, excludes `("embeddings",)`), `"lepori:syneval_bert"` (`SynEvalBertModel`, excludes `("embeddings",)`).
+- **Lepori (`source="lepori"`)**: `"lepori:cvr_resnet18"`, `"lepori:cvr_resnet50"`, `"lepori:cvr_wideresnet50"` (`CVRResNetModel`), `"lepori:cvr_simclr_resnet18"`, `"lepori:cvr_simclr_resnet50"` (`CVRSimCLRModel`), `"lepori:cvr_vit"` (`CVRViTModel`, excludes `("embeddings",)`), `"lepori:syneval_bert"` (`SynEvalBertModel`, excludes `("embeddings",)`).
 
 ### `DataProviderLoader`
 - `register(name, source, task_type, builder, description="")`
 - `list_datasets(source=None) -> List[str]`
 - `create(name, **kwargs) -> CompositionalDataProvider`
 
-**Registered Datasets (10):**
-- **Csordás**: `"csordas:tuple_arithmetic"`, `"csordas:add_mul"`, `"csordas:class_removal"`.
-- **Lepori**: `"lepori:cvr_inside_contact"`, `"lepori:cvr_inside_count"`, `"lepori:cvr_contact_count"`, `"lepori:syneval_sv_singular"`, `"lepori:syneval_sv_plural"`, `"lepori:syneval_pro_ant_singular"`, `"lepori:syneval_pro_ant_plural"`.
+**Registered Datasets (14):**
+- **Csordás**: `"csordas:tuple_arithmetic"`, `"csordas:add_mul"`, `"csordas:class_removal"`, `"csordas:deepmind_math"`, `"csordas:scan"`, `"csordas:permuted_mnist"`.
+- **Lepori**: `"lepori:cvr_inside_contact"`, `"lepori:cvr_inside_count"`, `"lepori:cvr_contact_count"`, `"lepori:cvr_simclr"`, `"lepori:syneval_sv_singular"`, `"lepori:syneval_sv_plural"`, `"lepori:syneval_pro_ant_singular"`, `"lepori:syneval_pro_ant_plural"`.
 
 ---
 
@@ -97,8 +97,9 @@ It is intentionally decoupled from `positronixlab.pipeline` and `parallelazy` so
 - **`CsordasGumbelDiscoverer(mask_loss_weight=1e-4, lr=1e-2, epochs=10, init_logit=2.0, tau=1.0, loss_fn=None)`**: Uses PyTorch 2.x `torch.nn.utils.parametrize` on a `copy.deepcopy(model)` (zero mutation of caller's model), exact Gumbel-Sigmoid STE, and linear logit sparsity penalty `(mask_loss_weight / B) * sum(logits)`. Emits `SubnetworkMask(granularity="weight")`.
 
 ### Lepori et al. (`lepori/`)
-- **Models**: `OddOneOutHead` (parameter-free cosine-similarity 4-way OOO head: `(B, N, D) -> (B, N)`), `CVRDecisionMLP`, `CVRResNetModel` (5D `(B, N, 3, H, W)` input), `CVRViTModel` (`transformers.ViTModel`), `SynEvalBertModel` (`transformers.BertModel`).
-- **Datasets**: Re-exports `CVROddOneOutDataProvider` (as `CVROddOneOutSOTAProvider`) and `SynevalOddOneOutDataProvider` (as `SynEvalOddOneOutSOTAProvider`) from `positronixlab.dataprovider`. Procedural CVR task generation lives in `_cvr_gen/`.
+- **Models**: `OddOneOutHead` (parameter-free cosine-similarity 4-way OOO head: `(B, N, D) -> (B, N)`), `CVRDecisionMLP`, `CVRResNetModel` (5D `(B, N, 3, H, W)` input), `CVRSimCLRModel` (self-supervised contrastive pretraining ResNet with `SimCLRLoss`, `simclr_ranking_metrics`, `to_ooo_model()`, and `pretrain_simclr()`), `CVRViTModel` (`transformers.ViTModel`), `SynEvalBertModel` (`transformers.BertModel`).
+- **Datasets**: Re-exports `CVROddOneOutDataProvider` (as `CVROddOneOutSOTAProvider`), `CVRSimCLRDataProvider`, and `SynevalOddOneOutDataProvider` (as `SynEvalOddOneOutSOTAProvider`) from `positronixlab.dataprovider`. Procedural CVR task generation lives in `_cvr_gen/`; SynEval `RawData.zip` split generation lives in `_syneval_gen.py`.
+- **Standalone train/eval loops**: `pretrain_simclr()`, `CsordasGumbelDiscoverer.discover()`, and `NeuroSurgeonDiscoverer.discover()` run outside `DeeplearningTrain` and are cataloged in [`docs/deeplearning/DEEPLEARNING_SYSTEM.md`](file:///home/cesare/Projects/PositronixLab/docs/deeplearning/DEEPLEARNING_SYSTEM.md#train--eval-loops-outside-deeplearningtrain).
 
 ### NeuroSurgeon (`neurosurgeon/`)
 - **`adapter.py`**:

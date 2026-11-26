@@ -74,7 +74,6 @@ from positronixlab.dataprovider import (  # noqa: E402
 from positronixlab.dataprovider.cvr_oddoneout_dataprovider import CVROddOneOutDataProvider  # noqa: E402
 from positronixlab.dataprovider.higgs_dataprovider import HIGGSDataset, _load_or_build_npy  # noqa: E402
 from positronixlab.dataprovider.math_dataprovider import MathDataProvider  # noqa: E402
-from positronixlab.dataprovider.oddoneout_dataprovider import OddOneOutDataProvider  # noqa: E402
 from positronixlab.dataprovider.scan_dataprovider import SCANDataProvider  # noqa: E402
 from positronixlab.dataprovider.syneval_oddoneout_dataprovider import SynevalOddOneOutDataProvider  # noqa: E402
 
@@ -101,6 +100,22 @@ def mock_higgs_dir(tmp_path: Path) -> tuple[Path, int]:
     data = np.hstack([labels, features])
     np.save(tmp_path / "HIGGS.npy", data)
     return tmp_path, n_samples
+
+
+@pytest.fixture
+def mock_pt_data_root(tmp_path: Path) -> Path:
+    """Create small preprocessed ``.pt`` files for SCAN and DeepMind Math."""
+    for subdir, x_shape, y_shape, x_dtype in (
+        ("scan", (40, 20), (40, 30), torch.long),
+        ("math", (40, 50), (40, 10), torch.long),
+    ):
+        d = tmp_path / subdir
+        d.mkdir(parents=True, exist_ok=True)
+        for split in ("train", "test"):
+            x = torch.zeros(x_shape, dtype=x_dtype)
+            y = torch.zeros(y_shape, dtype=torch.long)
+            torch.save({"inputs": x, "targets": y}, d / f"{split}.pt")
+    return tmp_path
 
 
 # ---------------------------------------------------------------------------
@@ -298,9 +313,12 @@ class TestDataProviderFactory:
             ("syneval_odd_one_out", SynevalOddOneOutDataProvider),
         ],
     )
-    def test_from_config_offline_stub_providers(self, name, expected_cls):
+    def test_from_config_offline_stub_providers(self, name, expected_cls, mock_pt_data_root):
         cfg = types.SimpleNamespace(dataset_name=name, batch_size=8, model_type="fc")
-        p = DataProviderFactory.from_config(cfg, num_workers=0)
+        extra = {"root": mock_pt_data_root} if name in ("scan", "deepmind_math") else {}
+        if name == "deepmind_math":
+            extra["download"] = False
+        p = DataProviderFactory.from_config(cfg, num_workers=0, **extra)
         assert isinstance(p, expected_cls)
         bx, by = next(iter(p.train))
         assert bx.shape[0] == 8
@@ -338,13 +356,70 @@ class TestOfflineConcreteProviders:
         assert bx.shape == (15, 4)
         assert by.dtype == torch.long
 
-    def test_oddoneout_direct(self):
-        p = OddOneOutDataProvider(batch_size=8, num_workers=0)
-        assert p.name == "odd_one_out"
-        assert p.num_classes == 4
-        bx, by = next(iter(p.train))
-        assert bx.shape == (8, 4, 3, 64, 64)
-        assert by.shape == (8,)
+    def test_missing_files_raise_no_dummy_fallback(self, tmp_path):
+        with pytest.raises(FileNotFoundError, match="SCAN data file not found"):
+            SCANDataProvider(root=tmp_path, batch_size=8, num_workers=0, download=False)
+        with pytest.raises(FileNotFoundError, match="Missing DeepMind Math files"):
+            MathDataProvider(root=tmp_path, batch_size=8, num_workers=0, download=False)
+
+    def test_scan_github_autodownload_and_cache(self, tmp_path, monkeypatch):
+        from positronixlab.baselines import csordas
+        from positronixlab.dataprovider import scan_dataprovider as sp
+
+        sample_scan = (
+            "IN: jump twice OUT: I_JUMP I_JUMP\n"
+            "IN: walk left OUT: I_TURN_LEFT I_WALK\n"
+            "IN: run right OUT: I_TURN_RIGHT I_RUN\n"
+            "IN: look around left OUT: I_TURN_LEFT I_LOOK I_TURN_LEFT I_LOOK I_TURN_LEFT I_LOOK I_TURN_LEFT I_LOOK\n"
+        ).encode("utf-8")
+        urls: list[str] = []
+
+        class _FakeResp:
+            def raise_for_status(self) -> None:
+                return None
+
+            def iter_content(self, chunk_size: int = 1024):
+                yield sample_scan
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        def _fake_get(url: str, stream: bool = True, timeout: int = 60):
+            urls.append(url)
+            return _FakeResp()
+
+        monkeypatch.setattr(sp.requests, "get", _fake_get)
+
+        p = csordas.scan(
+            root=tmp_path,
+            split_type="jump",
+            max_input_len=12,
+            max_output_len=16,
+            batch_size=2,
+            num_workers=0,
+        )
+        assert urls == [sp.SCAN_URLS["jump"]["train"], sp.SCAN_URLS["jump"]["test"]]
+        assert len(p.dataset) == 4
+        assert len(p.dataset_test) == 4
+        x0, y0 = p.dataset[0]
+        assert p.in_vocab.decode(x0) == "jump twice"
+        assert p.out_vocab.decode(y0) == "I_JUMP I_JUMP"
+
+        # Second call hits cache -> 0 HTTP requests
+        urls.clear()
+        p2 = csordas.scan(
+            root=tmp_path,
+            split_type="jump",
+            max_input_len=12,
+            max_output_len=16,
+            batch_size=2,
+            num_workers=0,
+        )
+        assert urls == []
+        assert len(p2.dataset) == 4
 
     def test_higgs_provider_three_way_memmap_and_normalization(self, mock_higgs_dir):
         root, total = mock_higgs_dir
@@ -466,8 +541,14 @@ class TestFixedBugsAndNewFeatures:
         raw_idx = int(p.dataset_train.indices[0])
         assert torch.allclose(x0, p.dataset._full_x[raw_idx] * 2.0)
 
-    def test_b7_three_way_split_supported_on_math_provider(self):
-        p = MathDataProvider(batch_size=8, split=[0.7, 0.15, 0.15], num_workers=0)
+    def test_b7_three_way_split_supported_on_math_provider(self, mock_pt_data_root):
+        p = MathDataProvider(
+            root=mock_pt_data_root,
+            batch_size=8,
+            split=[0.7, 0.15, 0.15],
+            num_workers=0,
+            download=False,
+        )
         assert p.dataset_test is not None
         assert len(p.dataset_train) + len(p.dataset_val) + len(p.dataset_test) == len(p.dataset)
 
@@ -493,11 +574,17 @@ class TestFixedBugsAndNewFeatures:
         )
         assert not np.array_equal(p1.train_indices, p2.train_indices)
 
-    def test_b10_torchvision_compose_and_metatransform_callable(self):
+    def test_b10_torchvision_compose_and_metatransform_callable(self, mock_pt_data_root):
         from positronixlab.metamodel.metatransform import MetaTransform
 
         compose = tv_transforms.Compose([tv_transforms.Lambda(lambda x: x)])
-        p = MathDataProvider(batch_size=8, num_workers=0, transforms=compose)
+        p = MathDataProvider(
+            root=mock_pt_data_root,
+            batch_size=8,
+            num_workers=0,
+            transforms=compose,
+            download=False,
+        )
         _ = p.dataset_train[0]
 
         mt = MetaTransform(["flatten"])
@@ -550,12 +637,14 @@ class TestFixedBugsAndNewFeatures:
         assert custom.batch_size == 10
         assert custom.drop_last is False
 
-    def test_registry_lookup_and_aliases(self):
+    def test_registry_lookup_and_aliases(self, mock_pt_data_root):
         assert DataProvider.get("iris") is IrisDataProvider
         assert "iris" in DataProviderFactory.list_available()
-        assert "odd_one_out" in DataProviderFactory.list_available()
-        p = DataProviderFactory.create("odd_one_out", batch_size=8, num_workers=0)
-        assert isinstance(p, OddOneOutDataProvider)
+        assert "scan" in DataProviderFactory.list_available()
+        p = DataProviderFactory.create(
+            "scan", root=mock_pt_data_root, batch_size=8, num_workers=0, download=False
+        )
+        assert isinstance(p, SCANDataProvider)
 
 
 # ---------------------------------------------------------------------------
@@ -662,3 +751,228 @@ class TestUnifiedCompositionalProviders:
         sx, sy = next(iter(syn.train))
         assert sx.shape == (4, 2, 4, 16)
         assert sy.shape == (4,)
+
+
+class TestMathDataProviderAutoDownload:
+    """Offline unit tests for MathDataProvider Hugging Face auto-download & caching."""
+
+    def test_math_vocab_round_trip(self):
+        from positronixlab.dataprovider.math_dataprovider import MathVocab
+
+        vocab = MathVocab()
+        assert len(vocab) == 99
+        q = "What is 2 + 2?"
+        a = "4"
+        q_ids = vocab.encode(q, max_len=32, add_sos=False, add_eos=True)
+        a_ids = vocab.encode(a, max_len=8, add_sos=True, add_eos=True)
+        assert q_ids.shape == (32,)
+        assert a_ids.shape == (8,)
+        assert int(a_ids[0]) == vocab.SOS_IDX
+        assert int(a_ids[2]) == vocab.EOS_IDX
+        assert int(a_ids[3]) == vocab.PAD_IDX
+        assert vocab.decode(q_ids) == q
+        assert vocab.decode(a_ids) == a
+
+    def test_hf_autodownload_parse_and_cache(self, tmp_path, monkeypatch):
+        from positronixlab.baselines import csordas
+        from positronixlab.dataprovider import math_dataprovider as mp
+
+        easy_txt = (
+            "What is 1 + 1?\n2\n"
+            "What is 2 + 3?\n5\n"
+            "What is 10 - 4?\n6\n"
+            "What is 7 + 8?\n15\n"
+            "What is 9 - 2?\n7\n"
+            "What is 3 + 4?\n7\n"
+        ).encode("utf-8")
+        # Include one duplicate question from easy_txt to verify cross-split deduplication
+        extrap_txt = (
+            "What is 1 + 1?\n2\n"
+            "What is 1000 + 2000?\n3000\n"
+            "What is 5000 - 1234?\n3766\n"
+            "What is 9999 + 1?\n10000\n"
+        ).encode("utf-8")
+
+        requested_urls: list[str] = []
+
+        class _FakeResponse:
+            def __init__(self, payload: bytes) -> None:
+                self._payload = payload
+                self.headers = {"content-length": str(len(payload))}
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def iter_content(self, chunk_size: int = 1024):
+                yield self._payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        def _fake_get(url: str, stream: bool = True, timeout: int = 60):
+            requested_urls.append(url)
+            payload = extrap_txt if "/extrapolate/" in url else easy_txt
+            return _FakeResponse(payload)
+
+        monkeypatch.setattr(mp.requests, "get", _fake_get)
+
+        provider = csordas.deepmind_math(
+            root=tmp_path,
+            tasks=["arithmetic__add_or_sub"],
+            difficulties=("easy",),
+            eval_split="extrapolate",
+            include_extrapolate=True,
+            max_question_len=40,
+            max_answer_len=12,
+            max_samples_per_file=5,
+            batch_size=2,
+            num_workers=0,
+            show_progress=False,
+        )
+
+        # Should download train-easy/arithmetic__add_or_sub.txt and extrapolate/arithmetic__add_or_sub_big.txt
+        assert requested_urls == [
+            f"https://huggingface.co/datasets/{mp.HF_DM_MATH_REPO}/resolve/main/train-easy/arithmetic__add_or_sub.txt",
+            f"https://huggingface.co/datasets/{mp.HF_DM_MATH_REPO}/resolve/main/extrapolate/arithmetic__add_or_sub_big.txt",
+        ]
+        assert (tmp_path / "math" / "raw" / "train-easy" / "arithmetic__add_or_sub.txt").exists()
+        assert (tmp_path / "math" / "raw" / "extrapolate" / "arithmetic__add_or_sub_big.txt").exists()
+
+        # 5 easy samples -> 1 carved to IID test, 4 remain in train
+        assert len(provider.get_subtask("easy").dataset_train) == 4
+        assert len(provider.get_subtask("iid").dataset_test) == 1
+        # Extrapolate had 1 duplicate ("What is 1 + 1?") removed -> 3 unique samples
+        assert len(provider.get_subtask("extrapolate").dataset_test) == 3
+        assert set(provider.list_subtasks()) >= {"full", "easy", "iid", "extrapolate"}
+        assert "easy" in provider.eval_matrix_spec()
+        assert provider.vocab_size == 99
+        assert provider.x_shape == (40,)
+        assert provider.y_shape == (12,)
+
+        # Second call hits compositional cache -> zero additional HTTP requests
+        requested_urls.clear()
+        provider2 = csordas.deepmind_math(
+            root=tmp_path,
+            tasks=["arithmetic__add_or_sub"],
+            difficulties=("easy",),
+            eval_split="extrapolate",
+            include_extrapolate=True,
+            max_question_len=40,
+            max_answer_len=12,
+            max_samples_per_file=5,
+            batch_size=2,
+            num_workers=0,
+            show_progress=False,
+        )
+        assert requested_urls == []
+        assert len(provider2.get_subtask("easy").dataset_train) == 4
+        assert len(provider2.get_subtask("extrapolate").dataset_test) == 3
+
+    def test_multi_task_subtasks_and_seq2seq_metrics(self, tmp_path):
+        from positronixlab.baselines import DataProviderLoader, ModelLoader
+        from positronixlab.dataprovider.math_dataprovider import (
+            MathSeq2SeqLoss,
+            MathVocab,
+            math_exact_accuracy,
+            math_token_accuracy,
+        )
+
+        # Seed local raw .txt files for two modules (no network needed)
+        for task, qa in (
+            (
+                "arithmetic__add_or_sub",
+                "1+1?\n2\n2+2?\n4\n3+3?\n6\n4+4?\n8\n5+5?\n10\n",
+            ),
+            (
+                "arithmetic__mul",
+                "2*2?\n4\n3*3?\n9\n4*4?\n16\n5*5?\n25\n6*6?\n36\n",
+            ),
+        ):
+            for split in ("train-easy", "train-hard", "interpolate"):
+                p = tmp_path / "math" / "raw" / split / f"{task}.txt"
+                p.parent.mkdir(parents=True, exist_ok=True)
+                prefix = f"[{split}] "
+                lines = qa.strip().splitlines()
+                unique_qa = "\n".join(
+                    f"{prefix}{lines[i]}\n{lines[i + 1]}" for i in range(0, len(lines), 2)
+                )
+                p.write_text(unique_qa + "\n", encoding="utf-8")
+
+        dp = DataProviderLoader.create(
+            "csordas:deepmind_math",
+            root=tmp_path,
+            tasks=["arithmetic__add_or_sub", "arithmetic__mul"],
+            difficulties=("easy", "hard"),
+            eval_split="interpolate",
+            max_question_len=32,
+            max_answer_len=10,
+            batch_size=2,
+            num_workers=0,
+            download=False,
+        )
+        assert set(dp.list_subtasks()) == {
+            "full",
+            "easy",
+            "hard",
+            "iid",
+            "interpolate",
+            "arithmetic__add_or_sub",
+            "arithmetic__mul",
+        }
+        assert set(dp.eval_matrix_spec().keys()) == {"arithmetic__add_or_sub", "arithmetic__mul"}
+
+        # Verify end-to-end compatibility with CsordasTransformerEncDec + MathSeq2SeqLoss
+        model = ModelLoader.create(
+            "csordas:transformer",
+            n_input_tokens=dp.vocab_size,
+            n_output_tokens=dp.vocab_size,
+            state_size=16,
+            n_heads=2,
+            n_encoder_layers=1,
+            n_decoder_layers=1,
+        )
+        bx, by = next(iter(dp.train_loader()))
+        logits = model(bx, by[:, :-1])
+        loss_fn = MathSeq2SeqLoss(pad_idx=MathVocab.PAD_IDX)
+        loss = loss_fn(logits, by)
+        assert torch.isfinite(loss)
+        assert 0.0 <= math_token_accuracy(logits, by) <= 1.0
+        assert 0.0 <= math_exact_accuracy(logits, by) <= 1.0
+
+        # Perfect logits -> 1.0 token and exact accuracy
+        perfect = torch.full((2, by.size(1) - 1, dp.vocab_size), -10.0)
+        for b in range(2):
+            for t in range(by.size(1) - 1):
+                perfect[b, t, int(by[b, t + 1])] = 10.0
+        assert math_token_accuracy(perfect, by) == 1.0
+        assert math_exact_accuracy(perfect, by) == 1.0
+
+    def test_explicit_tasks_without_download_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError, match="Missing DeepMind Math files"):
+            MathDataProvider(
+                root=tmp_path,
+                tasks=["arithmetic__mul"],
+                difficulties=("easy",),
+                download=False,
+                num_workers=0,
+            )
+
+    def test_legacy_pt_files_loaded_without_network(self, tmp_path):
+        math_dir = tmp_path / "math"
+        math_dir.mkdir(parents=True)
+        torch.save(
+            {"inputs": torch.ones((12, 20), dtype=torch.long), "targets": torch.ones((12, 6), dtype=torch.long)},
+            math_dir / "train.pt",
+        )
+        torch.save(
+            {"inputs": torch.ones((4, 20), dtype=torch.long), "targets": torch.ones((4, 6), dtype=torch.long)},
+            math_dir / "test.pt",
+        )
+        p = MathDataProvider(root=tmp_path, batch_size=4, num_workers=0, download=False)
+        assert len(p.dataset) == 12
+        assert len(p.dataset_test) == 4
+        assert p.x_shape == (20,)
+        assert p.y_shape == (6,)

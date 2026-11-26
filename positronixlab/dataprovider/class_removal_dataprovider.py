@@ -48,11 +48,16 @@ class ClassRemovalDataProvider(
         dataset_test: Optional[Dataset] = None,
         *,
         provider: Optional[DataProvider] = None,
+        base_dataset: Optional[str] = None,
         num_classes: Optional[int] = None,
         name: str = "csordas:class_removal",
         batch_size: int = 64,
         **kwargs: Unpack[DataProviderOptions],
     ) -> None:
+        if provider is None and base_dataset is not None:
+            from positronixlab.dataprovider.dataprovider_factory import DataProviderFactory
+
+            provider = DataProviderFactory.create(base_dataset, batch_size=batch_size, **kwargs)
         if provider is not None:
             dataset_train = dataset_train or provider.dataset_train
             dataset_val = dataset_val or provider.dataset_val
@@ -62,7 +67,7 @@ class ClassRemovalDataProvider(
 
         if dataset_train is None or dataset_val is None:
             raise ValueError(
-                "ClassRemovalDataProvider requires either `provider` or both "
+                "ClassRemovalDataProvider requires `provider`, `base_dataset`, or both "
                 "`dataset_train` and `dataset_val`."
             )
 

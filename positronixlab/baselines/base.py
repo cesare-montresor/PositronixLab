@@ -170,7 +170,7 @@ class SOTAModel(nn.Module):
     ) -> Optional[str]:
         resolved = self.model_path(path)
         loc = map_location if map_location is not None else self.device
-        state = load_data(resolved, map_location=loc, **kwargs)
+        state = load_data(resolved, map_location=loc, default=None, **kwargs)
         if state is None:
             return None
         self.load_state_dict(state, strict=strict)

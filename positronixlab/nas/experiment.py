@@ -20,11 +20,15 @@ from typing import (
     TypeVar,
     Union,
 )
+import warnings
 import yaml
 
-from ax.api.client import Client
-from ax.api.configs import StorageConfig
-from ax.core.trial_status import TrialStatus
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", message=r".*torch\.jit\.script.*deprecated.*", category=FutureWarning)
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"^ax(\.|$)")
+    from ax.api.client import Client
+    from ax.api.configs import StorageConfig
+    from ax.core.trial_status import TrialStatus
 
 from positronixlab.nas.trial_config import TrialConfig
 from positronixlab.nas.trial_pipeline import MetricValue, TrialPipeline, TrialResult, is_oom_error

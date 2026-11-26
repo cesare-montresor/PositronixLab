@@ -120,6 +120,32 @@ def test_compile_method_decorators():
     assert torch.allclose(Helper.scale(t), torch.tensor([2.0, 4.0]))
 
 
+def test_clear_cache_docstring_safety_and_compile_env_switch(monkeypatch):
+    from pathlib import Path
+    from positronixlab.spacemath.common import (
+        _is_safe_cache_dir,
+        clear_torch_compile_cache,
+        torch_compile,
+    )
+
+    assert clear_torch_compile_cache.__doc__ is not None
+    assert "cache" in clear_torch_compile_cache.__doc__.lower()
+
+    assert not _is_safe_cache_dir("/")
+    assert not _is_safe_cache_dir("/tmp")
+    assert not _is_safe_cache_dir(str(Path.home()))
+    assert _is_safe_cache_dir("/tmp/torchinductor_someone")
+    assert _is_safe_cache_dir("/tmp/triton_cache")
+    assert _is_safe_cache_dir(str(Path.home() / ".triton" / "cache"))
+
+    monkeypatch.setenv("POSITRONIXLAB_COMPILE", "0")
+
+    def raw_fn(x: torch.Tensor) -> torch.Tensor:
+        return x + 1.0
+
+    assert torch_compile(raw_fn) is raw_fn
+
+
 @pytest.mark.xfail(strict=True, reason="common.py:49 infer_shape has stray `self` parameter")
 def test_bug_infer_shape_stray_self():
     x_in = (torch.randn(4, 8),)

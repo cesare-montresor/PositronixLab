@@ -121,10 +121,6 @@ def test_suppress_output_restores_fd_on_exception():
     assert "RESTORED" in proc.stderr
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug B6: suppress_output(stderr=False) does not flush sys.stdout before restoring fd 1, so buffered print() output leaks when piped",
-)
 def test_suppress_output_flushes_buffered_python_stdout():
     code = "\n".join([
         "from positronixlab.utils.utils import suppress_output",
@@ -135,6 +131,24 @@ def test_suppress_output_flushes_buffered_python_stdout():
     assert proc.stdout == ""
 
 
+def test_suppress_output_concurrent_threads_restore_stderr():
+    code = "\n".join([
+        "import os, threading, time",
+        "from positronixlab.utils.utils import suppress_output",
+        "def worker():",
+        "    with suppress_output(stderr=True):",
+        "        os.write(2, b'HIDDEN\\n')",
+        "        time.sleep(0.02)",
+        "threads = [threading.Thread(target=worker) for _ in range(4)]",
+        "for t in threads: t.start()",
+        "for t in threads: t.join()",
+        "os.write(2, b'STILL_ALIVE\\n')",
+    ])
+    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert "HIDDEN" not in proc.stderr
+    assert "STILL_ALIVE" in proc.stderr
+
+
 # ---------------------------------------------------------------------------
 # session_path
 # ---------------------------------------------------------------------------
@@ -143,19 +157,31 @@ def test_suppress_output_flushes_buffered_python_stdout():
 def test_session_path_create_cache_and_force(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(utils, "last_session_path", None)
+    monkeypatch.setattr(utils, "_session_paths", {})
 
     p1 = session_path("exp", uid="001", createDirectory=True)
     assert p1 == "output/exp_001/"
     assert (tmp_path / "output" / "exp_001").is_dir()
 
-    # Without force=True, returns cached path even with different args
-    p2 = session_path("other", uid="002", createDirectory=True, force=False)
-    assert p2 == p1
+    # Same (name, uid) returns cached path
+    assert session_path("exp", uid="001", createDirectory=True, force=False) == p1
 
-    # With force=True, generates a new path and respects createDirectory=False
-    p3 = session_path("other", uid="002", createDirectory=False, force=True)
-    assert p3 == "output/other_002/"
-    assert not (tmp_path / "output" / "other_002").exists()
+    # Different name/uid gets its own distinct path instead of reusing exp_001
+    p2 = session_path("other", uid="002", createDirectory=True, force=False)
+    assert p2 == "output/other_002/"
+    assert p2 != p1
+    assert (tmp_path / "output" / "other_002").is_dir()
+
+    # With force=True and createDirectory=False, creates a new entry without mkdir
+    p3 = session_path("third", uid="003", createDirectory=False, force=True)
+    assert p3 == "output/third_003/"
+    assert not (tmp_path / "output" / "third_003").exists()
+
+    # Custom basedir and name sanitization
+    p4 = session_path("../unsafe/name", uid="004", createDirectory=False, basedir=tmp_path / "runs")
+    assert p4.startswith(f"{(tmp_path / 'runs').as_posix()}/")
+    assert ".." not in p4
+    assert p4.endswith("/unsafe_name_004/")
 
 
 # ---------------------------------------------------------------------------
@@ -383,6 +409,30 @@ def test_signature_settings_deterministic_and_sensitive():
     assert len(sha) == 64
 
 
+def test_signature_settings_handles_common_ml_types():
+    from dataclasses import dataclass
+    from pathlib import Path
+
+    @dataclass
+    class _Cfg:
+        lr: float
+        tag: str
+
+    payload = {
+        "path": Path("/tmp/demo"),
+        "scalar": np.int64(7),
+        "dtype": torch.float32,
+        "device": torch.device("cpu"),
+        "cfg": _Cfg(lr=1e-3, tag="a"),
+    }
+    s1 = signature_settings(payload)
+    s2 = signature_settings(payload)
+    assert s1 == s2 and len(s1) == 32
+
+    with pytest.raises(TypeError):
+        signature_settings({"bad": object()})
+
+
 # ---------------------------------------------------------------------------
 # save_data & load_data
 # ---------------------------------------------------------------------------
@@ -406,10 +456,22 @@ def test_save_and_load_json_pickle_pt(tmp_path):
 def test_save_and_load_unsupported_and_missing(tmp_path):
     bad = tmp_path / "file.txt"
     assert save_data(str(bad), {"a": 1}) is False
-    assert load_data(str(tmp_path / "does_not_exist.json")) is None
+
+    missing = tmp_path / "does_not_exist.json"
+    with pytest.raises(FileNotFoundError):
+        load_data(str(missing))
+    assert load_data(str(missing), default=None) is None
 
     bad.write_text("hello")
-    assert load_data(str(bad)) is None
+    with pytest.raises(ValueError, match="Unsupported extension"):
+        load_data(str(bad))
+
+
+def test_load_data_yaml_rejects_unexpected_kwargs(tmp_path):
+    p = tmp_path / "config.yaml"
+    assert save_data(str(p), {"a": 1}) is True
+    with pytest.raises(TypeError, match="Unexpected keyword arguments"):
+        load_data(str(p), unknown_kwarg=True)
 
 
 def test_save_and_load_yaml_roundtrip(tmp_path):

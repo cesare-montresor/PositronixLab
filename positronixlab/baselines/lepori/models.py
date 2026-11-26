@@ -13,8 +13,9 @@ canonical :class:`SubnetworkMask` objects).
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -328,3 +329,360 @@ class SynEvalBertModel(SOTAModel):
         out = self.backbone(input_ids=flat_ids, attention_mask=flat_mask)
         cls_emb = out.last_hidden_state[:, 0, :].reshape(b, n, -1)
         return self.ooo_head(cls_emb)
+
+
+# ---------------------------------------------------------------------------
+# Vision: CVR SimCLR self-supervised pretraining (SimCLRModel.py / SimCLR.py)
+# ---------------------------------------------------------------------------
+
+
+def _simclr_similarity_and_masks(
+    embeddings: torch.Tensor,
+    temperature: float,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Compute scaled cosine similarity matrix (diagonal masked) and positive-pair mask."""
+    if embeddings.ndim != 2 or embeddings.shape[0] < 2 or embeddings.shape[0] % 2 != 0:
+        raise ValueError(
+            "SimCLR expects 2D embeddings of even batch size (2*N, D), "
+            f"got shape {tuple(embeddings.shape)}"
+        )
+    if temperature <= 0.0:
+        raise ValueError(f"SimCLR temperature must be > 0, got {temperature}")
+
+    z = F.normalize(embeddings, dim=-1)
+    cos_sim = z @ z.transpose(0, 1)
+    n = cos_sim.shape[0]
+    self_mask = torch.eye(n, dtype=torch.bool, device=cos_sim.device)
+    pos_mask = self_mask.roll(shifts=n // 2, dims=0)
+    fill_val = -1e9 if cos_sim.dtype in (torch.float16, torch.bfloat16) else -9e15
+    cos_sim = cos_sim.masked_fill(self_mask, fill_val)
+    return cos_sim / temperature, pos_mask
+
+
+class SimCLRLoss(nn.Module):
+    """NT-Xent / InfoNCE contrastive loss matching Lepori et al. ``SimCLRModel.py``.
+
+    Expects ``embeddings`` of shape ``(2 * N, D)`` where ``embeddings[i]`` and
+    ``embeddings[(i + N) % (2 * N)]`` are the two augmented views of item ``i``.
+    Accepts an optional ignored *targets* argument so it plugs directly into
+    ``DeeplearningTrain`` or standard ``criterion(preds, targets)`` loops.
+    """
+
+    def __init__(self, temperature: float = 0.07) -> None:
+        super().__init__()
+        if temperature <= 0.0:
+            raise ValueError(f"SimCLRLoss temperature must be > 0, got {temperature}")
+        self.temperature = temperature
+
+    def forward(
+        self,
+        embeddings: torch.Tensor,
+        targets: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        del targets
+        logits, pos_mask = _simclr_similarity_and_masks(embeddings, self.temperature)
+        nll = -logits[pos_mask] + torch.logsumexp(logits, dim=-1)
+        return nll.mean()
+
+
+@torch.no_grad()
+def simclr_ranking_metrics(
+    embeddings: torch.Tensor,
+    temperature: float = 0.07,
+) -> Dict[str, float]:
+    """Compute SimCLR positive-pair ranking metrics (``top1``, ``top5``, ``mean_pos``).
+
+    Matches ``SimCLRModel.info_nce_loss`` logging (``acc_top1``, ``acc_top5``,
+    ``acc_mean_pos``).
+    """
+    logits, pos_mask = _simclr_similarity_and_masks(embeddings, temperature)
+    fill_val = -1e9 if logits.dtype in (torch.float16, torch.bfloat16) else -9e15
+    comb_sim = torch.cat(
+        [logits[pos_mask].unsqueeze(1), logits.masked_fill(pos_mask, fill_val)],
+        dim=-1,
+    )
+    sim_argsort = comb_sim.argsort(dim=-1, descending=True).argmin(dim=-1)
+    return {
+        "top1": float((sim_argsort == 0).float().mean().item()),
+        "top5": float((sim_argsort < 5).float().mean().item()),
+        "mean_pos": float((1.0 + sim_argsort.float().mean()).item()),
+    }
+
+
+class CVRSimCLRModel(SOTAModel):
+    """CVR SimCLR self-supervised pretraining model (Lepori et al., 2023).
+
+    Reference: ``libs/Compositional_Subnetworks/Vision/CVR/models/SimCLRModel.py``
+
+    Uses a ``torchvision`` ResNet backbone with ``nn.InstanceNorm2d`` (identical
+    to :class:`CVRResNetModel`) followed by a 2-layer :class:`CVRDecisionMLP`
+    projection head (default ``2048 -> 2048 -> 128``).
+
+    Accepts any of:
+    - Stacked tensor ``(B, 2, K, C, H, W)`` from :class:`CVRSimCLRDataProvider`
+      (2 views × ``K`` images per item, e.g. ``K=2``),
+    - List/tuple of 2 view tensors ``[v0, v1]`` each of shape ``(B, K, C, H, W)``
+      or ``(B, C, H, W)``,
+    - Stacked 2-view tensor ``(B, 2, C, H, W)``.
+
+    Returns projected embeddings of shape ``(2 * N, mlp_out_dim)`` ordered so
+    view 0 occupies ``[:N]`` and view 1 occupies ``[N:]``, directly consumable
+    by :class:`SimCLRLoss`.
+    """
+
+    source = "lepori"
+    arch = "lepori:cvr_simclr_resnet50"
+    task_type = "contrastive"
+
+    def __init__(
+        self,
+        backbone_name: str = "resnet50",
+        mlp_hidden_dim: int = 2048,
+        mlp_out_dim: int = 128,
+        use_instance_norm: bool = True,
+        temperature: float = 0.07,
+        name: Optional[str] = None,
+        device: Optional[torch.device | str] = None,
+    ) -> None:
+        super().__init__(
+            name=name or f"CVR_SimCLR_{backbone_name}",
+            device=device,
+            criterion=SimCLRLoss(temperature=temperature),
+        )
+        import torchvision.models as tv_models
+
+        self.backbone_name = backbone_name
+        self.mlp_hidden_dim = mlp_hidden_dim
+        self.mlp_out_dim = mlp_out_dim
+        self.use_instance_norm = use_instance_norm
+        self.temperature = temperature
+        self.arch = f"lepori:cvr_simclr_{backbone_name}"
+
+        norm_layer = nn.InstanceNorm2d if use_instance_norm else nn.BatchNorm2d
+        builders = {
+            "resnet18": tv_models.resnet18,
+            "resnet34": tv_models.resnet34,
+            "resnet50": tv_models.resnet50,
+            "wideresnet50": tv_models.wide_resnet50_2,
+            "wide_resnet50_2": tv_models.wide_resnet50_2,
+        }
+        if backbone_name not in builders:
+            raise ValueError(
+                f"Unknown CVR SimCLR backbone '{backbone_name}'. "
+                f"Choose from {sorted(builders.keys())}."
+            )
+
+        backbone = builders[backbone_name](weights=None, norm_layer=norm_layer)
+        num_ftrs = backbone.fc.in_features
+        backbone.fc = nn.Identity()
+
+        self.backbone = backbone
+        self.mlp = CVRDecisionMLP(num_ftrs, mlp_hidden_dim, mlp_out_dim)
+        if device is not None:
+            self.to(device)
+
+    @staticmethod
+    def _flatten_views(
+        views: Union[torch.Tensor, Sequence[torch.Tensor]],
+    ) -> torch.Tensor:
+        if isinstance(views, (list, tuple)):
+            if len(views) != 2:
+                raise ValueError(f"Expected 2 views, got {len(views)}")
+            v0, v1 = views[0], views[1]
+        elif isinstance(views, torch.Tensor):
+            if views.ndim == 6 and views.shape[1] == 2:
+                v0, v1 = views[:, 0], views[:, 1]
+            elif views.ndim == 5 and views.shape[1] == 2:
+                v0, v1 = views[:, 0], views[:, 1]
+            else:
+                raise ValueError(
+                    "CVRSimCLRModel expects (B, 2, K, C, H, W), (B, 2, C, H, W), "
+                    f"or a 2-element list/tuple of view tensors; got shape {tuple(views.shape)}"
+                )
+        else:
+            raise TypeError(f"Unsupported views type: {type(views)!r}")
+
+        if v0.ndim == 5:
+            b, k, c, h, w = v0.shape
+            v0 = v0.reshape(b * k, c, h, w)
+            v1 = v1.reshape(b * k, c, h, w)
+        elif v0.ndim != 4:
+            raise ValueError(
+                f"Each SimCLR view must be 4D (B, C, H, W) or 5D (B, K, C, H, W), "
+                f"got {tuple(v0.shape)}"
+            )
+        return torch.cat([v0, v1], dim=0)
+
+    def encode(self, images: torch.Tensor) -> torch.Tensor:
+        """Encode flattened images ``(N, C, H, W) -> (N, mlp_out_dim)``."""
+        return self.mlp(self.backbone(images))
+
+    def forward(
+        self,
+        views: Union[torch.Tensor, Sequence[torch.Tensor]],
+    ) -> torch.Tensor:
+        imgs = self._flatten_views(views)
+        return self.encode(imgs)
+
+    def to_ooo_model(
+        self,
+        *,
+        mlp_hidden_dim: int = 2048,
+        mlp_out_dim: int = 128,
+        device: Optional[torch.device | str] = None,
+    ) -> CVRResNetModel:
+        """Create a downstream :class:`CVRResNetModel` initialized with this pretrained backbone.
+
+        Matches Lepori et al.'s protocol: transfers ``self.backbone`` weights
+        and discards the SimCLR projection MLP.
+        """
+        target_device = device if device is not None else self.device
+        ooo = CVRResNetModel(
+            backbone_name=self.backbone_name,
+            mlp_hidden_dim=mlp_hidden_dim,
+            mlp_out_dim=mlp_out_dim,
+            use_instance_norm=self.use_instance_norm,
+            pretrained=False,
+            device=target_device,
+        )
+        ooo.backbone.load_state_dict(copy.deepcopy(self.backbone.state_dict()), strict=True)
+        return ooo
+
+    def save_lepori_components(self, out_dir: Union[str, Path]) -> Tuple[Path, Path]:
+        """Save ``backbone.pt`` and ``mlp.pt`` matching ``Vision/CVR/SimCLR.py``."""
+        out = Path(out_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        bb_path = out / "backbone.pt"
+        mlp_path = out / "mlp.pt"
+        torch.save({k: v.detach().cpu() for k, v in self.backbone.state_dict().items()}, bb_path)
+        torch.save({k: v.detach().cpu() for k, v in self.mlp.state_dict().items()}, mlp_path)
+        return bb_path, mlp_path
+
+    def load_lepori_components(
+        self,
+        backbone_path: Optional[Union[str, Path]] = None,
+        mlp_path: Optional[Union[str, Path]] = None,
+        strict: bool = True,
+    ) -> None:
+        """Load ``backbone.pt`` and/or ``mlp.pt`` saved by ``SimCLR.py`` or :meth:`save_lepori_components`."""
+        if backbone_path is not None:
+            raw = torch.load(backbone_path, map_location=self.device, weights_only=True)
+            clean, _ = strip_lepori_l0_keys(raw)
+            self.backbone.load_state_dict(clean, strict=strict)
+        if mlp_path is not None:
+            raw = torch.load(mlp_path, map_location=self.device, weights_only=True)
+            clean, _ = strip_lepori_l0_keys(raw)
+            self.mlp.load_state_dict(clean, strict=strict)
+
+
+def _move_views(
+    views: Union[torch.Tensor, Sequence[torch.Tensor]],
+    device: torch.device,
+) -> Union[torch.Tensor, List[torch.Tensor]]:
+    if isinstance(views, (list, tuple)):
+        return [v.to(device) for v in views]
+    return views.to(device)
+
+
+def pretrain_simclr(
+    model: CVRSimCLRModel,
+    dataprovider: Any,
+    *,
+    epochs: int = 100,
+    lr: float = 5e-4,
+    weight_decay: float = 0.0,
+    temperature: float = 0.07,
+    checkpoint_dir: Optional[Union[str, Path]] = None,
+    device: Optional[torch.device | str] = None,
+) -> Dict[str, Any]:
+    """Run Lepori et al.'s SimCLR contrastive pretraining loop on *model*.
+
+    Reference: ``libs/Compositional_Subnetworks/Vision/CVR/SimCLR.py`` and
+    ``configs/SimCLR/SimCLR_Config.yaml`` (``AdamW(lr=5e-4, weight_decay=0.0)``,
+    ``CosineAnnealingLR(T_max=epochs, eta_min=lr/50)``, ``temperature=0.07``,
+    best checkpoint selected by ``val_top5``).
+
+    .. note::
+        Standalone pretraining loop outside ``DeeplearningTrain``; tracked in
+        ``docs/deeplearning/DEEPLEARNING_SYSTEM.md`` for future trainer unification.
+    """
+    target_device = torch.device(device) if device is not None else model.device
+    model.to(target_device)
+
+    criterion = SimCLRLoss(temperature=temperature)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=max(1, epochs), eta_min=lr / 50.0
+    )
+
+    train_loader = dataprovider.train if hasattr(dataprovider, "train") else dataprovider
+    val_loader = getattr(dataprovider, "val", None)
+
+    history: Dict[str, List[Dict[str, float]]] = {"train": [], "val": []}
+    best_score = -1.0
+    best_state: Optional[Dict[str, torch.Tensor]] = None
+
+    for _epoch in range(epochs):
+        model.train()
+        tr_totals = {"loss": 0.0, "top1": 0.0, "top5": 0.0, "mean_pos": 0.0}
+        tr_batches = 0
+        for batch in train_loader:
+            views = _move_views(batch[0], target_device)
+            optimizer.zero_grad()
+            emb = model(views)
+            loss = criterion(emb)
+            loss.backward()
+            optimizer.step()
+
+            metrics = simclr_ranking_metrics(emb.detach(), temperature=temperature)
+            tr_totals["loss"] += float(loss.item())
+            for k, v in metrics.items():
+                tr_totals[k] += v
+            tr_batches += 1
+
+        if tr_batches > 0:
+            tr_epoch = {k: v / tr_batches for k, v in tr_totals.items()}
+        else:
+            tr_epoch = dict(tr_totals)
+        history["train"].append(tr_epoch)
+
+        val_epoch: Optional[Dict[str, float]] = None
+        if val_loader is not None:
+            model.eval()
+            va_totals = {"loss": 0.0, "top1": 0.0, "top5": 0.0, "mean_pos": 0.0}
+            va_batches = 0
+            with torch.no_grad():
+                for batch in val_loader:
+                    views = _move_views(batch[0], target_device)
+                    emb = model(views)
+                    loss = criterion(emb)
+                    metrics = simclr_ranking_metrics(emb, temperature=temperature)
+                    va_totals["loss"] += float(loss.item())
+                    for k, v in metrics.items():
+                        va_totals[k] += v
+                    va_batches += 1
+            if va_batches > 0:
+                val_epoch = {k: v / va_batches for k, v in va_totals.items()}
+                history["val"].append(val_epoch)
+
+        monitor = val_epoch["top5"] if val_epoch is not None else tr_epoch["top5"]
+        if monitor >= best_score:
+            best_score = monitor
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+
+        scheduler.step()
+
+    if best_state is not None:
+        model.load_state_dict(best_state, strict=True)
+        model.to(target_device)
+
+    saved_paths: Optional[Tuple[Path, Path]] = None
+    if checkpoint_dir is not None:
+        saved_paths = model.save_lepori_components(checkpoint_dir)
+
+    return {
+        "model": model,
+        "best_val_top5": best_score,
+        "history": history,
+        "checkpoint_paths": saved_paths,
+    }

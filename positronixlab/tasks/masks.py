@@ -8,6 +8,7 @@ under a single contract keyed by canonical dotted PyTorch module names.
 from __future__ import annotations
 
 import math
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, Literal, Optional, Set, Tuple
@@ -347,8 +348,17 @@ class MaskApplier:
         self._backups: Dict[str, torch.Tensor] = {}
 
     def __enter__(self) -> nn.Module:
+        try:
+            self._apply()
+        except BaseException:
+            self._restore()
+            raise
+        return self.model
+
+    def _apply(self) -> None:
         weight_mask = self.mask.to_weight_mask(self.model)
         modules = dict(self.model.named_modules())
+        seen_ptrs: Set[int] = set()
 
         with torch.no_grad():
             for layer_name, m_bool in weight_mask.masks.items():
@@ -359,17 +369,26 @@ class MaskApplier:
                 if weight is None:
                     continue
 
+                ptr = weight.data_ptr()
+                if ptr in seen_ptrs:
+                    # Tied/shared weights: first mask wins to avoid corrupting the backup
+                    continue
+                seen_ptrs.add(ptr)
+
                 self._backups[layer_name] = weight.data.detach().clone()
                 m = m_bool.to(weight.device)
                 gen = None
                 if self.seed is not None:
                     gen = torch.Generator(device=weight.device)
-                    gen.manual_seed(self.seed + (hash(layer_name) & 0xFFFF))
+                    layer_seed = (
+                        self.seed + zlib.crc32(layer_name.encode("utf-8"))
+                    ) & 0x7FFFFFFF
+                    gen.manual_seed(layer_seed)
 
                 if self.mode == "retain":
-                    weight.data.mul_(m.to(weight.dtype))
+                    weight.data.masked_fill_(~m, 0)
                 elif self.mode == "zero_ablate":
-                    weight.data.mul_((~m).to(weight.dtype))
+                    weight.data.masked_fill_(m, 0)
                 elif self.mode == "random_ablate":
                     rand_w = torch.empty_like(weight.data)
                     if rand_w.ndim >= 2:
@@ -382,7 +401,7 @@ class MaskApplier:
                     rand_ablate = _sample_random_binary_mask(
                         tuple(weight.shape), n_active, weight.device, generator=gen
                     )
-                    weight.data.mul_((~rand_ablate).to(weight.dtype))
+                    weight.data.masked_fill_(rand_ablate, 0)
                 elif self.mode == "complement_sampled":
                     n_active = int(m.sum().item())
                     comp_ablate = _sample_random_binary_mask(
@@ -392,15 +411,16 @@ class MaskApplier:
                         generator=gen,
                         eligible_mask=~m,
                     )
-                    weight.data.mul_((~comp_ablate).to(weight.dtype))
+                    weight.data.masked_fill_(comp_ablate, 0)
 
-        return self.model
-
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    def _restore(self) -> None:
         modules = dict(self.model.named_modules())
         with torch.no_grad():
-            for layer_name, orig_w in self._backups.items():
+            for layer_name, orig_w in reversed(list(self._backups.items())):
                 mod = modules.get(layer_name)
                 if mod is not None and hasattr(mod, "weight") and mod.weight is not None:
                     mod.weight.data.copy_(orig_w)
         self._backups.clear()
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self._restore()

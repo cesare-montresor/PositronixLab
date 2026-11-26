@@ -4,13 +4,17 @@ import copy
 from enum import Enum
 import os
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
+import warnings
 import yaml
 
-from ax.api.configs import (
-    ChoiceParameterConfig,
-    DerivedParameterConfig,
-    RangeParameterConfig,
-)
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", message=r".*torch\.jit\.script.*deprecated.*", category=FutureWarning)
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"^ax(\.|$)")
+    from ax.api.configs import (
+        ChoiceParameterConfig,
+        DerivedParameterConfig,
+        RangeParameterConfig,
+    )
 
 
 class ParameterType(str, Enum):

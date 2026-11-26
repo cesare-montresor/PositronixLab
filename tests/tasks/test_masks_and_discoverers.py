@@ -177,3 +177,105 @@ def test_neurosurgeon_discoverer_continuous_sparsification_and_neuron_mode():
     assert u_mask.masks["layers.0"].shape == (12,)
     assert u_mask.masks["layers.1"].shape == (3,)
     assert torch.equal(mlp.layers[0].weight, orig_w0)
+
+
+def test_version_matches_distribution():
+    import importlib.metadata as md
+    import positronixlab
+
+    assert positronixlab.__version__ == md.version("positronixlab")
+
+
+def test_mask_applier_seed_reproducible_across_hashseed():
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "import torch, torch.nn as nn; "
+        "from positronixlab.tasks import MaskApplier, SubnetworkMask; "
+        "torch.manual_seed(0); "
+        "m = nn.Sequential(nn.Linear(6, 4), nn.Linear(4, 2)); "
+        "mask = SubnetworkMask(name='m', granularity='unit', masks={'0': torch.tensor([True, False, True, False]), '1': torch.tensor([True, False])}); "
+        "applier = MaskApplier(m, mask, mode='random_ablate', seed=42); "
+        "applier.__enter__(); "
+        "print(f'{m[0].weight.sum().item():.8f},{m[1].weight.sum().item():.8f}'); "
+        "applier.__exit__(None, None, None)"
+    )
+    out1 = subprocess.check_output(
+        [sys.executable, "-c", code],
+        env={**os.environ, "PYTHONHASHSEED": "1"},
+        text=True,
+    ).strip()
+    out2 = subprocess.check_output(
+        [sys.executable, "-c", code],
+        env={**os.environ, "PYTHONHASHSEED": "9999"},
+        text=True,
+    ).strip()
+    assert out1 == out2
+
+
+def test_mask_applier_enter_failure_restores_weights(monkeypatch):
+    import positronixlab.tasks.masks as masks_mod
+
+    mlp = _make_tiny_mlp()
+    orig_w0 = mlp.layers[0].weight.detach().clone()
+    orig_w1 = mlp.layers[1].weight.detach().clone()
+    mask = RandomMaskDiscoverer(density=0.5, seed=0).discover(mlp)
+
+    orig_sampler = masks_mod._sample_random_binary_mask
+    calls = {"n": 0}
+
+    def boom_on_second(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("injected enter failure")
+        return orig_sampler(*args, **kwargs)
+
+    monkeypatch.setattr(masks_mod, "_sample_random_binary_mask", boom_on_second)
+    with pytest.raises(RuntimeError, match="injected enter failure"):
+        with MaskApplier(mlp, mask, mode="randomly_sampled", seed=0):
+            pass
+
+    assert torch.equal(mlp.layers[0].weight, orig_w0)
+    assert torch.equal(mlp.layers[1].weight, orig_w1)
+
+
+def test_mask_applier_tied_weights_restored():
+    class TiedNet(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.a = torch.nn.Linear(4, 4, bias=False)
+            self.b = torch.nn.Linear(4, 4, bias=False)
+            self.b.weight = self.a.weight
+
+    model = TiedNet()
+    orig_w = model.a.weight.detach().clone()
+    mask = SubnetworkMask(
+        name="tied",
+        granularity="unit",
+        masks={
+            "a": torch.tensor([True, False, True, False]),
+            "b": torch.tensor([False, True, False, True]),
+        },
+    )
+    with MaskApplier(model, mask, mode="retain"):
+        assert (model.a.weight[1] == 0).all()
+    assert torch.equal(model.a.weight, orig_w)
+    assert torch.equal(model.b.weight, orig_w)
+
+
+def test_mask_applier_handles_nonfinite_weights_without_nan():
+    lin = torch.nn.Linear(3, 2, bias=False)
+    with torch.no_grad():
+        lin.weight.copy_(torch.tensor([[1.0, float("inf"), 2.0], [3.0, 4.0, 5.0]]))
+    orig_w = lin.weight.detach().clone()
+    mask = SubnetworkMask(
+        name="keep_second",
+        granularity="unit",
+        masks={"": torch.tensor([False, True])},
+    )
+    with MaskApplier(lin, mask, mode="retain"):
+        assert torch.all(lin.weight[0] == 0)
+        assert not torch.isnan(lin.weight).any()
+    assert torch.equal(lin.weight, orig_w)

@@ -1,4 +1,5 @@
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from typing import Literal, Optional, Tuple
@@ -6,6 +7,7 @@ from typing import Literal, Optional, Tuple
 from sklearn.metrics import silhouette_score
 #from fast_pytorch_kmeans import KMeans, MultiKMeans
 
+import faiss
 from faiss import Kmeans as FAISS_KMeans
 #from faiss import SuperKMeans as FAISS_KMeans
 
@@ -91,12 +93,14 @@ class ModularClusterKmeans:
         if k < 2:
             return -1.0  # Silhouette score undefined for k < 2
         
-        labels = labels.cpu().numpy()
+        labels_np = labels.cpu().numpy()
+        if len(np.unique(labels_np)) < 2:
+            return -1.0  # Silhouette score undefined when fewer than 2 clusters are populated
 
         if self.precompute_distances:
-            score = silhouette_score(self.distance_cache, labels, metric='precomputed')
+            score = silhouette_score(self.distance_cache, labels_np, metric='precomputed')
         else:
-            score = silhouette_score(x.cpu().numpy(), labels, metric=self.metric)
+            score = silhouette_score(x.cpu().numpy(), labels_np, metric=self.metric)
         
         return score
     
@@ -108,6 +112,7 @@ class ModularClusterKmeans:
             x = F.normalize(x, p=2, dim=1)
         
         x_np = x.detach().cpu().numpy().astype('float32', copy=False)
+        use_gpu = self.device.type == 'cuda' and hasattr(faiss, 'StandardGpuResources')
         with suppress_output():
             kmeans = FAISS_KMeans(
                 d=x_np.shape[1], 
@@ -116,12 +121,12 @@ class ModularClusterKmeans:
                 spherical=spherical, 
                 verbose=self.verbose,
                 nredo=self.n_init,
-                gpu=self.device.type == 'cuda'
+                gpu=use_gpu,
             )
             
             kmeans.train(x_np)
 
-        dists, labels = kmeans.assign(x_np)
+        _, labels = kmeans.assign(x_np)
         labels = torch.as_tensor(labels, dtype=torch.long, device=self.device)
         centroids = torch.from_numpy(kmeans.centroids).to(self.device)
         return centroids, labels
@@ -216,6 +221,14 @@ class ModularClusterKmeans:
         self.centroids = None
         self.labels = None
         self.distance_cache = None
+
+        if k_min > k_max:
+            self.best_k = 1
+            self.best_score = -1.0
+            self.silhouette_scores[1] = -1.0
+            self.labels = torch.zeros(n, dtype=torch.long, device=self.device)
+            self.centroids = x.mean(dim=0, keepdim=True)
+            return self
 
         if self.precompute_distances:
             dists = self._distance(x, x)

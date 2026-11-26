@@ -22,22 +22,40 @@ from positronixlab.tasks.discoverer import SubnetworkDiscoverer, unpack_batch as
 from positronixlab.tasks.masks import SubnetworkMask
 
 
-def _reduce_activation_to_2d(act: torch.Tensor) -> torch.Tensor:
+def _reduce_activation_to_2d(
+    act: torch.Tensor,
+    module: Optional[nn.Module] = None,
+) -> torch.Tensor:
     """Reduce arbitrary layer output tensor to ``(B, U)`` unit activations.
 
     Handles:
     - 2D Linear: ``(B, U)`` -> unchanged
+    - Conv1d / Conv2d / Conv3d (``_ConvNd``): ``(B, C, *spatial)`` -> mean over spatial dims
+    - 4D fallback (when *module* is ``None``): ``(B, C, H, W)`` -> spatial mean over ``(H, W)``
     - 3D Sequence (Transformer / RNN / ViT): ``(B, T, U)`` -> mean over ``T``
-    - 4D Conv2d: ``(B, C, H, W)`` -> spatial mean over ``(H, W)``
-    - 3D Conv1d: ``(B, C, L)`` -> handled via mean over last dim if needed
     """
     if act.ndim == 2:
         return act
+    if isinstance(module, nn.modules.conv._ConvNd):
+        return act.mean(dim=tuple(range(2, act.ndim)))
     if act.ndim == 4:
         return act.mean(dim=(2, 3))
     if act.ndim == 3:
         return act.mean(dim=1)
     return act.reshape(act.shape[0], -1)
+
+
+def _model_device(model: nn.Module) -> torch.device:
+    first_param = next(model.parameters(), None)
+    return first_param.device if first_param is not None else torch.device("cpu")
+
+
+def _ensure_reiterable(dataloader: Iterable[Any], name: str = "dataloader") -> None:
+    if iter(dataloader) is dataloader:
+        raise ValueError(
+            f"{name} must be re-iterable (not a one-shot iterator/generator), "
+            f"as AtlasDiscoverer iterates it multiple times."
+        )
 
 
 def _infer_out_units(module: nn.Module) -> Optional[int]:
@@ -152,7 +170,10 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
         if not valid_layers:
             raise ValueError("No observable target_layers with >= 2 units found.")
 
-        device = next(model.parameters()).device
+        if self.atlas_epochs > 1:
+            _ensure_reiterable(dataloader, "dataloader")
+
+        device = _model_device(model)
         cfg = self._build_config()
         layer_space = LayerSpace(
             config=cfg,
@@ -168,10 +189,10 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
             mod = modules[layer_name]
 
             def _make_hook(name: str):
-                def _hook(_mod: nn.Module, _inp: Any, output: Any) -> None:
+                def _hook(mod_ref: nn.Module, _inp: Any, output: Any) -> None:
                     out_t = output[0] if isinstance(output, (tuple, list)) else output
                     if isinstance(out_t, torch.Tensor):
-                        captured[name] = _reduce_activation_to_2d(out_t.detach())
+                        captured[name] = _reduce_activation_to_2d(out_t.detach(), module=mod_ref)
 
                 return _hook
 
@@ -242,7 +263,7 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
     ) -> Dict[str, torch.Tensor]:
         """Compute per-unit mean absolute activation energy across *dataloader*."""
         modules = dict(model.named_modules())
-        device = next(model.parameters()).device
+        device = _model_device(model)
         sums: Dict[str, torch.Tensor] = {}
         counts: Dict[str, int] = {k: 0 for k in target_layers}
 
@@ -251,12 +272,12 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
             mod = modules[layer_name]
 
             def _make_hook(name: str):
-                def _hook(_mod: nn.Module, _inp: Any, output: Any) -> None:
+                def _hook(mod_ref: nn.Module, _inp: Any, output: Any) -> None:
                     out_t = output[0] if isinstance(output, (tuple, list)) else output
                     if not isinstance(out_t, torch.Tensor):
                         return
-                    act2d = _reduce_activation_to_2d(out_t.detach()).abs().cpu()
-                    batch_sum = act2d.sum(dim=0)
+                    act2d = _reduce_activation_to_2d(out_t.detach(), module=mod_ref)
+                    batch_sum = act2d.abs().sum(dim=0)
                     if name not in sums:
                         sums[name] = batch_sum
                     else:
@@ -279,9 +300,15 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
                 h.remove()
             model.train(was_training)
 
-        return {
-            k: (sums[k] / max(1, counts[k])) for k in target_layers if k in sums
+        result = {
+            k: (sums[k] / counts[k]).cpu() for k in target_layers if k in sums and counts[k] > 0
         }
+        if not result:
+            raise ValueError(
+                "Dataloader yielded no samples for any target layer "
+                "(empty or exhausted iterator)."
+            )
+        return result
 
     def _clusters_to_unit_mask(
         self,
@@ -324,6 +351,11 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
                 unit_mask |= labels_long == cid
             masks[layer_name] = unit_mask
             scores[layer_name] = energy_cpu
+
+        if not masks:
+            raise ValueError(
+                "No target layers matched unit_energy; cannot construct an empty SubnetworkMask."
+            )
 
         meta = {
             "method": self.name,
@@ -412,6 +444,7 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
         **kwargs: Any,
     ) -> SubnetworkMask:
         """Fit Atlas on *dataloader* and return the top-attributed unit subnetwork."""
+        _ensure_reiterable(dataloader, "dataloader")
         _, clusters_by_layer = self.fit_atlas(model, dataloader, target_layers=target_layers)
         layers = list(clusters_by_layer.keys())
         energy = self._collect_mean_unit_energy(model, dataloader, layers)

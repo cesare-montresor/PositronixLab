@@ -166,3 +166,19 @@ DeeplearningEval(config: PipelineConfig, model: nn.Module, dl: DataLoader, draft
 ```
 - Wraps a single `self.evaluator = DeeplearningBase(config, model, dl, draft=draft)` (`optimizer=None`).
 - Exposes `add_metric`, all five callback registration methods (including `on_batch_start(..., with_data=False)`), `sanity_check()`, and `evaluate(epoch_total: int)` (returns `self.history: list[dict[str, float]]`).
+
+---
+
+## Train & Eval Loops Outside `DeeplearningTrain`
+
+Reference inventory of all training, pretraining, mask-optimization, and evaluation loops in `positronixlab/` that currently run outside `DeeplearningTrain` / `DeeplearningEval` (tracked for future `metamodel` / `deeplearning` trainer unification):
+
+| Module & Entry Point | Loop Kind | Optimization / Eval Details | Refactor Notes |
+|---|---|---|---|
+| `positronixlab/baselines/lepori/models.py:pretrain_simclr` | Train + Val (self-supervised contrastive) | `AdamW(lr=5e-4, weight_decay=0.0)` + `CosineAnnealingLR(eta_min=lr/50)` on `SimCLRLoss(temperature=0.07)`; selects best checkpoint by `val_top5`; saves `backbone.pt` & `mlp.pt`. | Prime candidate to unify once `DeeplearningTrain` supports LR schedulers, multi-view inputs, and custom checkpoint-monitor metrics. |
+| `positronixlab/baselines/neurosurgeon/discoverer.py:NeuroSurgeonDiscoverer.discover` | Mask Train (frozen base model) | `Adam` over `wrapped.mask_parameters()` minimizing `task_loss + l0_lambda * l0_loss` with exponential temperature annealing (`max_temp ** (1 / epochs)`). | Mask-only optimization loop; shares the same batch/loss pattern as `CsordasGumbelDiscoverer`. |
+| `positronixlab/baselines/csordas/discoverer.py:CsordasGumbelDiscoverer.discover` | Mask Train (frozen base model) | `Adam` over Gumbel-Sigmoid mask logits minimizing `task_loss + (mask_loss_weight / B) * sum(logits)`. | Mask-only optimization loop; shares batch/loss pattern with `NeuroSurgeonDiscoverer`. |
+| `positronixlab/tasks/benchmarks.py:ModularityBenchmark.evaluate_mask` | Eval (`torch.no_grad()`) | Evaluates a `model` under `MaskApplier` (`retain`, `zero_ablate`, `random_ablate`, `randomly_sampled`, `complement_sampled`) over a dataloader, returning loss, accuracy, and optional confusion matrix. | Could delegate to a shared `DeeplearningEval` / evaluator once `loss_fn` & non-`MetaModel` `SOTAModel` contracts are unified. |
+| `positronixlab/tasks/atlas_discoverer.py:AtlasDiscoverer.discover` / `discover_subtasks` | Forward collection + decoupled space optimization | Runs `torch.no_grad()` forward passes through `ModularObserver` to collect activations, then steps `LayerSpace` + K-Means. | Observation-only on the main model; main weights are never updated. |
+| `positronixlab/modularspace/layerspace.py` & `modularspace.py` | Decoupled space-position optimization | Per-layer `Adam` optimizing `positions: [num_cus, modular_space_size]` on detached activation scores (`loss.backward()`, `optimizer.step()`). | Intentionally decoupled from `DeeplearningTrain` (separate graph & optimizer per layer). |
+| `positronixlab/tasks/compositionality/weightmask_check.py:train_weight_masks` & `compositionality.py:evaluate_masked_runs` | Legacy prototype Train + Eval | Earlier prototype mask-training (`Adam`) and masked-evaluation loops superseded by `CsordasGumbelDiscoverer` and `ModularityBenchmark`. | Candidate for deprecation/removal during refactor. |

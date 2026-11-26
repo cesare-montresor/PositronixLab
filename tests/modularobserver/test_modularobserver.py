@@ -527,11 +527,7 @@ def test_layer_observer_forward_pre_and_backward_hooks():
     assert events == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug (layerobserver.py:42): late-binding closure passes last param for every parameter hook",
-)
-def test_layer_observer_on_grad_weights_closure_bug():
+def test_layer_observer_on_grad_weights_closure_and_cleanup():
     model = DeviceMLP()
     mapper = ModelMapper(model, is_suitable_layer=lambda m, n: is_linear(m))
     graph = mapper.map(model)
@@ -542,12 +538,20 @@ def test_layer_observer_on_grad_weights_closure_bug():
     model(torch.randn(2, 8)).sum().backward()
     assert seen_param_ids == {id(model.fc1.weight), id(model.fc1.bias)}
 
+    # Re-registering replaces old handles rather than stacking duplicates
+    calls = []
+    lo.on_grad_weights(lambda m, p, g: calls.append(id(p)))
+    model(torch.randn(2, 8)).sum().backward()
+    assert len(calls) == 2
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug (layerobserver.py:41-42): on_grad_weights(None) does not guard None and crashes on backward",
-)
-def test_layer_observer_on_grad_weights_none_crashes_bug():
+    # Passing None cleanly removes all hooks
+    calls.clear()
+    lo.on_grad_weights(None)
+    model(torch.randn(2, 8)).sum().backward()
+    assert calls == []
+
+
+def test_layer_observer_on_grad_weights_none_is_noop():
     model = DeviceMLP()
     mapper = ModelMapper(model, is_suitable_layer=lambda m, n: is_linear(m))
     graph = mapper.map(model)

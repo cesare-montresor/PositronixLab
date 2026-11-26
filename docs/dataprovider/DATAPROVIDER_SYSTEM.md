@@ -64,7 +64,7 @@ Composable dataclass inheriting from `positronixlab.pipeline.config.BaseConfig` 
 | `batch_size` | `int` | `32` | Batch size for `DataReader` loaders. |
 | `split` | `Optional[List[float]]` | `None` | Optional 2- or 3-way split ratios; `None` keeps provider's `default_split`. |
 | `num_workers` | `Optional[int]` | `None` | DataLoader workers (`None` defaults to `2`). |
-| `root` | `Optional[str]` | `None` | Dataset root (falls back to `POSITRONIXLAB_DATA_DIR`, then `./data`). |
+| `root` | `Optional[str]` | `None` | Dataset root (`None` defaults to `./data`). |
 | `flatten` | `bool` | `False` | Auto-attach `MetaTransform(['flatten'])` for image providers (`supports_flatten`). |
 | `indexed_dataset` | `bool` | `False` | Wrap datasets in `IndexedDataset` to yield `(x, y, idx)`. |
 | `shuffle_train` | `bool` | `True` | Shuffle the training loader by default. |
@@ -78,7 +78,7 @@ Supports `to_dict()`, `from_dict()`, `with_updates()`, `signature()`, and JSON/Y
 
 ### Core Classes & Helpers (`positronixlab/dataprovider/dataprovider.py`)
 
-- **`resolve_data_root(root=None) -> Path`**: Precedence: explicit `root` > `POSITRONIXLAB_DATA_DIR` env var > `./data`.
+- **`resolve_data_root(root=None) -> Path`**: Returns `Path(root)` if provided, otherwise `./data`.
 - **`apply_transform(transforms, x)`**: Applies either callable transforms (`transforms(x)`) or legacy `.apply(x)` (`MetaTransform`).
 - **`BaseTensorDataset`**: Zero-copy tensor-backed `Dataset` with `compute_normalization()`, `apply_normalization()`, `copy()`, and `random_split()`.
 - **`IndexedDataset`**: Wraps any `Dataset` yielding `(x, y)` so `__getitem__(idx)` returns `(x, y, idx)`.
@@ -107,7 +107,7 @@ Supports `to_dict()`, `from_dict()`, `with_updates()`, `signature()`, and JSON/Y
 
 ## Supported Datasets
 
-All 16 concrete providers and their dataset classes are lazily exported from `positronixlab.dataprovider`:
+All 15 concrete providers and their dataset classes are lazily exported from `positronixlab.dataprovider`:
 
 | Factory Key / Aliases | Provider Class | Input Shape | Classes | Default Split | Data Source |
 |---|---|---|---|---|---|
@@ -120,13 +120,12 @@ All 16 concrete providers and their dataset classes are lazily exported from `po
 | `'class_removal'`, `'csordas:class_removal'` | `ClassRemovalDataProvider` | Wraps base | Base | Wraps base | Compositional wrapper (`from_provider()`) removing/isolating classes |
 | `'covertype'` | `CovertypeDataProvider` | `(54,)` | 7 | `(0.7, 0.15, 0.15)` | `sklearn.datasets.fetch_covtype` |
 | `'higgs'` | `HIGGSDataProvider` | `(28,)` | 2 | `(0.7, 0.15, 0.15)` | Memmapped `<root>/HIGGS.npy` (UCI) |
-| `'scan'` | `SCANDataProvider` | `(20,)` (dummy) | `None` | `(0.7, 0.3)` + test | `<root>/scan/{train,test}.pt` |
-| `'deepmind_math'` | `MathDataProvider` | `(50,)` (dummy) | `None` | `(0.7, 0.3)` + test | `<root>/math/{train,test}.pt` |
+| `'scan'`, `'csordas:scan'` | `SCANDataProvider` | `(16,)` | 10 (action vocab) | `(0.7, 0.3)` + test | GitHub `brendenlake/SCAN` auto-download → `<root>/scan/{raw,cache}/` (or legacy `<root>/scan/{train,test}.pt`) |
+| `'deepmind_math'` | `MathDataProvider` | `(160,)` | 99 (char vocab) | `(0.7, 0.3)` + eval | HF `cesare-montresor/DeepMind-Mathematics-Dataset` auto-download → `<root>/math/{raw,cache}/` (or legacy `<root>/math/{train,test}.pt`) |
 | `'addmul'`, `'csordas:add_mul'` | `AddMulDataProvider` | Compositional | Task-dep. | `(0.7, 0.3)` + test | Synthetic Add/Mul arithmetic (`CompositionalDataProvider`) |
 | `'tuple_arithmetic'`, `'csordas:tuple_arithmetic'` | `TupleArithmeticDataProvider` | Compositional | Task-dep. | `(0.7, 0.3)` + test | Synthetic tuple arithmetic (`CompositionalDataProvider`) |
 | `'cvr_odd_one_out'`, `'lepori:cvr_*'` | `CVROddOneOutDataProvider` | `(4, 3, H, W)` | 4 | Compositional | Procedural CVR Odd-One-Out (`inside_contact`, `inside_count`, `contact_count`) |
 | `'syneval_odd_one_out'`, `'lepori:syneval_*'` | `SynevalOddOneOutDataProvider` | `(2, 4, max_len)` | 4 | Compositional | SynEval Odd-One-Out (`sv_{singular,plural}`, `pro_ant_{singular,plural}`) |
-| `'odd_one_out'` | `OddOneOutDataProvider` | `(4, 3, 64, 64)` | 4 | `(0.7, 0.3)` + test | `<root>/odd_one_out/{train,test}.pt` |
 
 ---
 

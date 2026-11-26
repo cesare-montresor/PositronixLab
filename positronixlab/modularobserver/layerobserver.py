@@ -33,10 +33,19 @@ class LayerObserver:
 
         self.forward_weights_hook = None
         self.backward_weights_hook = None
+        self._weight_grad_handles = []
 
 
     def on_grad_weights(self, callback: WeightCallback = None):
-        [param.register_hook(lambda grad: callback(self.layer, param, grad)) for param in self.layer.parameters()]
+        for handle in self._weight_grad_handles:
+            handle.remove()
+        self._weight_grad_handles = []
+        if callback is None:
+            return
+        for param in self.layer.parameters():
+            self._weight_grad_handles.append(
+                param.register_hook(lambda grad, p=param: callback(self.layer, p, grad))
+            )
 
     def on_pre_forward_layer(self, callback: PreForwardCallback = None):
         if callback is None:

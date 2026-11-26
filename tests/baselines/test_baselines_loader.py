@@ -21,6 +21,8 @@ def test_registry_lists_csordas_and_lepori_models():
     assert "lepori:cvr_resnet18" in all_models
     assert "lepori:cvr_resnet50" in all_models
     assert "lepori:cvr_wideresnet50" in all_models
+    assert "lepori:cvr_simclr_resnet18" in all_models
+    assert "lepori:cvr_simclr_resnet50" in all_models
     assert "lepori:cvr_vit" in all_models
     assert "lepori:syneval_bert" in all_models
 
@@ -209,3 +211,79 @@ def test_neurosurgeon_wrapper_roundtrip():
     assert set(mask.masks.keys()) == {"layers.0", "layers.1"}
     # Original model untouched
     assert torch.equal(mlp.layers[0].weight, orig_w)
+
+
+def test_lepori_simclr_model_loss_transfer_and_pretrain(tmp_path):
+    from positronixlab.baselines.lepori import (
+        CVRResNetModel,
+        CVRSimCLRDataProvider,
+        CVRSimCLRModel,
+        SimCLRLoss,
+        pretrain_simclr,
+        simclr_ranking_metrics,
+    )
+
+    # 1. SimCLRLoss & ranking metrics on perfectly aligned pairs
+    base = torch.eye(4)
+    perfect = torch.cat([base, base], dim=0)  # (8, 4) where i matches i+4
+    loss_fn = SimCLRLoss(temperature=0.07)
+    loss_val = loss_fn(perfect)
+    assert loss_val.ndim == 0 and float(loss_val) < 0.01
+    metrics = simclr_ranking_metrics(perfect, temperature=0.07)
+    assert metrics["top1"] == 1.0
+    assert metrics["top5"] == 1.0
+    assert metrics["mean_pos"] == 1.0
+
+    # 2. CVRSimCLRModel forward on both stacked tensor and list views
+    simclr = ModelLoader.create(
+        "lepori:cvr_simclr_resnet18",
+        mlp_hidden_dim=64,
+        mlp_out_dim=16,
+        device="cpu",
+    )
+    assert isinstance(simclr, CVRSimCLRModel)
+    stacked_views = torch.randn(2, 2, 2, 3, 64, 64)
+    emb_stacked = simclr(stacked_views)
+    assert emb_stacked.shape == (8, 16)
+
+    list_views = [torch.randn(2, 2, 3, 64, 64), torch.randn(2, 2, 3, 64, 64)]
+    emb_list = simclr(list_views)
+    assert emb_list.shape == (8, 16)
+
+    # 3. Transfer pretrained backbone to CVRResNetModel & checkpoint roundtrip
+    ooo = simclr.to_ooo_model(mlp_hidden_dim=32, mlp_out_dim=16)
+    assert isinstance(ooo, CVRResNetModel)
+    assert torch.equal(ooo.backbone.conv1.weight, simclr.backbone.conv1.weight)
+    assert ooo(torch.randn(2, 4, 3, 64, 64)).shape == (2, 4)
+
+    bb_path, mlp_path = simclr.save_lepori_components(tmp_path / "simclr_ckpt")
+    assert bb_path.exists() and mlp_path.exists()
+    reloaded = CVRSimCLRModel(backbone_name="resnet18", mlp_hidden_dim=64, mlp_out_dim=16, device="cpu")
+    reloaded.load_lepori_components(bb_path, mlp_path)
+    assert torch.equal(reloaded.backbone.conv1.weight, simclr.backbone.conv1.weight)
+    assert torch.equal(reloaded.mlp.fc1.weight, simclr.mlp.fc1.weight)
+
+    # 4. End-to-end pretrain_simclr() smoke test on synthetic CVRSimCLRDataProvider
+    dp = CVRSimCLRDataProvider(
+        n_train_per_task=4,
+        n_val_per_task=4,
+        image_size=64,
+        batch_size=4,
+        use_real_generator=False,
+        num_workers=0,
+    )
+    assert isinstance(dp.criterion, SimCLRLoss)
+    res = pretrain_simclr(
+        simclr,
+        dp,
+        epochs=1,
+        lr=5e-4,
+        temperature=0.07,
+        checkpoint_dir=tmp_path / "pretrain_out",
+        device="cpu",
+    )
+    assert len(res["history"]["train"]) == 1
+    assert len(res["history"]["val"]) == 1
+    assert 0.0 <= res["best_val_top5"] <= 1.0
+    assert (tmp_path / "pretrain_out" / "backbone.pt").exists()
+    assert (tmp_path / "pretrain_out" / "mlp.pt").exists()

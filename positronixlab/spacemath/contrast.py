@@ -5,7 +5,7 @@ import torch
 from torch import Tensor
 import torch.nn.functional as F
 
-from positronixlab.spacemath.common import compile as torch_compile
+from positronixlab.spacemath.common import torch_compile
 from positronixlab.spacemath.space_type import (
     SpaceType,
     distance_pairwise,

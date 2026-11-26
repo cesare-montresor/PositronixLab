@@ -73,3 +73,64 @@ def test_atlas_discoverer_supports_conv2d_models():
     # Broadcasts cleanly to 4D Conv2d weights
     w_mask = mask.to_weight_mask(conv)
     assert w_mask.masks["features.0"].shape == conv.features[0].weight.shape
+
+
+def test_reduce_activation_to_2d_conv1d_and_conv3d():
+    import torch.nn as nn
+    from positronixlab.tasks.atlas_discoverer import _reduce_activation_to_2d
+
+    conv1d = nn.Conv1d(3, 5, 3)
+    out1d = conv1d(torch.randn(2, 3, 16))  # (2, 5, 14), C=5 != L=14
+    assert _reduce_activation_to_2d(out1d, module=conv1d).shape == (2, 5)
+
+    conv3d = nn.Conv3d(2, 6, 3)
+    out3d = conv3d(torch.randn(2, 2, 4, 4, 4))  # (2, 6, 2, 2, 2)
+    assert _reduce_activation_to_2d(out3d, module=conv3d).shape == (2, 6)
+
+    # Sequence tensor without conv module still averages over T (dim=1)
+    seq = torch.randn(2, 10, 8)
+    assert _reduce_activation_to_2d(seq).shape == (2, 8)
+
+
+def test_atlas_discoverer_supports_conv1d_models():
+    import torch.nn as nn
+
+    torch.manual_seed(0)
+    model = nn.Sequential(
+        nn.Conv1d(3, 6, kernel_size=3),
+        nn.ReLU(),
+        nn.AdaptiveAvgPool1d(1),
+        nn.Flatten(),
+        nn.Linear(6, 4),
+    )
+    x = torch.randn(16, 3, 12)  # L=12 != C=6
+    y = torch.randint(0, 4, (16,))
+    loader = [(x[:8], y[:8]), (x[8:], y[8:])]
+
+    atlas = AtlasDiscoverer(atlas_epochs=1, space_dim=4, k_min=2, k_max=3)
+    mask = atlas.discover(model, loader, target_layers=["0", "4"])
+    assert mask.masks["0"].shape == (6,)
+    assert mask.masks["4"].shape == (4,)
+
+
+def test_atlas_discoverer_rejects_exhausted_and_empty_loaders():
+    import pytest
+
+    torch.manual_seed(0)
+    model = ModelLoader.create(
+        "csordas:mlp", n_inputs=8, n_outputs=3, layer_sizes=[8], device="cpu"
+    )
+    x = torch.randn(8, 8)
+    y = torch.randint(0, 3, (8,))
+    loader = [(x[:4], y[:4]), (x[4:], y[4:])]
+
+    atlas = AtlasDiscoverer(atlas_epochs=1, space_dim=4, k_min=2, k_max=3)
+
+    # One-shot generator is rejected upfront
+    gen = (b for b in loader)
+    with pytest.raises(ValueError, match="re-iterable"):
+        atlas.discover(model, gen)
+
+    # Empty loader raises instead of returning a silent empty SubnetworkMask
+    with pytest.raises(ValueError, match="no samples"):
+        atlas.discover(model, [])

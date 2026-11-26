@@ -7,8 +7,9 @@ Supports all 3 Lepori et al. CVR compositional families (task indices 103..120):
 
 Data loading priority:
 1. Pre-generated ``.pt`` tensor file (``<root>/<task_fn_name>/{train,val,test}.pt`` or ``<root>/cvr_odd_one_out/{train,test}.pt``)
-2. On-the-fly CVR quartet renderer (``use_real_generator=True`` when OpenCV is available)
-3. Deterministic synthetic 4-way Odd-One-Out visual tensors for offline/CI runs
+2. Pre-generated Lepori horizontal-strip PNGs (``<root>/<task_fn_name>/{train,val,test}/{05d}.png``)
+3. On-the-fly CVR quartet renderer (``use_real_generator=True`` when OpenCV is available)
+4. Deterministic synthetic 4-way Odd-One-Out visual tensors for offline/CI runs
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, Literal, Optional, Tuple, Union, Unpack
 
+import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import Dataset
@@ -60,6 +62,37 @@ CVR_FAMILIES: Dict[str, Dict[str, Tuple[int, str]]] = {
 }
 
 
+def load_cvr_png_strip(
+    path: Union[str, Path],
+    image_size: int = 128,
+) -> torch.Tensor:
+    """Load a Lepori/CVR 4-image horizontal-strip PNG into ``(4, 3, image_size, image_size)`` float in ``[0, 1]``.
+
+    Matches ``Vision/CVR/datasets/cvrt.py`` and ``SimCLR_cvrt.py``: reshapes the
+    ``(3, H_pad, 4 * H_pad)`` strip into 4 images and strips uniform border
+    padding around each ``image_size x image_size`` frame.
+    """
+    from PIL import Image
+
+    with Image.open(path) as img:
+        arr = np.asarray(img.convert("RGB"), dtype=np.float32) / 255.0
+
+    # (H_pad, 4 * H_pad, 3) -> (3, H_pad, 4 * H_pad)
+    tensor = torch.from_numpy(arr).permute(2, 0, 1).contiguous()
+    im_size = int(tensor.shape[1])
+    if tensor.shape[2] != 4 * im_size:
+        raise ValueError(
+            f"Expected horizontal 4-image CVR strip with width == 4 * height, "
+            f"got shape {tuple(tensor.shape)} from {path}"
+        )
+    pad = im_size - image_size
+    quartet = tensor.reshape(3, im_size, 4, im_size).permute(2, 0, 1, 3).contiguous()
+    if pad > 0:
+        half = pad // 2
+        quartet = quartet[:, :, half : half + image_size, half : half + image_size]
+    return quartet
+
+
 class CVROddOneOutDataset(Dataset):
     """4-way Odd-One-Out visual dataset yielding ``(images[4, 3, H, W], target_idx)``.
 
@@ -75,6 +108,7 @@ class CVROddOneOutDataset(Dataset):
         seed: int = 0,
         use_real_generator: bool = False,
         tensor_path: Optional[Union[str, Path]] = None,
+        png_dir: Optional[Union[str, Path]] = None,
         transforms: Optional[TransformLike] = None,
     ) -> None:
         super().__init__()
@@ -85,6 +119,7 @@ class CVROddOneOutDataset(Dataset):
         self.transforms = transforms
         self._cached_x: Optional[torch.Tensor] = None
         self._cached_y: Optional[torch.Tensor] = None
+        self._png_files: Optional[list[Path]] = None
         self._use_renderer: bool = False
 
         if tensor_path is not None and Path(tensor_path).exists():
@@ -93,6 +128,13 @@ class CVROddOneOutDataset(Dataset):
             self._cached_y = payload["targets"][:n_samples]
             self.n_samples = int(self._cached_x.shape[0])
             return
+
+        if png_dir is not None and Path(png_dir).is_dir():
+            pngs = sorted(Path(png_dir).glob("*.png"))
+            if pngs:
+                self._png_files = pngs[:n_samples] if n_samples > 0 else pngs
+                self.n_samples = len(self._png_files)
+                return
 
         if use_real_generator:
             from positronixlab.baselines.lepori._cvr_gen import is_cvr_renderer_available
@@ -119,6 +161,13 @@ class CVROddOneOutDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         if self._cached_x is not None and self._cached_y is not None:
             imgs, target = self._cached_x[idx], self._cached_y[idx]
+        elif self._png_files is not None:
+            imgs = load_cvr_png_strip(self._png_files[idx], image_size=self.image_size)
+            imgs = (imgs - 0.9) / 0.1
+            gen = torch.Generator().manual_seed(self.seed + idx)
+            perm = torch.randperm(4, generator=gen)
+            target = perm.argmax()
+            imgs = imgs[perm]
         else:
             from positronixlab.baselines.lepori._cvr_gen import render_cvr_quartet
 
@@ -196,6 +245,9 @@ class CVROddOneOutDataProvider(
             tr_path = (data_root / fn_name / "train.pt") if data_root is not None else None
             va_path = (data_root / fn_name / "val.pt") if data_root is not None else None
             te_path = (data_root / fn_name / "test.pt") if data_root is not None else None
+            tr_png = (data_root / fn_name / "train") if data_root is not None else None
+            va_png = (data_root / fn_name / "val") if data_root is not None else None
+            te_png = (data_root / fn_name / "test") if data_root is not None else None
             self.subtasks[sub_key] = SubtaskSplit(
                 name=sub_key,
                 dataset_train=CVROddOneOutDataset(
@@ -205,6 +257,7 @@ class CVROddOneOutDataProvider(
                     seed + offset * 1000,
                     use_real_generator,
                     tr_path,
+                    png_dir=tr_png,
                     transforms=self.transforms,
                 ),
                 dataset_val=CVROddOneOutDataset(
@@ -214,6 +267,7 @@ class CVROddOneOutDataProvider(
                     seed + offset * 1000 + 500,
                     use_real_generator,
                     va_path,
+                    png_dir=va_png,
                     transforms=self.transforms,
                 ),
                 dataset_test=CVROddOneOutDataset(
@@ -223,6 +277,7 @@ class CVROddOneOutDataProvider(
                     seed + offset * 1000 + 800,
                     use_real_generator,
                     te_path,
+                    png_dir=te_png,
                     transforms=self.transforms,
                 ),
                 **split_kw,

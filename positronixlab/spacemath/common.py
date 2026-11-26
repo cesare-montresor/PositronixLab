@@ -1,6 +1,8 @@
 
 from __future__ import annotations
 import functools
+import getpass
+from pathlib import Path
 import torch
 from torch import nn
 import os
@@ -77,18 +79,31 @@ def is_linear(module: nn.Module):
     return isinstance(module, nn.Linear)
 
 
-def compile(func: F) -> F:
+def _compile_enabled() -> bool:
+    return os.environ.get("POSITRONIXLAB_COMPILE", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+def torch_compile(func: F) -> F:
     """
     Simple torch.compile decorator. Stack under @staticmethod / @classmethod:
 
         @staticmethod
-        @compile
+        @torch_compile
         def f(x, y): ...
 
         @classmethod
-        @compile
+        @torch_compile
         def f(cls, x, y): ...
+
+    Set ``POSITRONIXLAB_COMPILE=0`` to disable compilation.
     """
+    if not _compile_enabled():
+        return func
     compiled = torch.compile(func, mode=default_compile_mode)
     return functools.wraps(func)(compiled)
 
@@ -98,7 +113,7 @@ def classmethod_compile(func: F) -> classmethod:
     @classmethod_compile
     def f(cls, x, y): ...
     """
-    return classmethod(compile(func))
+    return classmethod(torch_compile(func))
 
 
 def staticmethod_compile(func: F) -> staticmethod:
@@ -106,17 +121,31 @@ def staticmethod_compile(func: F) -> staticmethod:
     @staticmethod_compile
     def f(x, y): ...
     """
-    return staticmethod(compile(func))
+    return staticmethod(torch_compile(func))
 
 
+def _is_safe_cache_dir(path: str) -> bool:
+    """Return True only if *path* is a recognizable, non-root compile cache directory."""
+    if not path:
+        return False
+    resolved = Path(path).expanduser().resolve()
+    forbidden = {Path("/").resolve(), Path("/tmp").resolve(), Path.home().resolve()}
+    if resolved in forbidden:
+        return False
+    name_lower = resolved.name.lower()
+    parts_lower = [part.lower() for part in resolved.parts]
+    return (
+        "torchinductor" in name_lower
+        or "triton" in name_lower
+        or (any("triton" in part for part in parts_lower) and name_lower == "cache")
+    )
 
 
 def clear_torch_compile_cache(triton: bool = True, verbose: bool = False) -> None:
-    
-    if verbose:
-        print(f"[clear_torch_compile_cache] --------------------------- ")
-
     """Reset Dynamo/Inductor state and wipe on-disk compile caches."""
+    if verbose:
+        print("[clear_torch_compile_cache] --------------------------- ")
+
     import torch._dynamo as dynamo
     dynamo.reset()
 
@@ -130,9 +159,15 @@ def clear_torch_compile_cache(triton: bool = True, verbose: bool = False) -> Non
     except Exception as e:
         if verbose:
             print(f"[skip] inductor codecache.clear_cache(): {e}")
-    
 
-    paths = [f"/tmp/torchinductor_{os.environ.get('USER', '')}"]
+    try:
+        user = getpass.getuser()
+    except Exception:
+        user = os.environ.get("USER", "")
+
+    paths = []
+    if user:
+        paths.append(f"/tmp/torchinductor_{user}")
     if custom := os.environ.get("TORCHINDUCTOR_CACHE_DIR"):
         paths.append(custom)
     if triton:
@@ -141,12 +176,12 @@ def clear_torch_compile_cache(triton: bool = True, verbose: bool = False) -> Non
             paths.append(custom)
 
     for p in paths:
-        if p and os.path.isdir(p):
+        if p and os.path.isdir(p) and _is_safe_cache_dir(p):
             shutil.rmtree(p, ignore_errors=True)
             if verbose:
                 print(f"removed {p}")
 
     if verbose:
         print("torch.compile cache cleared.")
-        print(f"[clear_torch_compile_cache] --------------------------- ")
+        print("[clear_torch_compile_cache] --------------------------- ")
     

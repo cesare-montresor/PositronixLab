@@ -16,7 +16,7 @@ original paper defaults, alongside :data:`PAPER_CONFIGS`:
 
 from __future__ import annotations
 
-from typing import Dict, Literal, Optional, Unpack
+from typing import Dict, Literal, Optional, Sequence, Union, Unpack
 
 from positronixlab.dataprovider.addmul_dataprovider import (
     AddMulDataProvider as _BaseAddMulDataProvider,
@@ -31,11 +31,25 @@ from positronixlab.dataprovider.class_removal_dataprovider import (
 )
 from positronixlab.dataprovider.config import DataConfig
 from positronixlab.dataprovider.dataprovider import DataProviderOptions
-from positronixlab.dataprovider.math_dataprovider import MathDataProvider
+from positronixlab.dataprovider.math_dataprovider import (
+    CSORDAS_DM_MATH_PAPER_TASKS,
+    DEFAULT_DM_MATH_TASKS,
+    DM_MATH_DIFFICULTIES,
+    HF_DM_MATH_REPO,
+    MathDataProvider,
+    MathDataset,
+    MathSeq2SeqLoss,
+    MathVocab,
+    math_exact_accuracy,
+    math_token_accuracy,
+)
 from positronixlab.dataprovider.permuted_mnist_dataprovider import (
     PermutedMnistDataProvider,
 )
-from positronixlab.dataprovider.scan_dataprovider import SCANDataProvider
+from positronixlab.dataprovider.scan_dataprovider import (
+    SCANDataProvider,
+    SCANSplitType,
+)
 from positronixlab.dataprovider.tuple_arithmetic_dataprovider import (
     TupleArithmeticDataProvider as _BaseTupleArithmeticDataProvider,
     TupleArithmeticDataset as _BaseTupleArithmeticDataset,
@@ -131,20 +145,60 @@ def permuted_mnist(
 
 def scan(
     *,
+    split_type: SCANSplitType = "simple",
+    max_input_len: int = 16,
+    max_output_len: int = 64,
+    download: bool = True,
     batch_size: int = 128,
     **kwargs: Unpack[DataProviderOptions],
 ) -> SCANDataProvider:
-    """Csordas et al. SCAN compositional generalization dataset."""
-    return SCANDataProvider(batch_size=batch_size, **kwargs)
+    """Csordas et al. SCAN compositional generalization dataset (GitHub auto-download)."""
+    return SCANDataProvider(
+        split_type=split_type,
+        max_input_len=max_input_len,
+        max_output_len=max_output_len,
+        download=download,
+        batch_size=batch_size,
+        **kwargs,
+    )
 
 
 def deepmind_math(
     *,
+    tasks: Optional[Union[str, Sequence[str]]] = DEFAULT_DM_MATH_TASKS,
+    difficulties: Sequence[str] = DM_MATH_DIFFICULTIES,
+    eval_split: Literal["interpolate", "extrapolate"] = "interpolate",
+    include_extrapolate: bool = False,
+    test_size_per_difficulty: int = 10_000,
+    test_seed: int = 1234,
+    max_question_len: int = 160,
+    max_answer_len: int = 32,
+    max_samples_per_file: Optional[int] = None,
+    deduplicate: bool = True,
+    download: bool = True,
+    repo_id: str = HF_DM_MATH_REPO,
+    show_progress: bool = True,
     batch_size: int = 128,
     **kwargs: Unpack[DataProviderOptions],
 ) -> MathDataProvider:
-    """Csordas et al. DeepMind Mathematics dataset."""
-    return MathDataProvider(batch_size=batch_size, **kwargs)
+    """Csordas et al. DeepMind Mathematics compositional benchmark (HF auto-download)."""
+    return MathDataProvider(
+        tasks=tasks,
+        difficulties=difficulties,
+        eval_split=eval_split,
+        include_extrapolate=include_extrapolate,
+        test_size_per_difficulty=test_size_per_difficulty,
+        test_seed=test_seed,
+        max_question_len=max_question_len,
+        max_answer_len=max_answer_len,
+        max_samples_per_file=max_samples_per_file,
+        deduplicate=deduplicate,
+        download=download,
+        repo_id=repo_id,
+        show_progress=show_progress,
+        batch_size=batch_size,
+        **kwargs,
+    )
 
 
 PAPER_CONFIGS: Dict[str, DataConfig] = {
@@ -174,6 +228,12 @@ PAPER_CONFIGS: Dict[str, DataConfig] = {
             "target_mode": "digits",
         },
     ),
+    "cifar10_class_removal": DataConfig(
+        name="csordas_cifar10_class_removal",
+        dataset_name="csordas:class_removal",
+        batch_size=128,
+        dataset_kwargs={"base_dataset": "cifar10"},
+    ),
     "permuted_mnist": DataConfig(
         name="csordas_permuted_mnist",
         dataset_name="permuted_mnist",
@@ -190,6 +250,12 @@ PAPER_CONFIGS: Dict[str, DataConfig] = {
         name="csordas_deepmind_math",
         dataset_name="deepmind_math",
         batch_size=128,
+        dataset_kwargs={
+            "tasks": list(DEFAULT_DM_MATH_TASKS),
+            "difficulties": list(DM_MATH_DIFFICULTIES),
+            "eval_split": "interpolate",
+            "download": True,
+        },
     ),
 }
 
@@ -303,7 +369,12 @@ __all__ = [
     "AddMulDataProvider",
     "AddMulDataset",
     "AddMulLoss",
+    "CSORDAS_DM_MATH_PAPER_TASKS",
     "ClassRemovalDataProvider",
+    "MathDataProvider",
+    "MathDataset",
+    "MathSeq2SeqLoss",
+    "MathVocab",
     "PAPER_CONFIGS",
     "TupleArithmeticDataProvider",
     "TupleArithmeticDataset",
@@ -312,6 +383,8 @@ __all__ = [
     "addmul_exact_accuracy",
     "cifar10_class_removal",
     "deepmind_math",
+    "math_exact_accuracy",
+    "math_token_accuracy",
     "permuted_mnist",
     "scan",
     "tuple_arithmetic",

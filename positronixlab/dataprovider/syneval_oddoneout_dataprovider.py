@@ -6,17 +6,20 @@ Supports all 4 Lepori et al. SynEval syntactic families (5 subtasks per family):
 - ``pro_ant_singular`` (``base``, ``pro``, ``ant``, ``ablate_pro``, ``ablate_ant``)
 - ``pro_ant_plural`` (``base``, ``pro``, ``ant``, ``ablate_pro``, ``ablate_ant``)
 
-Loads pickled sentence quartets + HuggingFace ``AutoTokenizer`` when
-``<root>/<task_name>/{train,val,test}.pkl`` exists, otherwise generates
-deterministic synthetic ``(2, 4, max_length)`` ``[input_ids, attention_mask]``
-tensors for offline/CI runs.
+Data loading priority:
+1. Pre-generated pickled sentence quartets (``<root>/<task_name>/{train,val,test}.pkl``)
+2. Real split generation from Marvin & Linzen ``RawData.zip`` / ``RawData/``
+   (via ``raw_data_path``, ``<root>/RawData.zip``, or GitHub auto-download when
+   ``download=True``), tokenized with HuggingFace ``AutoTokenizer``
+3. Deterministic synthetic ``(2, 4, max_length)`` ``[input_ids, attention_mask]``
+   tensors for offline/CI runs when no files are present and ``download=False``
 """
 
 from __future__ import annotations
 
 import pickle
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple, Union, Unpack
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union, Unpack
 
 import torch
 from torch import nn
@@ -28,6 +31,7 @@ from positronixlab.dataprovider.dataprovider import (
     SubtaskSplit,
     TransformLike,
     apply_transform,
+    resolve_data_root,
 )
 
 SynEvalFamily = Literal["sv_singular", "sv_plural", "pro_ant_singular", "pro_ant_plural"]
@@ -77,6 +81,7 @@ class SynevalOddOneOutDataset(Dataset):
         vocab_size: int = 1000,
         root: Optional[Union[str, Path]] = None,
         tokenizer_name: str = "prajjwal1/bert-small",
+        tokenizer: Optional[Callable[..., Dict[str, Any]]] = None,
         seed: int = 0,
         transforms: Optional[TransformLike] = None,
     ) -> None:
@@ -86,11 +91,14 @@ class SynevalOddOneOutDataset(Dataset):
         pkl_path = Path(root) / task_name / f"{split}.pkl" if root is not None else None
 
         if pkl_path is not None and pkl_path.exists():
-            from transformers import AutoTokenizer
-
             with open(pkl_path, "rb") as f:
                 problems: List[List[str]] = pickle.load(f)[:n_samples]
-            tok = AutoTokenizer.from_pretrained(tokenizer_name)
+            if tokenizer is not None:
+                tok = tokenizer
+            else:
+                from transformers import AutoTokenizer
+
+                tok = AutoTokenizer.from_pretrained(tokenizer_name)
             flat_sents = [s for prob in problems for s in prob]
             enc = tok(
                 flat_sents,
@@ -147,7 +155,10 @@ class SynevalOddOneOutDataProvider(
         vocab_size: int = 1000,
         batch_size: int = 16,
         root: Optional[Union[str, Path]] = None,
+        raw_data_path: Optional[Union[str, Path]] = None,
+        download: bool = False,
         tokenizer_name: str = "prajjwal1/bert-small",
+        tokenizer: Optional[Callable[..., Dict[str, Any]]] = None,
         seed: int = 0,
         **kwargs: Unpack[DataProviderOptions],
     ) -> None:
@@ -166,6 +177,7 @@ class SynevalOddOneOutDataProvider(
         self.max_length = max_length
         self.vocab_size = vocab_size
         self.tokenizer_name = tokenizer_name
+        self.download = download
         self.num_features = None
         self.num_classes = 4
         self.x_shape = (2, 4, max_length)
@@ -173,6 +185,32 @@ class SynevalOddOneOutDataProvider(
         self.criterion = nn.CrossEntropyLoss()
 
         spec = SYNEVAL_FAMILIES[family]
+
+        # Resolve / generate real SynEval .pkl splits when raw data or download is requested
+        resolved_root: Optional[Path] = Path(root) if root is not None else None
+        if resolved_root is not None or raw_data_path is not None or download:
+            from positronixlab.baselines.lepori._syneval_gen import (
+                ensure_syneval_family_splits,
+                is_syneval_family_cached,
+            )
+
+            if resolved_root is not None and is_syneval_family_cached(family, resolved_root):
+                cache_dir = resolved_root
+            elif resolved_root is not None:
+                cache_dir = resolved_root
+            else:
+                cache_dir = resolve_data_root(None) / "syneval"
+
+            ensured = ensure_syneval_family_splits(
+                family=family,
+                cache_dir=cache_dir,
+                raw_data_path=raw_data_path,
+                download=download,
+                seed=seed,
+            )
+            if ensured is not None:
+                resolved_root = ensured
+
         split_kw = dict(
             batch_size=self.batch_size,
             num_workers=self.num_workers,
@@ -195,8 +233,9 @@ class SynevalOddOneOutDataProvider(
                         n_train,
                         max_length,
                         vocab_size,
-                        root,
+                        resolved_root,
                         tokenizer_name=tokenizer_name,
+                        tokenizer=tokenizer,
                         seed=seed + offset * 100,
                         transforms=self.transforms,
                     )
@@ -207,8 +246,9 @@ class SynevalOddOneOutDataProvider(
                     n_val,
                     max_length,
                     vocab_size,
-                    root,
+                    resolved_root,
                     tokenizer_name=tokenizer_name,
+                    tokenizer=tokenizer,
                     seed=seed + offset * 100 + 10,
                     transforms=self.transforms,
                 ),
@@ -218,8 +258,9 @@ class SynevalOddOneOutDataProvider(
                     n_test,
                     max_length,
                     vocab_size,
-                    root,
+                    resolved_root,
                     tokenizer_name=tokenizer_name,
+                    tokenizer=tokenizer,
                     seed=seed + offset * 100 + 20,
                     transforms=self.transforms,
                 ),

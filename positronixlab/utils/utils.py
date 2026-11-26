@@ -1,10 +1,13 @@
 
 import contextlib
+import dataclasses
 import logging
+from pathlib import Path
 import pickle
+import sys
 import threading
 import time
-from typing import Any
+from typing import Any, Optional, Union
 import warnings
 import numpy as np
 import re
@@ -18,6 +21,11 @@ import hashlib
 debug = False
 
 last_session_path = None
+_session_paths: dict[tuple[str, str, Optional[str]], str] = {}
+
+_SUPPRESS_LOCK = threading.RLock()
+_SUPPRESS_STATE: dict[int, tuple[int, int, int]] = {}  # fd -> (depth, saved_fd, devnull_fd)
+_UNSET = object()
 
 
 logger = logging.getLogger(__name__)
@@ -31,26 +39,71 @@ def process_start_spawn(force=False):
 
 @contextlib.contextmanager
 def suppress_output(stderr: bool = True):
-    stderr_fd = 2 if stderr else 1  # C-level stderr
-    old_stderr = os.dup(stderr_fd)
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    os.dup2(devnull, stderr_fd)
+    """Thread-safe, re-entrant C-level file descriptor suppressor.
+
+    Args:
+        stderr: If True, suppresses fd 2 (stderr); if False, suppresses fd 1 (stdout).
+    """
+    fd = 2 if stderr else 1
+    stream = sys.stderr if fd == 2 else sys.stdout
+    with _SUPPRESS_LOCK:
+        depth, saved_fd, devnull_fd = _SUPPRESS_STATE.get(fd, (0, -1, -1))
+        if depth == 0:
+            stream.flush()
+            saved_fd = os.dup(fd)
+            devnull_fd = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull_fd, fd)
+        _SUPPRESS_STATE[fd] = (depth + 1, saved_fd, devnull_fd)
     try:
         yield
     finally:
-        os.dup2(old_stderr, stderr_fd)
-        os.close(devnull)
-        os.close(old_stderr)
+        with _SUPPRESS_LOCK:
+            depth, saved_fd, devnull_fd = _SUPPRESS_STATE[fd]
+            if depth == 1:
+                stream.flush()
+                os.dup2(saved_fd, fd)
+                os.close(devnull_fd)
+                os.close(saved_fd)
+                del _SUPPRESS_STATE[fd]
+            else:
+                _SUPPRESS_STATE[fd] = (depth - 1, saved_fd, devnull_fd)
 
-def session_path(name, uid=None, createDirectory = True, force=False):   
-    global last_session_path 
-    if last_session_path is not None and not force: return last_session_path
-    
-    basedir = 'output/'
-    uid = str(uid) if uid is not None else str(time.time()).replace('.','_')
-    path = basedir + name + "_" + uid + "/"
+def session_path(
+    name: str,
+    uid: Optional[Any] = None,
+    createDirectory: bool = True,
+    force: bool = False,
+    basedir: Optional[Union[str, os.PathLike[str]]] = None,
+) -> str:
+    """Return (and optionally create) a session output directory cached per ``(basedir, name, uid)``.
+
+    Args:
+        name: Logical session/experiment name (sanitized to remove path separators).
+        uid: Optional explicit unique ID; defaults to a timestamp when omitted.
+        createDirectory: Create the directory on disk if it does not exist.
+        force: Bypass the cache and generate a new session path.
+        basedir: Base output directory (defaults to ``$POSITRONIXLAB_OUTPUT_DIR`` or ``output``).
+    """
+    global last_session_path
+    base = str(basedir) if basedir is not None else os.environ.get("POSITRONIXLAB_OUTPUT_DIR", "output")
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(name).strip()).strip("._") or "session"
+    uid_key = str(uid) if uid is not None else None
+    cache_key = (base, safe_name, uid_key)
+
+    if not force and cache_key in _session_paths:
+        path = _session_paths[cache_key]
+        if createDirectory:
+            os.makedirs(path, exist_ok=True)
+        last_session_path = path
+        return path
+
+    resolved_uid = uid_key if uid_key is not None else str(time.time()).replace(".", "_")
+    dir_path = Path(base) / f"{safe_name}_{resolved_uid}"
+    path = f"{dir_path.as_posix()}/"
+    _session_paths[cache_key] = path
     last_session_path = path
-    if createDirectory: os.makedirs(path, exist_ok=True)
+    if createDirectory:
+        os.makedirs(path, exist_ok=True)
     return path
 
 def camel_to_kebab(text):
@@ -176,11 +229,26 @@ def set_best(bests, key, val, min=True):
     # 3. No improvement
     return -1, bests[key]
 
-def signature_settings(data:dict, algo: str = "md5") -> str:
-    content  = json.dumps(data, sort_keys=True)
-    content = content.encode()
-    sign = hashlib.new(algo, content).hexdigest()
-    #print(f"Settings signature: {sign}\n\n---\n\n{data}\n\n---\n\n")
+def _json_default(obj: Any) -> Any:
+    """Deterministic JSON encoder for common ML/Python types (Path, numpy, torch, dataclasses)."""
+    if isinstance(obj, Path):
+        return str(obj)
+    if isinstance(obj, np.generic):
+        return obj.item()
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, (torch.dtype, torch.device)):
+        return str(obj)
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return dataclasses.asdict(obj)
+    if isinstance(obj, (set, frozenset)):
+        return sorted(obj, key=str)
+    raise TypeError(f"Object of type {type(obj).__name__} is not deterministically JSON-serializable")
+
+
+def signature_settings(data: dict, algo: str = "md5") -> str:
+    content = json.dumps(data, sort_keys=True, default=_json_default).encode("utf-8")
+    sign = hashlib.new(algo, content, usedforsecurity=False).hexdigest()
     return sign
 
 
@@ -214,17 +282,35 @@ def save_data(path: str, data: Any, **kwargs: Any) -> bool:
     return True
 
 
-def load_data(path: str, **kwargs: Any) -> Any:
+def load_data(path: str, *, default: Any = _UNSET, **kwargs: Any) -> Any:
     """Load data from *path*, dispatching by file extension.
 
     Supported extensions (case-insensitive): ``.json``, ``.yaml``/``.yml``,
     ``.pkl``/``.pickle``, ``.pt``/``.pth``. Extra ``**kwargs`` are forwarded to
     the underlying loader (e.g., ``map_location`` and ``weights_only`` for
     ``torch.load``, which defaults to ``weights_only=True``).
+
+    Args:
+        path: File path to load.
+        default: Optional fallback value returned if *path* does not exist.
+            When omitted, a missing file raises :class:`FileNotFoundError`.
+        **kwargs: Loader-specific keyword arguments.
+
+    Raises:
+        FileNotFoundError: If *path* does not exist and *default* was not provided.
+        ValueError: If the file extension is unsupported.
+        TypeError: If unexpected keyword arguments are passed for YAML ``safe_load``.
+
+    Warning:
+        Loading ``.pkl``/``.pickle`` files or ``.pt``/``.pth`` files with
+        ``weights_only=False`` executes arbitrary pickled code. Only load files
+        from trusted sources.
     """
     path = os.path.abspath(str(path))
     if not os.path.exists(path):
-        return None
+        if default is not _UNSET:
+            return default
+        raise FileNotFoundError(f"Data file not found: {path}")
     ext = os.path.splitext(path)[1].strip().lower()
 
     if ext == '.json':
@@ -234,6 +320,11 @@ def load_data(path: str, **kwargs: Any) -> Any:
         with open(path, 'r') as f:
             if 'Loader' in kwargs:
                 return yaml.load(f, **kwargs)
+            if kwargs:
+                raise TypeError(
+                    f"Unexpected keyword arguments for yaml.safe_load: {sorted(kwargs)}. "
+                    "Pass an explicit Loader=... to use yaml.load()."
+                )
             return yaml.safe_load(f)
     elif ext in ('.pkl', '.pickle'):
         with open(path, 'rb') as f:
@@ -242,8 +333,7 @@ def load_data(path: str, **kwargs: Any) -> Any:
         kwargs.setdefault('weights_only', True)
         return torch.load(path, **kwargs)
     else:
-        logger.error(f"Unsupported extension: {ext}")
-    return None
+        raise ValueError(f"Unsupported extension: {ext!r}")
 
 def safe_tensor(val: Any) -> torch.Tensor:
     if isinstance(val, torch.Tensor):

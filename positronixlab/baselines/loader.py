@@ -21,6 +21,9 @@ from positronixlab.baselines.base import (
 from positronixlab.baselines.csordas.datasets import (
     AddMulDataProvider,
     ClassRemovalDataProvider,
+    MathDataProvider,
+    PermutedMnistDataProvider,
+    SCANDataProvider,
     TupleArithmeticDataProvider,
 )
 from positronixlab.baselines.csordas.models import (
@@ -33,10 +36,12 @@ from positronixlab.baselines.csordas.models import (
 )
 from positronixlab.baselines.lepori.datasets import (
     CVROddOneOutSOTAProvider,
+    CVRSimCLRDataProvider,
     SynEvalOddOneOutSOTAProvider,
 )
 from positronixlab.baselines.lepori.models import (
     CVRResNetModel,
+    CVRSimCLRModel,
     CVRViTModel,
     SynEvalBertModel,
     strip_lepori_l0_keys,
@@ -367,6 +372,20 @@ ModelLoader.register(
     description="Lepori et al. CVR Odd-One-Out WideResNet-50 (InstanceNorm2d)",
 )
 ModelLoader.register(
+    arch="lepori:cvr_simclr_resnet18",
+    source="lepori",
+    task_type="contrastive",
+    builder=lambda **kw: CVRSimCLRModel(backbone_name="resnet18", **kw),
+    description="Lepori et al. CVR SimCLR Pretraining ResNet-18 (InstanceNorm2d + NT-Xent)",
+)
+ModelLoader.register(
+    arch="lepori:cvr_simclr_resnet50",
+    source="lepori",
+    task_type="contrastive",
+    builder=lambda **kw: CVRSimCLRModel(backbone_name="resnet50", **kw),
+    description="Lepori et al. CVR SimCLR Pretraining ResNet-50 (InstanceNorm2d + NT-Xent)",
+)
+ModelLoader.register(
     arch="lepori:cvr_vit",
     source="lepori",
     task_type="odd_one_out",
@@ -408,6 +427,27 @@ DataProviderLoader.register(
     builder=ClassRemovalDataProvider,
     description="Csordas et al. Leave-One-Class-Out wrapper",
 )
+DataProviderLoader.register(
+    name="csordas:deepmind_math",
+    source="csordas",
+    task_type="seq2seq",
+    builder=MathDataProvider,
+    description="Csordas et al. DeepMind Mathematics v1.0 (HF auto-download + per-difficulty/module subtasks)",
+)
+DataProviderLoader.register(
+    name="csordas:scan",
+    source="csordas",
+    task_type="seq2seq",
+    builder=SCANDataProvider,
+    description="Csordas et al. SCAN compositional sequence-to-sequence benchmark (GitHub auto-download)",
+)
+DataProviderLoader.register(
+    name="csordas:permuted_mnist",
+    source="csordas",
+    task_type="classification",
+    builder=PermutedMnistDataProvider,
+    description="Csordas et al. Permuted MNIST transfer/reuse benchmark (permutations 0..10)",
+)
 
 for _fam in ("inside_contact", "inside_count", "contact_count"):
     DataProviderLoader.register(
@@ -417,6 +457,14 @@ for _fam in ("inside_contact", "inside_count", "contact_count"):
         builder=lambda _f=_fam, **kw: CVROddOneOutSOTAProvider(family=_f, **kw),
         description=f"Lepori et al. CVR Odd-One-Out compositional family ({_fam})",
     )
+
+DataProviderLoader.register(
+    name="lepori:cvr_simclr",
+    source="lepori",
+    task_type="contrastive",
+    builder=CVRSimCLRDataProvider,
+    description="Lepori et al. CVR SimCLR self-supervised contrastive pretraining (base tasks 103, 109, 115)",
+)
 
 for _fam in ("sv_singular", "sv_plural", "pro_ant_singular", "pro_ant_plural"):
     DataProviderLoader.register(

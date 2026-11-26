@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import (
@@ -59,16 +58,8 @@ class DataProviderOptions(TypedDict, total=False):
 
 
 def resolve_data_root(root: Optional[Union[str, Path]] = None) -> Path:
-    """Resolve dataset storage root directory.
-
-    Precedence:
-    1. Explicit *root* argument (if not ``None``)
-    2. ``POSITRONIXLAB_DATA_DIR`` environment variable
-    3. ``./data``
-    """
-    if root is not None:
-        return Path(root)
-    return Path(os.environ.get("POSITRONIXLAB_DATA_DIR", "./data"))
+    """Resolve dataset storage root directory (explicit *root* or default ``./data``)."""
+    return Path(root) if root is not None else Path("./data")
 
 
 def apply_transform(transforms: Optional[TransformLike], x: Any) -> Any:
