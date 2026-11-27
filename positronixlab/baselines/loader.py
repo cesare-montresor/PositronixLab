@@ -338,7 +338,9 @@ class DataProviderLoader:
         **kwargs: Any,
     ) -> DataProvider:
         if name == "csordas:class_removal" and base_dataset_name:
-            from positronixlab.dataprovider.dataprovider_factory import DataProviderFactory
+            from positronixlab.dataprovider.dataprovider_factory import (
+                DataProviderFactory,
+            )
 
             base_kw = dict(base_dataset_kwargs or {})
             if "batch_size" in kwargs:

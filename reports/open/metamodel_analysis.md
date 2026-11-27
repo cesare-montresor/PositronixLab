@@ -1,7 +1,8 @@
 # `positronixlab/metamodel` — Open Issues Analysis
 
-> **Status (2026-11-27 — `v0.1.3` / `5740a0c` + working tree):** **28 passed, 11 xfailed, 0 failed** (`tests/metamodel/`).
-> **Note:** `__init__.py` now uses PEP 562 lazy exports (partial B2) and `MetaTransform` supports `__call__`; all 15 bugs below (**B1–B15**, except `__init__.py` part of B2) remain open, plus v0.1.3 **E2** (`torchsummary` top-level import at `metamodel.py:11`) and **F** hygiene (`F841` at `metamodel.py:199, 297, 301`, `A001` `input` at `:213`, `E701`, `RUF013`, 2 `print()` calls).
+> **Status (2026-11-27 — `b414936`):** **29 passed, 10 xfailed, 0 failed** (`tests/metamodel/`).
+> **Solved issues archive:** Resolved B5 (`ConvTranspose2d` autoencoder), partial B2 (lazy `__init__.py`), and `MetaTransform` cleanups moved to [solved/metamodel_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/metamodel_solved.md).
+> **Note:** Remaining bugs **B1–B4, B6–B15** remain open, plus v0.1.3 **E2** (`torchsummary` top-level import at `metamodel.py:11`).
 
 ---
 
@@ -51,11 +52,6 @@
   1. Line 266 sets local `model_type = 'fc'` to create `nn.Linear`, but line 276 calls `self.block_batch_norm(self.config.model_type, output_dim)` using `self.config.model_type` (`'cnn'`), attaching `nn.BatchNorm2d` directly after `nn.Linear`.
   2. No `nn.Flatten()` (or adaptive pooling) exists between 4D CNN `nn_input` outputs `(N, C, H, W)` and 2D FC `nn_output` inputs, and `input_dim` is set to `out_channels` rather than flattened features.
 - **Impact:** `forward()` always crashes for `model_type="cnn"` with `task` in `{"classification", "regression"}`.
-
-### B5. Multi-layer CNN autoencoders crash during `__init__` (High)
-- **Location:** [`metamodel.py:302`](file:///home/cesare/Projects/PositronixLab/positronixlab/metamodel/metamodel.py#L302), [`metamodel.py:390-403`](file:///home/cesare/Projects/PositronixLab/positronixlab/metamodel/metamodel.py#L390-L403)
-- **Root Cause:** `build_model_output_block_autoencoder()` calls an unused `last_size = self.last_layer_size()` on every decoder block. After decoder block 0 creates an `nn.ConvTranspose2d`, block 1 calls `layer_size(nn.ConvTranspose2d)`, which only handles `nn.Linear` and `nn.Conv{1,2,3}d` and raises `ValueError: Unsupported layer type: <class 'torch.nn.modules.conv.ConvTranspose2d'>`.
-- **Impact:** Any CNN autoencoder with `input_num_layers >= 2` cannot even be instantiated.
 
 ### B6. Final output block applies activation, BatchNorm, and dropout to predictions/logits (High)
 - **Location:** [`metamodel.py:274-283`](file:///home/cesare/Projects/PositronixLab/positronixlab/metamodel/metamodel.py#L274-L283), [`metamodel.py:325-333`](file:///home/cesare/Projects/PositronixLab/positronixlab/metamodel/metamodel.py#L325-L333)

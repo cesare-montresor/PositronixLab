@@ -46,7 +46,7 @@ def infer_layer_info(name: str, module: nn.Module) -> dict[str, Any]:
         out_units = int(module.out_channels)
         layer_type = "conv"
     elif type(module).__name__ == "Conv1D" and getattr(module, "nf", None) is not None:
-        out_units = int(getattr(module, "nf"))
+        out_units = int(module.nf)
         layer_type = "linear"
     else:
         w = getattr(module, "weight", None)

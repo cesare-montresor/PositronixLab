@@ -19,8 +19,13 @@ def materialize_dataset_tensors(dataset: Dataset) -> tuple[torch.Tensor, torch.T
     Returns ``None`` if the dataset requires generic iteration (e.g., transforms
     must be applied per sample or the dataset type is unknown).
     """
-    from positronixlab.dataprovider.addmul_dataprovider import AddMulDataset, _split_digits
-    from positronixlab.dataprovider.tuple_arithmetic_dataprovider import TupleArithmeticDataset
+    from positronixlab.dataprovider.addmul_dataprovider import (
+        AddMulDataset,
+        _split_digits,
+    )
+    from positronixlab.dataprovider.tuple_arithmetic_dataprovider import (
+        TupleArithmeticDataset,
+    )
 
     # 1. Vectorized AddMulDataset
     if isinstance(dataset, AddMulDataset):

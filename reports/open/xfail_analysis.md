@@ -1,12 +1,9 @@
 # Open `xfail` Bugs Analysis
 
 > **Scope:** All remaining `@pytest.mark.xfail(strict=True)` regression tests under `tests/`.
-> **Totals:** **91** open `xfail` markers (**92** test cases) across **13** modules (15 test files).
-> **Cleaned up:** 4 previously stale `XPASS(strict)` markers were removed (`modularcluster` B5; `modularobserver` `ModelMapper.map` device handling, `clear()` pre-forward hook cleanup, and `on_forward_layer` re-registration handle leak). `dataprovider` and `baselines` currently have 0 open `xfail` markers.
-> **Important verification note (2026-11-26):** Running `--runxfail` shows that **4 of the P0 `xfail`s below are actually ALREADY FIXED in library code** and only continue to xfail due to test-code issues:
-> - `modularcluster` B2 (`test_b2_predict_*`, `test_b2_stream_fit_*`): `_distance()` already guards `if x is y: dist.fill_diagonal_(0.0)`; tests fail because K=3 FAISS splits cluster 0 into two labels `[1, 2]` (no diagonal corruption).
-> - `modularcluster` B3 (`test_b3_tracker_reorders_centroids_on_relabel`): `_relabel_to_match_previous()` already returns `(reordered_centroids, remapped_labels)`; test fails with `AttributeError: 'bool'` because it does not unpack the tuple (and return type annotation still says `-> torch.Tensor`).
-> - `modularobserver` (`test_modular_observer_on_grad_weights_closure_bug`): `modularobserver.py:145` already binds `m=module_ref, p=param`; test fails with `TypeError: expected Variable, but hook returned 'tuple'` from the test callback.
+> **Totals (2026-11-27 — `b414936`):** **85** open `xfail` markers (**86** test cases) across **12** modules (14 test files).
+> **Recently cleared (0 open `xfail`s in `dataprovider`, `baselines`, and `pipeline`):** Removed 3 `pipeline` xfails (B2 ×2, B7 fixed in `b414936`), 1 `metamodel` xfail (B5 fixed in `2ea821e`), 1 `modularcluster` B3 xfail, and 1 `modularobserver` closure xfail, plus 4 earlier XPASSes.
+> **Remaining test-only xfails (library already fixed):** `modularcluster` B2 ×2 (`test_b2_predict_*`, `test_b2_stream_fit_*`) — `_distance()` already guards `if x is y: dist.fill_diagonal_(0.0)`; tests fail because K=3 FAISS splits cluster 0 into `[1, 2]` (no diagonal corruption).
 
 ---
 
@@ -14,20 +11,19 @@
 
 | Module | Open `xfail`s | Test File(s) | Detailed Module Audit |
 | :--- | :---: | :--- | :--- |
-| **`stats`** | 14 | [test_stats.py](file:///home/cesare/Projects/PositronixLab/tests/stats/test_stats.py) | [stats_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/stats_analysis.md) |
-| **`metamodel`** | 11 | [test_metamodel.py](file:///home/cesare/Projects/PositronixLab/tests/metamodel/test_metamodel.py) | [metamodel_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/metamodel_analysis.md) |
-| **`spacemath`** | 9 | [test_spacemath_extended.py](file:///home/cesare/Projects/PositronixLab/tests/spacemath/test_spacemath_extended.py) | [spacemath_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/spacemath_analysis.md) |
-| **`tasks`** | 9 | [test_tasks_compositionality.py](file:///home/cesare/Projects/PositronixLab/tests/tasks/test_tasks_compositionality.py) | [tasks_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/tasks_analysis.md) |
-| **`modularui`** | 8 | [test_modularui.py](file:///home/cesare/Projects/PositronixLab/tests/modularui/test_modularui.py) | [modularui_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/modularui_analysis.md) |
-| **`deeplearning`** | 6 | [test_deeplearning.py](file:///home/cesare/Projects/PositronixLab/tests/deeplearning/test_deeplearning.py) | [deeplearning_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/deeplearning_analysis.md) |
-| **`modularobserver`** | 6 | [test_modularobserver.py](file:///home/cesare/Projects/PositronixLab/tests/modularobserver/test_modularobserver.py) | [modularobserver_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/modularobserver_analysis.md) |
-| **`template`** | 6 | [test_template.py](file:///home/cesare/Projects/PositronixLab/tests/template/test_template.py) | [template_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/template_analysis.md) |
-| **`utils`** | 6 | [test_utils.py](file:///home/cesare/Projects/PositronixLab/tests/utils/test_utils.py) | [utils_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/utils_analysis.md) |
-| **`nas`** | 5 | [test_nas.py](file:///home/cesare/Projects/PositronixLab/tests/nas/test_nas.py) | [nas_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/nas_analysis.md) |
-| **`modularcluster`** | 4 | [test_streaming_kmeans.py](file:///home/cesare/Projects/PositronixLab/tests/modularcluster/test_streaming_kmeans.py) | [modularcluster_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/modularcluster_analysis.md) |
-| **`modularspace`** | 4 | [test_clustertracker.py](file:///home/cesare/Projects/PositronixLab/tests/modularspace/test_clustertracker.py), [test_modularspace.py](file:///home/cesare/Projects/PositronixLab/tests/modularspace/test_modularspace.py), [test_space_step.py](file:///home/cesare/Projects/PositronixLab/tests/modularspace/test_space_step.py) | [modularspace_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/modularspace_analysis.md) |
-| **`pipeline`** | 3 | [test_pipeline_config.py](file:///home/cesare/Projects/PositronixLab/tests/pipeline/test_pipeline_config.py) | [pipeline_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/pipeline_analysis.md) |
-| **Total** | **91** | **15 test files** | |
+| **`stats`** | 14 | [test_stats.py](file:///home/cesare/Projects/PositronixLab/tests/stats/test_stats.py) | [stats_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/stats_analysis.md) |
+| **`metamodel`** | 10 | [test_metamodel.py](file:///home/cesare/Projects/PositronixLab/tests/metamodel/test_metamodel.py) | [metamodel_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/metamodel_analysis.md) |
+| **`spacemath`** | 9 | [test_spacemath_extended.py](file:///home/cesare/Projects/PositronixLab/tests/spacemath/test_spacemath_extended.py) | [spacemath_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/spacemath_analysis.md) |
+| **`tasks`** | 9 | [test_tasks_compositionality.py](file:///home/cesare/Projects/PositronixLab/tests/tasks/test_tasks_compositionality.py) | [tasks_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/tasks_analysis.md) |
+| **`modularui`** | 8 | [test_modularui.py](file:///home/cesare/Projects/PositronixLab/tests/modularui/test_modularui.py) | [modularui_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularui_analysis.md) |
+| **`deeplearning`** | 6 | [test_deeplearning.py](file:///home/cesare/Projects/PositronixLab/tests/deeplearning/test_deeplearning.py) | [deeplearning_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/deeplearning_analysis.md) |
+| **`template`** | 6 | [test_template.py](file:///home/cesare/Projects/PositronixLab/tests/template/test_template.py) | [template_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/template_analysis.md) |
+| **`utils`** | 6 | [test_utils.py](file:///home/cesare/Projects/PositronixLab/tests/utils/test_utils.py) | [utils_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/utils_analysis.md) |
+| **`modularobserver`** | 5 | [test_modularobserver.py](file:///home/cesare/Projects/PositronixLab/tests/modularobserver/test_modularobserver.py) | [modularobserver_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularobserver_analysis.md) |
+| **`nas`** | 5 | [test_nas.py](file:///home/cesare/Projects/PositronixLab/tests/nas/test_nas.py) | [nas_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/nas_analysis.md) |
+| **`modularspace`** | 4 | [test_clustertracker.py](file:///home/cesare/Projects/PositronixLab/tests/modularspace/test_clustertracker.py), [test_modularspace.py](file:///home/cesare/Projects/PositronixLab/tests/modularspace/test_modularspace.py), [test_space_step.py](file:///home/cesare/Projects/PositronixLab/tests/modularspace/test_space_step.py) | [modularspace_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularspace_analysis.md) |
+| **`modularcluster`** | 3 | [test_streaming_kmeans.py](file:///home/cesare/Projects/PositronixLab/tests/modularcluster/test_streaming_kmeans.py) | [modularcluster_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularcluster_analysis.md) |
+| **Total** | **85** | **14 test files** | |
 
 ---
 

@@ -22,9 +22,10 @@ Since the initial `layerspace`-branch audit, `positronixlab` has undergone a **m
 
 ### Current Full-Suite Verification Results
 
-**Pytest:** **431 passed, 90 xfailed, 2 failed** across 523 collected tests *(ZERO real test failures — the only 2 failures are sandbox-only `../parallelazy` stub errors in `tests/nas/test_nas.py` when sibling `../parallelazy` is outside workspace; see [xfail_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/xfail_analysis.md) for the remaining 89 `xfail` markers / 90 test cases)*.
+**Pytest (`HEAD b414936` + metamodel B5 xfail removed):** **447 passed, 86 xfailed, 2 failed** across 535+ collected tests *(ZERO real test failures — the only 2 failures are sandbox-only `../parallelazy` stub errors in `tests/nas/test_nas.py`; see [xfail_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/xfail_analysis.md) for the remaining 85 `xfail` markers / 86 test cases)*.
 
-**Ruff critical checks (`F601, F821, S110, B009, E712`):** **0 hits** (all checks passed!).
+**Ruff (`ruff check positronixlab tests`):** **0 hits** (all checks passed).
+**Typing (`mypy` / `pyright`):** **0 mypy errors**, **0 pyright errors** (see [`reports/typing/typing_summary.md`](file:///home/cesare/Projects/PositronixLab/reports/typing/typing_summary.md)).
 
 **Head-to-head CPU benchmark (`examples/tasks/example_atlas_vs_sota.py`):** Passes (exit 0). With working-tree differential selectivity (`attribution_mode="selectivity"`), Atlas achieves `IoU(add, mul) = 0.133` at `43.3%` sparsity (vs. NeuroSurgeon `0.475` at `53.3%`, Csordás `1.000` at `0.0%`).
 

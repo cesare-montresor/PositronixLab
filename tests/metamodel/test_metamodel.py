@@ -362,10 +362,6 @@ class TestMetaModel:
         y_hat = model(torch.randn(2, 3, 8, 8))
         assert y_hat.shape == (2, 4)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in metamodel.py:302,390-403: CNN autoencoder with >=2 layers calls layer_size() on ConvTranspose2d and crashes",
-    )
     def test_cnn_autoencoder_multilayer_builds(self):
         cfg = MetaModelConfig(
             task="autoencoder",

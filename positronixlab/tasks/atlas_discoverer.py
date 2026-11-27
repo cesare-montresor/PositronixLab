@@ -19,6 +19,8 @@ from positronixlab.baselines.base import get_maskable_layer_names
 from positronixlab.modularcluster.modularcluster_kmeans import ModularClusterKmeans
 from positronixlab.modularobserver.activation_cache import (
     infer_layer_info,
+)
+from positronixlab.modularobserver.activation_cache import (
     reduce_activation_2d as _reduce_activation_to_2d,
 )
 from positronixlab.modularspace.config import LayerSpaceConfig
