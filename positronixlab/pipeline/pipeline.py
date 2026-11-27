@@ -95,7 +95,7 @@ class Pipeline(ABC):
         for plugin_id, status in statuses.items():
             errs: List[str] = []
             raw_errs = getattr(status.worker_status, "errors", None) if status.worker_status else None
-            if isinstance(raw_errs, (list, tuple)):
+            if isinstance(raw_errs, (list, tuple)) and raw_errs:
                 errs = [str(e) for e in raw_errs]
             elif status.process_alive:
                 try:
@@ -103,7 +103,7 @@ class Pipeline(ABC):
                     if fetched:
                         errs = [str(e) for e in fetched]
                 except Exception:
-                    pass
+                    logger.debug("Failed to fetch plugin_errors for %s", plugin_id, exc_info=True)
             if not errs and isinstance(raw_errs, int) and raw_errs > 0:
                 errs = [f"Worker reported {raw_errs} error(s)"]
             if errs:
@@ -184,7 +184,7 @@ class Pipeline(ABC):
             try:
                 self.plugin_manager.stop_all_plugins()
             except Exception:
-                pass
+                logger.debug("Error stopping plugins during shutdown", exc_info=True)
             self.close()
 
     def close(self) -> None:

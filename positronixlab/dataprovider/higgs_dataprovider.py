@@ -403,7 +403,8 @@ class HIGGSDataset(Dataset):
             warnings.warn(
                 f"HIGGSDataset[{self.split_name}]: computed epoch_size={n} "
                 f"(split_size={self.split_size}); flooring to 1 to avoid an "
-                f"empty dataset."
+                f"empty dataset.",
+                stacklevel=2,
             )
             n = 1
         return n

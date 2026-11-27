@@ -156,7 +156,8 @@ class NeuroSurgeonWrappedModel(nn.Module):
         val = self.circuit_model._compute_l0_loss()
         if isinstance(val, torch.Tensor):
             return val
-        device = next(self.parameters()).device
+        first_param = next(self.parameters(), None)
+        device = first_param.device if first_param is not None else torch.device("cpu")
         return torch.tensor(float(val), device=device)
 
     def l0_statistics(self) -> Dict[str, Any]:

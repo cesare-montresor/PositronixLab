@@ -1,4 +1,9 @@
-# `positronixlab.modularspace` — Module Analysis
+# `positronixlab/modularspace` — Open Issues Analysis
+
+> **Status (2026-11-27 — `v0.1.3` / `5740a0c` + working tree):** **40 passed, 4 xfailed, 0 failed** (`tests/modularspace/`).
+> **Note:** Stale `layerspace_old.py` and `custertracking.example.py` were removed; all 9 bugs below (**B1–B9**) remain open, plus v0.1.3 **B5** (`custertracker.py:147, 156, 161, 165, 223` — precision-only overlap, merge weighting by `old.sizes`, unbounded `self.history`, `assert old is not None`) and minor hygiene (`zip` without `strict=`, one-line `if`).
+
+---
 
 ## 1. Overview & Refactor Status
 

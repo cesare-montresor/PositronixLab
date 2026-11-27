@@ -51,22 +51,33 @@ def suppress_output(stderr: bool = True):
         if depth == 0:
             stream.flush()
             saved_fd = os.dup(fd)
-            devnull_fd = os.open(os.devnull, os.O_WRONLY)
-            os.dup2(devnull_fd, fd)
+            try:
+                devnull_fd = os.open(os.devnull, os.O_WRONLY)
+            except BaseException:
+                os.close(saved_fd)
+                raise
+            try:
+                os.dup2(devnull_fd, fd)
+            except BaseException:
+                os.close(devnull_fd)
+                os.close(saved_fd)
+                raise
         _SUPPRESS_STATE[fd] = (depth + 1, saved_fd, devnull_fd)
     try:
         yield
     finally:
         with _SUPPRESS_LOCK:
-            depth, saved_fd, devnull_fd = _SUPPRESS_STATE[fd]
-            if depth == 1:
-                stream.flush()
-                os.dup2(saved_fd, fd)
-                os.close(devnull_fd)
-                os.close(saved_fd)
-                del _SUPPRESS_STATE[fd]
-            else:
-                _SUPPRESS_STATE[fd] = (depth - 1, saved_fd, devnull_fd)
+            state = _SUPPRESS_STATE.get(fd)
+            if state is not None:
+                depth, saved_fd, devnull_fd = state
+                if depth == 1:
+                    stream.flush()
+                    os.dup2(saved_fd, fd)
+                    os.close(devnull_fd)
+                    os.close(saved_fd)
+                    del _SUPPRESS_STATE[fd]
+                else:
+                    _SUPPRESS_STATE[fd] = (depth - 1, saved_fd, devnull_fd)
 
 def session_path(
     name: str,
@@ -358,7 +369,10 @@ def safe_tensor(val: Any) -> torch.Tensor:
 
 
 def model_hash(model: torch.nn.Module, algo: str = "sha256") -> str:
-    hasher = hashlib.new(algo)
+    try:
+        hasher = hashlib.new(algo, usedforsecurity=False)
+    except TypeError:
+        hasher = hashlib.new(algo)
     state_dict = model.state_dict()
 
     for key in sorted(state_dict.keys()):

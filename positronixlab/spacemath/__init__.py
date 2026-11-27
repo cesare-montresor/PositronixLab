@@ -15,6 +15,7 @@ from positronixlab.spacemath.losses import (
     loss_sigreg_centers,
 )
 from positronixlab.spacemath.reducers import (
+    DEFAULT_REDUCER_BY_LAYER,
     REDUCERS,
     get_reducer,
     reduce_conv_l2,
@@ -22,6 +23,10 @@ from positronixlab.spacemath.reducers import (
     reduce_conv_max,
     reduce_conv_mean_abs,
     reduce_linear,
+    reduce_seq_cls,
+    reduce_seq_energy,
+    reduce_seq_max,
+    reduce_seq_mean,
 )
 from positronixlab.spacemath.scoring import (
     SCORERS,
@@ -66,6 +71,7 @@ __all__ = [
     "distance_elementwise",
     "distance_pairwise",
     # Architecture reducers
+    "DEFAULT_REDUCER_BY_LAYER",
     "REDUCERS",
     "get_reducer",
     "reduce_linear",
@@ -73,6 +79,10 @@ __all__ = [
     "reduce_conv_l2",
     "reduce_conv_mean_abs",
     "reduce_conv_max",
+    "reduce_seq_mean",
+    "reduce_seq_max",
+    "reduce_seq_cls",
+    "reduce_seq_energy",
     # Scoring
     "SCORERS",
     "get_scorer",

@@ -279,3 +279,39 @@ def test_mask_applier_handles_nonfinite_weights_without_nan():
         assert torch.all(lin.weight[0] == 0)
         assert not torch.isnan(lin.weight).any()
     assert torch.equal(lin.weight, orig_w)
+
+
+def test_mask_applier_bias_mode_mask_zeroes_ablated_unit_output_and_restores():
+    torch.manual_seed(0)
+    lin = torch.nn.Linear(4, 3, bias=True)
+    torch.nn.init.constant_(lin.bias, 1.5)
+    orig_w = lin.weight.detach().clone()
+    orig_b = lin.bias.detach().clone()
+
+    mask = SubnetworkMask(
+        name="ablate_unit_1",
+        granularity="unit",
+        masks={"": torch.tensor([True, False, True])},
+    )
+    x = torch.randn(8, 4)
+
+    # Default bias_mode="keep" leaves bias intact (matches weight-only SOTA baselines)
+    with MaskApplier(lin, mask, mode="retain", bias_mode="keep"):
+        y_keep = lin(x)
+        assert torch.allclose(y_keep[:, 1], torch.full((8,), 1.5))
+
+    # bias_mode="mask" zeroes ablated unit bias so output is strictly 0
+    with MaskApplier(lin, mask, mode="retain", bias_mode="mask"):
+        y_mask = lin(x)
+        assert torch.all(y_mask[:, 1] == 0)
+        assert torch.allclose(y_mask[:, 0], lin(x)[:, 0])
+
+    # zero_ablate with bias_mode="mask" zeroes masked units' bias
+    with MaskApplier(lin, mask, mode="zero_ablate", bias_mode="mask"):
+        y_zero = lin(x)
+        assert torch.all(y_zero[:, 0] == 0)
+        assert torch.all(y_zero[:, 2] == 0)
+
+    # Exact restoration of both weights and biases
+    assert torch.equal(lin.weight, orig_w)
+    assert torch.equal(lin.bias, orig_b)

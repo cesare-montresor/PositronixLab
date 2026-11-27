@@ -9,7 +9,7 @@ be benchmarked head-to-head against ``NeuroSurgeonDiscoverer`` and
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -20,6 +20,9 @@ from positronixlab.modularspace.config import LayerSpaceConfig
 from positronixlab.modularspace.layerspace import LayerSpace
 from positronixlab.tasks.discoverer import SubnetworkDiscoverer, unpack_batch as _unpack_batch
 from positronixlab.tasks.masks import SubnetworkMask
+
+AttributionMode = Literal["selectivity", "contrastive", "raw"]
+EnergyMode = Literal["abs", "relu"]
 
 
 def _reduce_activation_to_2d(
@@ -100,7 +103,13 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
         k_max: Optional[int] = None,
         top_cluster_fraction: float = 0.5,
         min_active_clusters: int = 1,
+        attribution_mode: AttributionMode = "selectivity",
+        energy_mode: EnergyMode = "abs",
     ) -> None:
+        if attribution_mode not in ("selectivity", "contrastive", "raw"):
+            raise ValueError(f"Unsupported attribution_mode: {attribution_mode!r}")
+        if energy_mode not in ("abs", "relu"):
+            raise ValueError(f"Unsupported energy_mode: {energy_mode!r}")
         self.layer_space_config = layer_space_config
         self.atlas_epochs = atlas_epochs
         self.space_dim = space_dim
@@ -112,6 +121,8 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
         self.k_max = k_max
         self.top_cluster_fraction = top_cluster_fraction
         self.min_active_clusters = min_active_clusters
+        self.attribution_mode: AttributionMode = attribution_mode
+        self.energy_mode: EnergyMode = energy_mode
 
         # Populated after fit_atlas() for inspection / reuse
         self.last_positions: Dict[str, torch.Tensor] = {}
@@ -248,7 +259,6 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
             if kmeans.labels is None:
                 clusters_by_layer[layer_name] = torch.zeros(n_units, dtype=torch.long)
             else:
-                # Cast to long explicitly (guards against ModularClusterKmeans float32 label bug)
                 clusters_by_layer[layer_name] = kmeans.labels.detach().cpu().long()
 
         self.last_positions = positions_by_layer
@@ -277,7 +287,10 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
                     if not isinstance(out_t, torch.Tensor):
                         return
                     act2d = _reduce_activation_to_2d(out_t.detach(), module=mod_ref)
-                    batch_sum = act2d.abs().sum(dim=0)
+                    if self.energy_mode == "relu":
+                        batch_sum = act2d.clamp_min(0.0).sum(dim=0)
+                    else:
+                        batch_sum = act2d.abs().sum(dim=0)
                     if name not in sums:
                         sums[name] = batch_sum
                     else:
@@ -376,23 +389,96 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
             metadata=meta,
         )
 
+    def _compute_attribution_scores(
+        self,
+        energy_by_subtask: Dict[str, Dict[str, torch.Tensor]],
+        reference_energy: Optional[Dict[str, torch.Tensor]] = None,
+        eps: float = 1e-8,
+    ) -> Dict[str, Dict[str, torch.Tensor]]:
+        """Transform raw per-subtask unit energies according to ``self.attribution_mode``."""
+        if self.attribution_mode == "raw":
+            return energy_by_subtask
+
+        subtasks = list(energy_by_subtask.keys())
+        if len(subtasks) <= 1 and reference_energy is None:
+            return energy_by_subtask
+
+        scored: Dict[str, Dict[str, torch.Tensor]] = {}
+        if self.attribution_mode == "contrastive" and len(subtasks) > 1:
+            for name, e_sub in energy_by_subtask.items():
+                scored[name] = {}
+                for layer, val in e_sub.items():
+                    others = [
+                        energy_by_subtask[o][layer]
+                        for o in subtasks
+                        if o != name and layer in energy_by_subtask[o]
+                    ]
+                    if others:
+                        ref = torch.stack(others, dim=0).mean(dim=0)
+                        scored[name][layer] = (val - ref) / (ref.abs() + eps)
+                    else:
+                        scored[name][layer] = val
+            return scored
+
+        # Default: "selectivity" relative to reference_energy (or mean across subtasks)
+        for name, e_sub in energy_by_subtask.items():
+            scored[name] = {}
+            for layer, val in e_sub.items():
+                if reference_energy is not None and layer in reference_energy:
+                    ref = reference_energy[layer]
+                    scored[name][layer] = (val - ref) / (ref.abs() + eps)
+                elif len(subtasks) > 1:
+                    all_vals = [
+                        energy_by_subtask[o][layer]
+                        for o in subtasks
+                        if layer in energy_by_subtask[o]
+                    ]
+                    ref = torch.stack(all_vals, dim=0).mean(dim=0)
+                    scored[name][layer] = (val - ref) / (ref.abs() + eps)
+                else:
+                    scored[name][layer] = val
+        return scored
+
     def attribute_from_unit_energy(
         self,
         clusters_by_layer: Dict[str, torch.Tensor],
         energy_by_subtask: Dict[str, Dict[str, torch.Tensor]],
         *,
+        reference_energy: Optional[Dict[str, torch.Tensor]] = None,
         top_cluster_fraction: Optional[float] = None,
     ) -> Dict[str, SubnetworkMask]:
         """Build per-subtask ``SubnetworkMask``s from pre-computed clusters and unit energies (zero model passes)."""
+        scored_by_subtask = self._compute_attribution_scores(
+            energy_by_subtask, reference_energy=reference_energy
+        )
         results: Dict[str, SubnetworkMask] = {}
-        for subtask_name, energy in energy_by_subtask.items():
+        for subtask_name, energy in scored_by_subtask.items():
             results[subtask_name] = self._clusters_to_unit_mask(
                 clusters_by_layer,
                 energy,
                 mask_name=f"atlas:{subtask_name}",
-                extra_metadata={"subtask": subtask_name},
+                extra_metadata={
+                    "subtask": subtask_name,
+                    "attribution_mode": self.attribution_mode,
+                    "energy_mode": self.energy_mode,
+                },
                 top_cluster_fraction=top_cluster_fraction,
             )
+
+        # Record pairwise IoU across subtasks to expose any mask collapse immediately
+        if len(results) > 1:
+            names = list(results.keys())
+            for name in names:
+                pairwise: Dict[str, Dict[str, Any]] = {}
+                for other in names:
+                    if other == name:
+                        continue
+                    pairwise[other] = {
+                        "overall": results[name].iou(results[other]),
+                        "per_layer": results[name].per_layer_iou(results[other]),
+                    }
+                results[name].metadata["pairwise_iou"] = pairwise
+
         return results
 
     def attribute_from_clusters(
@@ -401,10 +487,16 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
         clusters_by_layer: Dict[str, torch.Tensor],
         subtask_dataloaders: Dict[str, Iterable[Any]],
         *,
+        reference_dataloader: Optional[Iterable[Any]] = None,
         top_cluster_fraction: Optional[float] = None,
     ) -> Dict[str, SubnetworkMask]:
         """Attribute pre-computed clusters (e.g. from ``ClusterPlugin``) to subtasks without re-fitting the Atlas."""
         layers = list(clusters_by_layer.keys())
+        ref_energy = (
+            self._collect_mean_unit_energy(model, reference_dataloader, layers)
+            if reference_dataloader is not None
+            else None
+        )
         energy_by_subtask = {
             subtask_name: self._collect_mean_unit_energy(model, loader, layers)
             for subtask_name, loader in subtask_dataloaders.items()
@@ -412,6 +504,7 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
         return self.attribute_from_unit_energy(
             clusters_by_layer,
             energy_by_subtask,
+            reference_energy=ref_energy,
             top_cluster_fraction=top_cluster_fraction,
         )
 
@@ -458,17 +551,23 @@ class AtlasDiscoverer(SubnetworkDiscoverer):
         target_layers: Optional[List[str]] = None,
     ) -> Dict[str, SubnetworkMask]:
         """Fit ONE shared Atlas on *reference_dataloader* and attribute all subtasks at once."""
+        if self.attribution_mode == "selectivity":
+            _ensure_reiterable(reference_dataloader, "reference_dataloader")
         _, clusters_by_layer = self.fit_atlas(
             model, reference_dataloader, target_layers=target_layers
         )
         layers = list(clusters_by_layer.keys())
-        results: Dict[str, SubnetworkMask] = {}
-        for subtask_name, loader in subtask_dataloaders.items():
-            energy = self._collect_mean_unit_energy(model, loader, layers)
-            results[subtask_name] = self._clusters_to_unit_mask(
-                clusters_by_layer,
-                energy,
-                mask_name=f"atlas:{subtask_name}",
-                extra_metadata={"subtask": subtask_name},
-            )
-        return results
+        ref_energy = (
+            self._collect_mean_unit_energy(model, reference_dataloader, layers)
+            if self.attribution_mode == "selectivity"
+            else None
+        )
+        energy_by_subtask = {
+            subtask_name: self._collect_mean_unit_energy(model, loader, layers)
+            for subtask_name, loader in subtask_dataloaders.items()
+        }
+        return self.attribute_from_unit_energy(
+            clusters_by_layer,
+            energy_by_subtask,
+            reference_energy=ref_energy,
+        )

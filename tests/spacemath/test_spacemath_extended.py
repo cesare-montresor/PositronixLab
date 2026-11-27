@@ -216,7 +216,7 @@ def test_bug_distance_elementwise_euclidean_zero_floor():
 
 def test_reducers_shapes_and_3d_linear():
     x3 = torch.randn(4, 3, 5)
-    assert reduce_linear(x3).shape == (4, 15)
+    assert reduce_linear(x3).shape == (4, 5)
 
     # Conv1d / Conv3d work with l2, mean_abs, max
     c1 = torch.randn(4, 8, 10)

@@ -23,10 +23,10 @@ from positronixlab.dataprovider.dataprovider import (
 
 def _extract_labels(ds: Dataset) -> List[int]:
     if hasattr(ds, "targets"):
-        t = getattr(ds, "targets")
+        t = ds.targets  # type: ignore[attr-defined]
         return [int(v) for v in (t.tolist() if isinstance(t, torch.Tensor) else t)]
     if hasattr(ds, "y"):
-        y = getattr(ds, "y")
+        y = ds.y  # type: ignore[attr-defined]
         return [int(v) for v in (y.tolist() if isinstance(y, torch.Tensor) else y)]
     return [int(ds[i][1]) for i in range(len(ds))]
 

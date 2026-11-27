@@ -87,6 +87,12 @@ class UmapProcessor(Processor):
         # 2. Clamp between topological safety (min) and compute safety (max)
         dynamic_n_neighbors = max(self.min_neighbors, min(calculated_k, self.max_neighbors))
 
+        if UMAP is None:
+            raise ImportError(
+                "UmapProcessor requires `umap-learn` or `cuml`. "
+                "Install with: pip install 'positronixlab[umap]'"
+            )
+
         return UMAP(
             n_components=self.n_components,
             n_neighbors=dynamic_n_neighbors,

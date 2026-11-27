@@ -1,6 +1,11 @@
 # SOTA Integration Architecture (`libs/` → `positronixlab`)
 
 > **Goal:** Integrate the three reference repositories under `libs/` — **Csordás et al.** (`are_neural_nets_modular`), **Lepori et al.** (`Compositional_Subnetworks`), and **Lepori et al.** (`NeuroSurgeon`) — into `positronixlab` via clean, idiomatic, decoupled APIs so **PositronixLab's Atlas method** can be benchmarked apples-to-apples against state-of-the-art differentiable weight/neuron masking on identical models, datasets, and evaluation protocols.
+>
+> **Implementation Status (Verified 2026-11-26 — `v0.1.3` / `5740a0c` + working tree):**
+> - **Phases 1–3 core architecture is IMPLEMENTED** under `positronixlab/baselines/` (12 models in `ModelLoader`, 14 datasets in `DataProviderLoader`, `csordas/`, `lepori/`, `neurosurgeon/`), `positronixlab/tasks/` (`masks.py`, `discoverer.py`, `atlas_discoverer.py`, `benchmarks.py`), and `positronixlab/dataprovider/` (`CompositionalDataProvider`, `AddMul`, `TupleArithmetic`, `ClassRemoval`, `PermutedMnist`, `SCAN`, `Math`, `CVR`, `CVRSimCLR`, `SynEval`).
+> - **Verification:** `tests/baselines/` (14/14 passed), `tests/tasks/` (35 passed, 9 legacy xfails), `tests/dataprovider/` (44/44 passed), and `examples/tasks/example_atlas_vs_sota.py` (exit 0).
+> - **Remaining items:** `GradNormTracker` & `n_mask_samples` in `CsordasGumbelDiscoverer`, full Csordás structural metrics (`half_mask_control`, `stability_iou`, `confusion_delta`), dedicated 6-split Lepori ablation matrix & `UntrainedModelBaseline`, multi-architecture benchmark runs, and `template_sota_*.py` / CLI (Phase 4.2). See [baselines_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/baselines_analysis.md) for the module audit.
 
 ---
 
@@ -258,27 +263,17 @@ Before Atlas itself can run on Csordás & Lepori's non-MLP architectures (ResNet
 
 ---
 
-## 5. Phased Implementation Roadmap
+## 5. Remaining Implementation Roadmap
 
-### Phase 1 — Unified Mask Contract & NeuroSurgeon Bridge (Fastest End-to-End Win)
-- [ ] Create `positronixlab/tasks/masks.py` (`SubnetworkMask`, set algebra, unit↔weight projection, IoU/overlap/sparsity, save/load).
-- [ ] Create `positronixlab/tasks/ablation.py` (`MaskApplier` context manager with all 5 ablation modes + `try/finally` weight/grad restoration).
-- [ ] Create `positronixlab/tasks/discovery/neurosurgeon.py` (`NeuroSurgeonDiscoverer` + `_HFForwardShim` wrapping `libs/NeuroSurgeon`).
-- [ ] Create `positronixlab/tasks/discovery/atlas.py` (`AtlasDiscoverer` refactoring `AtlasCheck` onto `SubnetworkMask` with clean hook teardown).
-- [ ] Smoke-test **Atlas vs. NeuroSurgeon** head-to-head on a fast CPU MLP (`TupleArithmeticDataProvider` or `MNIST`/`Iris`).
+> **Completed deliverables (Phase 1 + core Phases 2–4):** Archived in [solved/SOTA_integration_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/SOTA_integration_solved.md). Only uncompleted items remain below.
 
-### Phase 2 — Csordás Synthetic Benchmarks & Modernized Gumbel-Sigmoid Discoverer
-- [ ] Add `TupleArithmeticDataProvider` and `AddMulDataProvider` (`CompositionalDataProvider` subclasses — zero external data files required).
-- [ ] Create `positronixlab/tasks/discovery/csordas.py` (`CsordasGumbelDiscoverer` using PyTorch 2.x `parametrize`/hooks, exact Gumbel-Sigmoid STE + linear logit loss + `GradNormTracker`).
-- [ ] Add Csordás structural metrics (`mask_sharing`, `remaining_weights`, `stability_iou`, `half_mask_control`, `confusion_delta`) to `positronixlab/tasks/benchmarks/`.
-- [ ] Upgrade `ModularObserver` + `spacemath/reducers.py` to support `Conv2d` and 3D sequence `(B, T, U)` tensors (for LSTM/Transformer).
+### Phase 2 (Remaining)
+- [ ] Enhance `CsordasGumbelDiscoverer` (`positronixlab/baselines/csordas/discoverer.py`) with `GradNormTracker`, `n_mask_samples`, and configurable RNG `seed`.
+- [ ] Complete Csordás structural metrics in `positronixlab/tasks/benchmarks.py`: `half_mask_control`, multi-task `mask_sharing` aggregation, `stability_iou` runner, and `confusion_delta`.
 
-### Phase 3 — Lepori Compositional Vision (CVR) & Language (SynEval) Benchmarks
-- [ ] Upgrade `CVROddOneOutDataProvider` (wrapping `libs/Compositional_Subnetworks/Vision/CVR/data_generation/subnetwork_tasks.py` for tasks `103–120`) and `SynevalOddOneOutDataProvider` (tasks `0–19`).
-- [ ] Add `OddOneOutHead`, `CVRResNetModel` (InstanceNorm50), `CVRViTModel`, and `SynEvalBertModel` (upstream `transformers`) under `positronixlab/metamodel/sota/`.
-- [ ] Implement `CompositionalAblationBenchmark` (full 6-split Lepori ablation matrix + double-dissociation selectivity + random-model & pre-pruned controls).
-- [ ] Run full **Atlas vs. NeuroSurgeon vs. Csordás** comparison across MLP (`TupleArithmetic`), CNN (`CIFAR-10`, `CVR ResNet50`), and Transformer (`CVR ViT`, `SynEval BERT-small`, `SCAN`).
+### Phase 3 (Remaining)
+- [ ] Add dedicated 6-split Lepori `CompositionalAblationBenchmark` consuming `CompositionalDataProvider.eval_matrix_spec()`, plus `UntrainedModelBaseline` and pre-pruned controls.
+- [ ] Run and record full **Atlas vs. NeuroSurgeon vs. Csordás** multi-architecture comparison across MLP (`TupleArithmetic`), CNN (`CIFAR-10`, `CVR ResNet50`), and Transformer (`CVR ViT`, `SynEval BERT-small`, `SCAN`).
 
-### Phase 4 — Optional Clean Packaging & Reproducibility
-- [ ] Declare `neurosurgeon` and `transformers` as optional extras (`[sota]`) in `pyproject.toml` so base `positronixlab` stays lightweight.
-- [ ] Add benchmark CLI / experiment templates (`positronixlab/template/template_sota_*.py`) so SOTA comparisons can also be swept via `nas.Experiment` or visualized in `modularui`.
+### Phase 4 (Remaining)
+- [ ] Add benchmark CLI / experiment templates (`positronixlab/template/template_sota_*.py`) so SOTA comparisons can be swept via `nas.Experiment` or visualized in `modularui`.

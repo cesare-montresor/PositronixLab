@@ -48,7 +48,7 @@ def _release_cuda_cache() -> None:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     except Exception:
-        pass
+        logger.debug("Failed to release CUDA cache", exc_info=True)
 
 
 def _ensure_sqlite_db(url: str) -> None:
@@ -339,7 +339,8 @@ class Experiment(Generic[TConfig]):
                 poll_interval=self.poll_interval,
             )
 
-        assert self.eval_fn is not None
+        if self.eval_fn is None:
+            raise RuntimeError("Experiment requires either trial_pipeline_cls or eval_fn.")
         t0 = time.monotonic()
         try:
             out = self.eval_fn(config)
@@ -420,7 +421,8 @@ class Experiment(Generic[TConfig]):
             if attempt < total_attempts and self.oom_backoff_sec > 0:
                 time.sleep(self.oom_backoff_sec)
 
-        assert last_result is not None
+        if last_result is None:
+            raise RuntimeError("Solo OOM retry completed with no trial result.")
         self._record_trial_result(trial_index, config, last_result)
 
     # -------------------------------------------------------------------------

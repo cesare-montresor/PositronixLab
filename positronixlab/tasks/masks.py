@@ -19,6 +19,7 @@ import torch.nn as nn
 from positronixlab.utils.utils import load_data, save_data
 
 Granularity = Literal["unit", "weight"]
+BiasMode = Literal["keep", "mask"]
 AblationMode = Literal[
     "retain",
     "zero_ablate",
@@ -321,7 +322,13 @@ class MaskApplier:
     - ``"complement_sampled"``: zero a random subset of weights of the same cardinality drawn
       strictly from ``~mask``.
 
-    Guarantees exact restoration of original weights even if an exception is raised.
+    Supports ``bias_mode``:
+    - ``"keep"`` (default): mask weights only (matches published weight-only SOTA baselines).
+    - ``"mask"``: also mask ``mod.bias`` at unit granularity so ablated units emit exact zeros.
+      Note that downstream ``BatchNorm``/``LayerNorm`` layers are not masked unless explicitly
+      present in ``mask``; their affine shift can still produce non-zero outputs for zeroed units.
+
+    Guarantees exact restoration of original weights (and biases) even if an exception is raised.
     """
 
     def __init__(
@@ -331,6 +338,7 @@ class MaskApplier:
         mode: AblationMode = "retain",
         exclude_layers: Iterable[str] = (),
         seed: Optional[int] = None,
+        bias_mode: BiasMode = "keep",
     ) -> None:
         if mode not in (
             "retain",
@@ -340,12 +348,16 @@ class MaskApplier:
             "complement_sampled",
         ):
             raise ValueError(f"Unsupported ablation mode: {mode!r}")
+        if bias_mode not in ("keep", "mask"):
+            raise ValueError(f"Unsupported bias_mode: {bias_mode!r}")
         self.model = model
         self.mask = mask
         self.mode = mode
         self.exclude_layers = set(exclude_layers)
         self.seed = seed
+        self.bias_mode = bias_mode
         self._backups: Dict[str, torch.Tensor] = {}
+        self._bias_backups: Dict[str, torch.Tensor] = {}
 
     def __enter__(self) -> nn.Module:
         try:
@@ -359,6 +371,7 @@ class MaskApplier:
         weight_mask = self.mask.to_weight_mask(self.model)
         modules = dict(self.model.named_modules())
         seen_ptrs: Set[int] = set()
+        seen_bias_ptrs: Set[int] = set()
 
         with torch.no_grad():
             for layer_name, m_bool in weight_mask.masks.items():
@@ -384,6 +397,9 @@ class MaskApplier:
                         self.seed + zlib.crc32(layer_name.encode("utf-8"))
                     ) & 0x7FFFFFFF
                     gen.manual_seed(layer_seed)
+
+                rand_ablate: Optional[torch.Tensor] = None
+                comp_ablate: Optional[torch.Tensor] = None
 
                 if self.mode == "retain":
                     weight.data.masked_fill_(~m, 0)
@@ -413,6 +429,50 @@ class MaskApplier:
                     )
                     weight.data.masked_fill_(comp_ablate, 0)
 
+                if self.bias_mode == "mask":
+                    bias = getattr(mod, "bias", None)
+                    if isinstance(bias, torch.Tensor) and bias.ndim == 1:
+                        b_ptr = bias.data_ptr()
+                        if b_ptr not in seen_bias_ptrs:
+                            seen_bias_ptrs.add(b_ptr)
+                            self._bias_backups[layer_name] = bias.data.detach().clone()
+                            if (
+                                self.mask.granularity == "unit"
+                                and layer_name in self.mask.masks
+                                and self.mask.masks[layer_name].shape == bias.shape
+                            ):
+                                u_m = self.mask.masks[layer_name].to(bias.device).bool()
+                            elif m.shape[0] == bias.shape[0]:
+                                u_m = m.reshape(m.shape[0], -1).any(dim=1)
+                            else:
+                                u_m = None
+
+                            if u_m is not None:
+                                if self.mode == "retain":
+                                    bias.data.masked_fill_(~u_m, 0)
+                                elif self.mode == "zero_ablate":
+                                    bias.data.masked_fill_(u_m, 0)
+                                elif self.mode == "random_ablate":
+                                    rand_b = torch.empty_like(bias.data)
+                                    rand_b.normal_(0.0, 0.02, generator=gen)
+                                    bias.data.copy_(torch.where(u_m, rand_b, bias.data))
+                                elif self.mode == "randomly_sampled":
+                                    n_active_b = int(u_m.sum().item())
+                                    b_ablate = _sample_random_binary_mask(
+                                        tuple(bias.shape), n_active_b, bias.device, generator=gen
+                                    )
+                                    bias.data.masked_fill_(b_ablate, 0)
+                                elif self.mode == "complement_sampled":
+                                    n_active_b = int(u_m.sum().item())
+                                    b_ablate = _sample_random_binary_mask(
+                                        tuple(bias.shape),
+                                        n_active_b,
+                                        bias.device,
+                                        generator=gen,
+                                        eligible_mask=~u_m,
+                                    )
+                                    bias.data.masked_fill_(b_ablate, 0)
+
     def _restore(self) -> None:
         modules = dict(self.model.named_modules())
         with torch.no_grad():
@@ -420,7 +480,12 @@ class MaskApplier:
                 mod = modules.get(layer_name)
                 if mod is not None and hasattr(mod, "weight") and mod.weight is not None:
                     mod.weight.data.copy_(orig_w)
+            for layer_name, orig_b in reversed(list(self._bias_backups.items())):
+                mod = modules.get(layer_name)
+                if mod is not None and hasattr(mod, "bias") and mod.bias is not None:
+                    mod.bias.data.copy_(orig_b)
         self._backups.clear()
+        self._bias_backups.clear()
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self._restore()

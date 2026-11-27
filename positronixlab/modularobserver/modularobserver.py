@@ -94,7 +94,6 @@ class ModularObserver:
             if not self._is_observable_layer(node.module_ref, name):
                 continue
             if node.name not in self.nodes_by_name:
-                module_ref = node.module_ref
                 self.nodes_list.append(node)
                 self.nodes_by_name[node.name] = node
                 self.nodes_by_layer[node.module_ref] = node

@@ -1,4 +1,9 @@
-# `positronixlab/metamodel` — Module Analysis
+# `positronixlab/metamodel` — Open Issues Analysis
+
+> **Status (2026-11-27 — `v0.1.3` / `5740a0c` + working tree):** **28 passed, 11 xfailed, 0 failed** (`tests/metamodel/`).
+> **Note:** `__init__.py` now uses PEP 562 lazy exports (partial B2) and `MetaTransform` supports `__call__`; all 15 bugs below (**B1–B15**, except `__init__.py` part of B2) remain open, plus v0.1.3 **E2** (`torchsummary` top-level import at `metamodel.py:11`) and **F** hygiene (`F841` at `metamodel.py:199, 297, 301`, `A001` `input` at `:213`, `E701`, `RUF013`, 2 `print()` calls).
+
+---
 
 ## 1. Overview & Refactor Status
 

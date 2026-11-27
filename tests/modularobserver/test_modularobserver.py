@@ -331,10 +331,6 @@ def test_model_mapper_warns_on_empty_trace_sequence_and_float_out_of_range():
         mapper.map(m, data=torch.randn(2, 4), trace_samples=1)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug (modelmapper.py:365): map() accesses model.device directly, crashing on standard nn.Module",
-)
 def test_model_mapper_map_standard_nn_module_without_device_bug():
     model = nn.Sequential(nn.Linear(4, 4), nn.ReLU(), nn.Linear(4, 2))
     mapper = ModelMapper(model, is_suitable_layer=lambda m, n: is_layer(m))
@@ -444,10 +440,6 @@ def test_modular_observer_map_return_value_bug():
     assert result is not None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug (modularobserver.py:125): late-binding closure binds module_ref and param to last iteration",
-)
 def test_modular_observer_on_grad_weights_closure_bug():
     model = DeviceMLP()
     observer = ModularObserver(config=None, model=model)
@@ -455,7 +447,12 @@ def test_modular_observer_on_grad_weights_closure_bug():
 
     seen_modules = set()
     seen_param_ids = set()
-    observer.on_grad_weights(lambda m, p, g: (seen_modules.add(m), seen_param_ids.add(id(p))))
+
+    def _on_grad(m, p, g):
+        seen_modules.add(m)
+        seen_param_ids.add(id(p))
+
+    observer.on_grad_weights(_on_grad)
 
     model(torch.randn(2, 8)).sum().backward()
     observer.on_grad_weights(None)
@@ -464,10 +461,6 @@ def test_modular_observer_on_grad_weights_closure_bug():
     assert len(seen_param_ids) == 4  # fc1.{weight,bias}, fc2.{weight,bias}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug (modularobserver.py:165-172): clear() omits on_pre_forward_layer(None), leaking pre-forward hooks",
-)
 def test_modular_observer_clear_leaks_pre_forward_hooks_bug():
     model = DeviceMLP()
     observer = ModularObserver(config=None, model=model)
@@ -481,10 +474,6 @@ def test_modular_observer_clear_leaks_pre_forward_hooks_bug():
     assert hits == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug (modularobserver.py:148-150): re-registering on_forward_layer overwrites handle without removing old hook",
-)
 def test_modular_observer_reregister_leaks_previous_hook_bug():
     model = DeviceMLP()
     observer = ModularObserver(config=None, model=model)

@@ -211,10 +211,6 @@ class TestKnownBugsXfail:
         # First 30 points are all from the exact same tight cluster
         assert len(torch.unique(labels[:30])) == 1
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug B3: StreamingClusterTracker._relabel_to_match_previous() remaps labels without reordering centroids",
-    )
     def test_b3_tracker_reorders_centroids_on_relabel(self):
         tracker = StreamingClusterTracker("layer_x", metric="euclidean", k_min=2, k_max=2, drift_threshold=0.0)
         # Seed previous centroids in order [cA, cB]
@@ -230,16 +226,10 @@ class TestKnownBugsXfail:
         tracker.kmeans.centroids = swapped_centroids
         tracker.kmeans.labels = swapped_labels
 
-        remapped_labels = tracker._relabel_to_match_previous(swapped_centroids, swapped_labels)
-        # Labels are correctly remapped so first 10 points have label 0 (matching cA)...
+        reordered_centroids, remapped_labels = tracker._relabel_to_match_previous(swapped_centroids, swapped_labels)
         assert (remapped_labels[:10] == 0).all()
-        # ...but tracker.kmeans.centroids[0] is still cB instead of cA!
-        assert torch.allclose(tracker.kmeans.centroids[0], torch.tensor(c_a))
+        assert torch.allclose(reordered_centroids[0], torch.tensor(c_a))
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug B5: _compute_k_range(n) returns (2, 1) for n=3, leaving best_k=None",
-    )
     def test_b5_small_n_three_samples_finds_valid_k(self):
         km = ModularClusterKmeans(metric="euclidean")
         km.fit(torch.tensor([[0.0, 0.0], [0.1, 0.0], [10.0, 10.0]]))

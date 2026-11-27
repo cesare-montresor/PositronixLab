@@ -191,15 +191,13 @@ class SynevalOddOneOutDataProvider(
         if resolved_root is not None or raw_data_path is not None or download:
             from positronixlab.baselines.lepori._syneval_gen import (
                 ensure_syneval_family_splits,
-                is_syneval_family_cached,
             )
 
-            if resolved_root is not None and is_syneval_family_cached(family, resolved_root):
-                cache_dir = resolved_root
-            elif resolved_root is not None:
-                cache_dir = resolved_root
-            else:
-                cache_dir = resolve_data_root(None) / "syneval"
+            cache_dir = (
+                resolved_root
+                if resolved_root is not None
+                else resolve_data_root(None) / "syneval"
+            )
 
             ensured = ensure_syneval_family_splits(
                 family=family,

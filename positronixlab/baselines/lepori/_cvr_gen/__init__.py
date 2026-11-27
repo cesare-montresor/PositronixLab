@@ -18,9 +18,10 @@ import numpy as np
 
 
 def is_cvr_renderer_available() -> bool:
-    """Return ``True`` if OpenCV (``cv2``) is installed for live CVR rendering."""
+    """Return ``True`` if OpenCV (``cv2``) and Pillow (``PIL``) are installed for live CVR rendering."""
     try:
         import cv2  # noqa: F401
+        from PIL import Image  # noqa: F401
 
         return True
     except ImportError:

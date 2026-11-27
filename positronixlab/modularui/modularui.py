@@ -73,7 +73,7 @@ class ModularUI:
         self.cluster_maxlen = cluster_maxlen
         self.open_browser = open_browser
 
-        if self.debug == False:
+        if not self.debug:
             logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
         self.locks = UILocks()

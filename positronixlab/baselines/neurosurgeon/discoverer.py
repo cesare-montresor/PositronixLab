@@ -73,7 +73,8 @@ class NeuroSurgeonDiscoverer(SubnetworkDiscoverer):
         if self.mask_method == "magnitude_pruning" or self.epochs <= 0:
             return wrapped.extract_subnetwork_mask(name=mask_name)
 
-        device = next(wrapped.parameters()).device
+        first_param = next(wrapped.parameters(), None)
+        device = first_param.device if first_param is not None else torch.device("cpu")
         mask_params = wrapped.mask_parameters()
         optimizer = torch.optim.Adam(mask_params, lr=self.lr)
         temp = 1.0

@@ -13,7 +13,9 @@ def __getattr__(name: str):
     if name in _LAZY_EXPORTS:
         module_path, attr = _LAZY_EXPORTS[name]
         module = __import__(module_path, fromlist=[attr])
-        return getattr(module, attr)
+        value = getattr(module, attr)
+        globals()[name] = value
+        return value
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

@@ -290,4 +290,5 @@ class AddMulDataProvider(
             drop_last=self.drop_last,
             persistent_workers=self.persistent_workers,
             pin_memory=self.pin_memory,
+            seed=self.seed,
         )

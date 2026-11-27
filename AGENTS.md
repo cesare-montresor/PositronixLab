@@ -1,5 +1,5 @@
 ## Keeping this file current
-Last synced: a069575
+Last synced: 5740a0c
 
 At the start of every session:
 1. Find commits since the last sync: `git log --oneline <Last synced hash>..HEAD`
@@ -45,7 +45,7 @@ Split from a single monorepo into 4 sibling repos (plus SOTA reference symlinks 
   - `modularcluster/` — Adaptive FAISS K-Means (`ModularClusterKmeans`), streaming K-Means, `StreamingClusterTracker`.
   - `deeplearning/` — `TrainConfig`, `DeeplearningBase`, `DeeplearningTrain` (+ `EarlyStopping`), `DeeplearningEval`.
   - `metamodel/` — `MetaModelConfig`, `BaseModel`/`MetaModel`, `MetaCriterion`, `MetaTransform`.
-  - `dataprovider/` — `DataConfig`, `DataReader`/`DataProvider`, `CompositionalDataProvider`, `DataProviderFactory`, 16 concrete providers (incl. `ClassRemovalDataProvider`, `AddMul`, `TupleArithmetic`, `CVR`/`SynEval`).
+  - `dataprovider/` — `DataConfig`, `DataReader`/`DataProvider`, `CompositionalDataProvider`, `DataProviderFactory`, 16 concrete providers (incl. `ClassRemovalDataProvider`, `AddMul`, `TupleArithmetic`, `PermutedMnist`, `SCAN`, `Math`, `CVR`/`CVRSimCLR`/`SynEval`).
   - `tasks/` — Shared evaluation contract (`SubnetworkMask`, `MaskApplier`, `SubnetworkDiscoverer`, `RandomMaskDiscoverer`), PositronixLab's `AtlasDiscoverer`, `ModularityBenchmark` (`benchmarks.py`), and `compositionality/` (earlier prototype).
   - `baselines/` — External SOTA works organized by paper (`csordas/`, `lepori/`, `neurosurgeon/`) + shared `ModelLoader` (`save`/`load_bundle`/`load`), `DataProviderLoader`, `SOTAModel`, `CompositionalDataProvider`.
   - `pipeline/` — `BaseConfig` (`config.py`), `Pipeline` ABC (wraps `parallelazy.PluginManager`), `PipelineConfig`/`V1`/`V2`.
@@ -57,19 +57,19 @@ Split from a single monorepo into 4 sibling repos (plus SOTA reference symlinks 
 - `tests/` — Unit tests mirroring `positronixlab/` (`pytest.ini` sets `testpaths = tests`).
 - `docs/` — Per-module `*_SYSTEM.md` / `*_USAGE.md` docs, Ax guides, `components.md`, and media.
 - `examples/` — Standalone runnable CPU examples per module (incl. `examples/tasks/example_atlas_vs_sota.py`).
-- `reports/` — Per-module `*_analysis.md` audits, `overall_analysis.md`, and `SOTA_integration.md`.
+- `reports/` — Per-module `*_analysis.md` audits (all 15 modules incl. `baselines_analysis.md`), `overall_analysis.md`, `xfail_analysis.md`, `SOTA_integration.md`, and `positronixlab_review_v0.1.3.md`.
 
 ## Key abstractions and invariants
 - **Decoupled space graph**: `ModularSpace`/`LayerSpace` never backprop into the main model. Activations are detached, mapped to `[-1, 1]` scores, and optimized per-layer with dedicated Adam optimizers on `positions: [num_cus, modular_space_size]`.
 - **Composable configs & lazy exports**: `pipeline/config.py:BaseConfig` underpins `DataConfig`, `TrainConfig`, `MetaModelConfig`, `LayerSpaceConfig`, and `TrialConfig`. `dataprovider/__init__.py`, `metamodel/__init__.py`, and `pipeline/__init__.py` use PEP 562 lazy `__getattr__` so standalone ML/SOTA imports never require `parallelazy`.
 - **Unified baselines contract**: `positronixlab.baselines` (`ModelLoader`, `DataProviderLoader`, `csordas/`, `lepori/`, `neurosurgeon/`) and `positronixlab.tasks` (`SubnetworkMask`, `MaskApplier`, `AtlasDiscoverer`) allow apples-to-apples comparison of Atlas, NeuroSurgeon, and Csordás Gumbel-Sigmoid on identical models and datasets.
 - **NeuroSurgeon import quirk**: `libs/NeuroSurgeon` has an undeclared `torchmetrics` import in `Probing`; `baselines/neurosurgeon/adapter.py` automatically bypasses `Probing` so `Models` and `Masking` work without `torchmetrics`.
-- **Import side effects**: `spacemath/common.py` sets `torch.set_float32_matmul_precision('high')` and monkey-patches `torch.Tensor.{zclamp,zclamp_,spow,spow_}`. `spacemath/contrast.py` runs `torch.compile` (set `TRITON_CACHE_DIR=/tmp/triton_cache TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_cache` in read-only-home environments).
+- **Import side effects**: `spacemath/common.py` sets `torch.set_float32_matmul_precision('high')` and monkey-patches `torch.Tensor.{zclamp,zclamp_,spow,spow_}`. `spacemath/contrast.py` runs `torch.compile` (disable via `POSITRONIXLAB_COMPILE=0`, or set `TRITON_CACHE_DIR=/tmp/triton_cache TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_cache` in read-only-home environments).
 - **CUDA multiprocessing**: `DataReader` selects `fork` only if CUDA is uninitialized, otherwise `spawn`; `utils.process_start_spawn()` enforces `spawn`.
 
 ## Commands
 - Environment: `.venv/bin/python` (Python 3.12, editable install).
-- Full test suite: `TRITON_CACHE_DIR=/tmp/triton_cache TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_cache .venv/bin/pytest -q` (runs all suites under `tests/`; requires access to sibling `../parallelazy` and `libs/NeuroSurgeon` for full pass).
+- Full test suite: `CUPY_CACHE_DIR=/tmp/cupy_cache TRITON_CACHE_DIR=/tmp/triton_cache TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_cache .venv/bin/pytest -q` (runs all suites under `tests/`; `CUPY_CACHE_DIR` is needed in read-only-home sandboxes when `cuml`/`cupy` is installed; requires access to sibling `../parallelazy` and `libs/NeuroSurgeon` for full pass).
 - Baselines & Atlas tests only: `TRITON_CACHE_DIR=/tmp/triton_cache TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_cache .venv/bin/pytest tests/baselines tests/tasks/test_masks_and_discoverers.py tests/tasks/test_atlas_discoverer.py tests/tasks/test_sota_benchmarks.py -v`.
 - Head-to-head Atlas vs SOTA CPU benchmark: `.venv/bin/python examples/tasks/example_atlas_vs_sota.py`.
 - Archived pre-cleanup snapshot: git tag `archive/pre-cleanup`.

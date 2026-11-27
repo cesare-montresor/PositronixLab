@@ -134,7 +134,7 @@ class DeeplearningBase:
                         break
 
 
-        for name, value in batch_metrics.items():
+        for name, _value in batch_metrics.items():
             epoch_metrics.setdefault(name, 0.0)
             epoch_metrics[name] /= batch_cnt
 

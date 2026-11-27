@@ -21,8 +21,8 @@ It is intentionally decoupled from `positronixlab.pipeline` and `parallelazy` so
 │ csordas/      │   │ lepori/         │  │ neurosurgeon/│   │ positronixlab.   │
 │ (ICLR 2021)   │   │ (NeurIPS 2023)  │  │ (2023/2024)  │   │ tasks            │
 │ • 5 models    │   │ • CVR ResNet/ViT│  │ • adapter.py │   │ • SubnetworkMask │
-│ • 3 datasets  │   │ • SynEval BERT  │  │ • Discoverer │   │ • MaskApplier    │
-│ • Gumbel-STE  │   │ • 7 datasets    │  │ • torchmet.  │   │ • AtlasDiscoverer│
+│ • 6 datasets  │   │ • SynEval BERT  │  │ • Discoverer │   │ • MaskApplier    │
+│ • Gumbel-STE  │   │ • 8 datasets    │  │ • torchmet.  │   │ • AtlasDiscoverer│
 │   Discoverer  │   │ • _cvr_gen/     │  │   bypass     │   │ • Benchmark      │
 └───────┬───────┘   └────────┬────────┘  └──────┬───────┘   └────────┬─────────┘
         └────────────────────┴──────────────────┴────────────────────┘
@@ -116,6 +116,6 @@ It is intentionally decoupled from `positronixlab.pipeline` and `parallelazy` so
 
 ## Dependencies & References
 
-- Optional dependency extra in `pyproject.toml`: `baselines = ["NeuroSurgeon", "transformers", "opencv-python-headless"]`.
+- Optional dependency extra in `pyproject.toml`: `baselines = ["NeuroSurgeon", "transformers", "opencv-python-headless", "pillow"]`.
 - Design report: [`reports/SOTA_integration.md`](file:///home/cesare/Projects/PositronixLab/reports/SOTA_integration.md).
 - Tests: [`tests/baselines/`](file:///home/cesare/Projects/PositronixLab/tests/baselines/).

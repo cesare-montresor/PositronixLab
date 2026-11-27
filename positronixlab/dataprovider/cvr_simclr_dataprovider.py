@@ -204,7 +204,8 @@ class CVRSimCLRDataset(Dataset):
             quartet = torch.from_numpy(imgs_np).permute(0, 3, 1, 2).float() / 255.0
             return quartet[2:]
 
-        assert self._synthetic is not None
+        if self._synthetic is None:
+            raise RuntimeError("CVRSimCLRDataset synthetic buffer is not initialized.")
         return self._synthetic[flat_idx]
 
     def __getitem__(

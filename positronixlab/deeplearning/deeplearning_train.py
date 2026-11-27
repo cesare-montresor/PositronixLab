@@ -257,7 +257,7 @@ class EarlyStopping:
             logging.info(f'[EarlyStop] No sufficient gain: {gain:+.4f} ({self.num_attempts}/{self.max_attempts})')
 
         if self.num_attempts >= self.max_attempts:
-            logging.info(f'[EarlyStop] No gain. Stopping.')
+            logging.info('[EarlyStop] No gain. Stopping.')
             return True
 
         return False

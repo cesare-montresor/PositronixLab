@@ -6,6 +6,7 @@ from typing import Any
 
 from positronixlab.modularobserver.layerobserver import LayerObserver
 from positronixlab.modularobserver.modelmapper import (
+    TRACE_ALWAYS,
     GraphFormatter,
     ModelEdge,
     ModelGraph,
@@ -30,6 +31,7 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
+    "TRACE_ALWAYS",
     "GraphFormatter",
     "LayerObserver",
     "ModelEdge",

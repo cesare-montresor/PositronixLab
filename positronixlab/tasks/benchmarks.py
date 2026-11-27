@@ -26,7 +26,8 @@ def default_eval_accuracy(model: nn.Module, dataloader: Iterable[Any]) -> float:
     """Compute top-1 accuracy on ``dataloader`` (supports 2- and 3-tuple batches)."""
     was_training = model.training
     model.eval()
-    device = next(model.parameters()).device
+    first_param = next(model.parameters(), None)
+    device = first_param.device if first_param is not None else torch.device("cpu")
     correct, total = 0, 0
     try:
         with torch.no_grad():

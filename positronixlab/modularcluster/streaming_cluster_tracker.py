@@ -122,7 +122,7 @@ class StreamingClusterTracker:
 
     def _relabel_to_match_previous(
         self, centroids: torch.Tensor, labels: torch.Tensor
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Remap new cluster label IDs to best match the previous timestep's IDs
         via Hungarian assignment on centroid distances, so the same physical

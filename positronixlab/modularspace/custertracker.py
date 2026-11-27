@@ -158,7 +158,8 @@ class ClusterTracker:
 
     def _match_and_project(self, assignment: Tensor, centroids: Tensor, sizes_new: Tensor) -> Tuple[List[ClusterEvent], Tensor]:
         old = self.state
-        assert old is not None
+        if old is None:
+            raise RuntimeError("ClusterTracker._match_and_project called before initial state was set.")
 
         k_old, k_new = old.K, int(centroids.shape[0])
         overlap = overlap_matrix(old.assignment, k_old, assignment, k_new)

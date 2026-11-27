@@ -134,3 +134,32 @@ def test_atlas_discoverer_rejects_exhausted_and_empty_loaders():
     # Empty loader raises instead of returning a silent empty SubnetworkMask
     with pytest.raises(ValueError, match="no samples"):
         atlas.discover(model, [])
+
+
+def test_atlas_discoverer_differential_attribution_avoids_identical_subtask_masks():
+    """Regression test (B2): selectivity/contrastive attribution separates subtasks where raw energy collapses."""
+    clusters = {"fc": torch.tensor([0, 0, 1, 1], dtype=torch.long)}
+    # Cluster 0 has higher raw magnitude on BOTH subtasks, but subtask B boosts cluster 1 relative to ref
+    ref_energy = {"fc": torch.tensor([10.0, 10.0, 2.0, 2.0])}
+    subtask_energies = {
+        "a": {"fc": torch.tensor([12.0, 12.0, 1.0, 1.0])},
+        "b": {"fc": torch.tensor([8.0, 8.0, 4.0, 4.0])},
+    }
+
+    raw_masks = AtlasDiscoverer(
+        top_cluster_fraction=0.5, attribution_mode="raw"
+    ).attribute_from_unit_energy(clusters, subtask_energies, reference_energy=ref_energy)
+    assert raw_masks["a"].iou(raw_masks["b"]) == 1.0  # raw collapses to identical masks
+
+    sel_masks = AtlasDiscoverer(
+        top_cluster_fraction=0.5, attribution_mode="selectivity"
+    ).attribute_from_unit_energy(clusters, subtask_energies, reference_energy=ref_energy)
+    assert sel_masks["a"].iou(sel_masks["b"]) == 0.0
+    assert sel_masks["a"].metadata["pairwise_iou"]["b"]["overall"] == 0.0
+    assert sel_masks["a"].metadata["attribution_mode"] == "selectivity"
+
+    con_masks = AtlasDiscoverer(
+        top_cluster_fraction=0.5, attribution_mode="contrastive"
+    ).attribute_from_unit_energy(clusters, subtask_energies)
+    assert con_masks["a"].iou(con_masks["b"]) == 0.0
+    assert con_masks["b"].metadata["pairwise_iou"]["a"]["overall"] == 0.0

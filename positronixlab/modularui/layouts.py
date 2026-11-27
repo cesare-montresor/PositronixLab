@@ -48,7 +48,7 @@ class HomeLayout:
         self.overall_spaceloss = GroupedChartsDisplay(
             css_id="positronixlab-overall-spaceloss",
             groups_fn=lambda: ui.get_family_groups(SPACELOSS_FAMILY),
-            label_order=lambda labels: list(labels), emphasize=GLOBAL_TRACE_NAME,
+            label_order=list, emphasize=GLOBAL_TRACE_NAME,
             height=110, flex_basis=200, empty_text="no space loss yet",
         )
         
