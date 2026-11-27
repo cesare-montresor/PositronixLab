@@ -260,10 +260,6 @@ def test_seed_everything_reproducibility():
     assert torch.backends.cudnn.deterministic is True
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug B3: seed_everything() sets torch.backends.cudnn.benchmark = True, contradicting cudnn.deterministic = True",
-)
 def test_seed_everything_disables_cudnn_benchmark():
     seed_everything(42)
     assert torch.backends.cudnn.benchmark is False

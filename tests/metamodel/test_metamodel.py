@@ -188,10 +188,6 @@ class TestMetaMetric:
         with pytest.raises(ValueError, match="Unsupported metric type"):
             m.metric(None, torch.zeros(2), torch.zeros(2))
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in metacriterion.py:45,57: self.custom_metric = {} shadows def custom_metric()",
-    )
     def test_custom_metric_registration_bug(self):
         m = MetaMetric(MetaModelConfig(), metric_type="my_metric")
         m.custom_metric("my_metric", lambda x, y, y_hat: torch.tensor(1.0))
@@ -300,10 +296,6 @@ class TestMetaModel:
         model = MetaModel("cpu_req", cfg, device=torch.device("cpu"))
         assert model.device == torch.device("cpu")
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in metamodel.py:250-255: output_num_layers=1 hits is_first_layer before is_last_layer, outputting input_hidden_dim",
-    )
     def test_single_output_layer_outputs_output_data_shape(self):
         cfg = MetaModelConfig(
             input_data_shape=16,
@@ -319,10 +311,6 @@ class TestMetaModel:
         y_hat = model(torch.randn(4, 16))
         assert y_hat.shape == (4, 5)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in metamodel.py:252: build_model_output_block uses input_hidden_dim instead of output_hidden_dim",
-    )
     def test_output_hidden_dim_is_used(self):
         cfg = MetaModelConfig(
             input_data_shape=16,
@@ -378,10 +366,6 @@ class TestMetaModel:
         x = torch.randn(2, 3, 8, 8)
         assert model(x).shape == x.shape
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in metamodel.py:222,279: dropout_every=0 enables dropout on layer 0 instead of disabling dropout",
-    )
     def test_dropout_every_zero_disables_dropout(self):
         cfg = MetaModelConfig(
             input_data_shape=8,

@@ -13,3 +13,4 @@
 | **B2** | `DeeplearningTrain.inference()` under-reported `avg_loss` by `~batch_size` | Fixed in `deeplearning_train.py:187` (`total_loss += loss.detach().item() * len(x)`). `test_b2_*` passes. |
 | **B3** | `DeeplearningTrain.inference()` crashed on 3-tuple `(x, y, idx)` batches | Fixed in `deeplearning_train.py:176-180` (handles `len(batch) == 3`). `test_b3_*` passes. |
 | **Cleanup** | Legacy file `deeplearning_legacy.py` in package tree | Removed from `positronixlab/deeplearning/`. |
+| **B4 (P0, 2026-11-27)** | `DeeplearningBase.process_batch()` ran `self.model(x)` outside `torch.set_grad_enabled(self.is_training)` | Wrapped `self.model(x)` in `with torch.set_grad_enabled(self.is_training):` (`deeplearning_base.py:81-82`); xfail removed and passing. |

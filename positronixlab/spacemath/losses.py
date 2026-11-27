@@ -45,14 +45,11 @@ def loss_batch_repulsion(
     """
     if centers_on.ndim == 3:
         if mixed is not None:
-            active = centers_on[mixed > 0]
-            if active.shape[0] <= 1:
-                return centers_on.new_zeros(())
-            pts = active
+            pts = centers_on[mixed > 0]
         else:
             pts = centers_on.reshape(-1, centers_on.shape[-1])
     else:
-        pts = centers_on
+        pts = centers_on[mixed > 0] if mixed is not None else centers_on
 
     if pts.shape[0] <= 1:
         return centers_on.new_zeros(())

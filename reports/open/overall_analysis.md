@@ -22,7 +22,7 @@ Since the initial `layerspace`-branch audit, `positronixlab` has undergone a **m
 
 ### Current Full-Suite Verification Results
 
-**Pytest (`HEAD b414936` + metamodel B5 xfail removed):** **447 passed, 86 xfailed, 2 failed** across 535+ collected tests *(ZERO real test failures — the only 2 failures are sandbox-only `../parallelazy` stub errors in `tests/nas/test_nas.py`; see [xfail_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/xfail_analysis.md) for the remaining 85 `xfail` markers / 86 test cases)*.
+**Pytest (2026-11-27 — all P0 bugs solved!):** **462 passed, 71 xfailed, 2 failed** across 535+ collected tests *(ZERO real test failures — the only 2 failures are sandbox-only `../parallelazy` stub errors in `tests/nas/test_nas.py`; see [xfail_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/xfail_analysis.md) for the remaining 71 P1/P2 `xfail` markers)*.
 
 **Ruff (`ruff check positronixlab tests`):** **0 hits** (all checks passed).
 **Typing (`mypy` / `pyright`):** **0 mypy errors**, **0 pyright errors** (see [`reports/typing/typing_summary.md`](file:///home/cesare/Projects/PositronixLab/reports/typing/typing_summary.md)).

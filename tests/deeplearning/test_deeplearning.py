@@ -487,10 +487,6 @@ class TestKnownBugs:
         assert isinstance(avg_loss, float)
         assert 0.0 <= acc <= 1.0
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug B4: DeeplearningBase.process_batch() runs self.model(x) outside torch.set_grad_enabled(self.is_training)",
-    )
     def test_b4_process_batch_eval_disables_grad_during_forward(self):
         cfg = TaskTrainConfig()
         model = TinyClassifier()

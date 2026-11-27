@@ -1,9 +1,8 @@
 # Open `xfail` Bugs Analysis
 
 > **Scope:** All remaining `@pytest.mark.xfail(strict=True)` regression tests under `tests/`.
-> **Totals (2026-11-27 — `b414936`):** **85** open `xfail` markers (**86** test cases) across **12** modules (14 test files).
-> **Recently cleared (0 open `xfail`s in `dataprovider`, `baselines`, and `pipeline`):** Removed 3 `pipeline` xfails (B2 ×2, B7 fixed in `b414936`), 1 `metamodel` xfail (B5 fixed in `2ea821e`), 1 `modularcluster` B3 xfail, and 1 `modularobserver` closure xfail, plus 4 earlier XPASSes.
-> **Remaining test-only xfails (library already fixed):** `modularcluster` B2 ×2 (`test_b2_predict_*`, `test_b2_stream_fit_*`) — `_distance()` already guards `if x is y: dist.fill_diagonal_(0.0)`; tests fail because K=3 FAISS splits cluster 0 into `[1, 2]` (no diagonal corruption).
+> **Totals (2026-11-27 — all P0 bugs solved!):** **71** open `xfail` markers (**71** test cases) across **12** modules (14 test files).
+> **All P0 silent-correctness bugs resolved (14 xfail tests cleared):** `deeplearning` B4, `metamodel` B1/B3a/B3b/B8, `spacemath` #9/#10/#11, `template` #2/#3(×2)/#5, `utils` B3, and `modularcluster` B2(×2) — all moved to `reports/solved/`. `dataprovider`, `baselines`, and `pipeline` have 0 open `xfail` markers.
 
 ---
 
@@ -12,30 +11,25 @@
 | Module | Open `xfail`s | Test File(s) | Detailed Module Audit |
 | :--- | :---: | :--- | :--- |
 | **`stats`** | 14 | [test_stats.py](file:///home/cesare/Projects/PositronixLab/tests/stats/test_stats.py) | [stats_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/stats_analysis.md) |
-| **`metamodel`** | 10 | [test_metamodel.py](file:///home/cesare/Projects/PositronixLab/tests/metamodel/test_metamodel.py) | [metamodel_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/metamodel_analysis.md) |
-| **`spacemath`** | 9 | [test_spacemath_extended.py](file:///home/cesare/Projects/PositronixLab/tests/spacemath/test_spacemath_extended.py) | [spacemath_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/spacemath_analysis.md) |
 | **`tasks`** | 9 | [test_tasks_compositionality.py](file:///home/cesare/Projects/PositronixLab/tests/tasks/test_tasks_compositionality.py) | [tasks_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/tasks_analysis.md) |
 | **`modularui`** | 8 | [test_modularui.py](file:///home/cesare/Projects/PositronixLab/tests/modularui/test_modularui.py) | [modularui_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularui_analysis.md) |
-| **`deeplearning`** | 6 | [test_deeplearning.py](file:///home/cesare/Projects/PositronixLab/tests/deeplearning/test_deeplearning.py) | [deeplearning_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/deeplearning_analysis.md) |
-| **`template`** | 6 | [test_template.py](file:///home/cesare/Projects/PositronixLab/tests/template/test_template.py) | [template_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/template_analysis.md) |
-| **`utils`** | 6 | [test_utils.py](file:///home/cesare/Projects/PositronixLab/tests/utils/test_utils.py) | [utils_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/utils_analysis.md) |
+| **`metamodel`** | 6 | [test_metamodel.py](file:///home/cesare/Projects/PositronixLab/tests/metamodel/test_metamodel.py) | [metamodel_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/metamodel_analysis.md) |
+| **`spacemath`** | 6 | [test_spacemath_extended.py](file:///home/cesare/Projects/PositronixLab/tests/spacemath/test_spacemath_extended.py) | [spacemath_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/spacemath_analysis.md) |
+| **`deeplearning`** | 5 | [test_deeplearning.py](file:///home/cesare/Projects/PositronixLab/tests/deeplearning/test_deeplearning.py) | [deeplearning_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/deeplearning_analysis.md) |
 | **`modularobserver`** | 5 | [test_modularobserver.py](file:///home/cesare/Projects/PositronixLab/tests/modularobserver/test_modularobserver.py) | [modularobserver_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularobserver_analysis.md) |
 | **`nas`** | 5 | [test_nas.py](file:///home/cesare/Projects/PositronixLab/tests/nas/test_nas.py) | [nas_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/nas_analysis.md) |
+| **`utils`** | 5 | [test_utils.py](file:///home/cesare/Projects/PositronixLab/tests/utils/test_utils.py) | [utils_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/utils_analysis.md) |
 | **`modularspace`** | 4 | [test_clustertracker.py](file:///home/cesare/Projects/PositronixLab/tests/modularspace/test_clustertracker.py), [test_modularspace.py](file:///home/cesare/Projects/PositronixLab/tests/modularspace/test_modularspace.py), [test_space_step.py](file:///home/cesare/Projects/PositronixLab/tests/modularspace/test_space_step.py) | [modularspace_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularspace_analysis.md) |
-| **`modularcluster`** | 3 | [test_streaming_kmeans.py](file:///home/cesare/Projects/PositronixLab/tests/modularcluster/test_streaming_kmeans.py) | [modularcluster_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularcluster_analysis.md) |
-| **Total** | **85** | **14 test files** | |
+| **`template`** | 3 | [test_template.py](file:///home/cesare/Projects/PositronixLab/tests/template/test_template.py) | [template_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/template_analysis.md) |
+| **`modularcluster`** | 1 | [test_streaming_kmeans.py](file:///home/cesare/Projects/PositronixLab/tests/modularcluster/test_streaming_kmeans.py) | [modularcluster_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularcluster_analysis.md) |
+| **Total** | **71** | **14 test files** | |
 
 ---
 
 ## 2. Priority Triage
 
-### P0 — Silent Correctness & Data Corruption (Fix First)
-- **`deeplearning` (1):** `DeeplearningBase.process_batch()` runs `self.model(x)` outside `torch.set_grad_enabled(self.is_training)` during eval (B4).
-- **`metamodel` (4):** `MetaMetric` shadows `def custom_metric()` with `self.custom_metric = {}`; `output_num_layers=1` outputs `input_hidden_dim`; `output_hidden_dim` ignored; `dropout_every=0` enables dropout on layer 0.
-- **`spacemath` (3):** `weighting.py` `mask_cluster_membership` uses `max()+1` instead of unique non-negative cluster count; `losses.py` `loss_batch_repulsion` ignores `mixed` for 2D inputs; `common.py` `spow` produces `inf` for negative powers near zero.
-- **`template` (2):** `TemplateFMnistFC/CNN` use `'fmnist'` instead of `'fashion_mnist'` (Bug #3); `TemplateVariant.matches_trial_parameters()` returns `True` on missing fixed keys (Bug #2).
-- **`utils` (1):** `seed_everything()` sets `cudnn.benchmark = True`, contradicting `cudnn.deterministic = True` (B3).
-- **Test-only fixes (4 — library bugs already solved, archived in `reports/solved/`):** `modularcluster` B2 ×2 (`test_b2_predict_*`, `test_b2_stream_fit_*`), `modularcluster` B3 (`test_b3_tracker_reorders_centroids_on_relabel`), and `modularobserver` (`test_modular_observer_on_grad_weights_closure_bug`).
+### P0 — Silent Correctness & Data Corruption
+*All P0 silent-correctness bugs have been fixed and archived under `reports/solved/`.*
 
 ### P1 — Crashes, Leaks & Broken Features
 - **`modularspace` (4):** `ModularSpace.get_space()` crashes with `stats_enabled=False` (B1); `LayerSpace.process_scores()` calls `.backward()` on detached zero tensor (B3); `ClusterTracker` `k_old == 0` crash (B4) and single-child split offset (B5).

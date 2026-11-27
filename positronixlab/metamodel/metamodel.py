@@ -223,9 +223,7 @@ class MetaModel(BaseModel):
             input['batch_norm'] = self.block_batch_norm(self.config.model_type, output_dim)
 
         # dropout
-        first_dropout = dropout_every == 0 and is_first_layer
-        should_dropout = dropout_every > 0 and (layer_num + 1) % dropout_every == 0
-        if first_dropout or should_dropout:
+        if dropout_every > 0 and (layer_num + 1) % dropout_every == 0:
             input['dropout'] = nn.Dropout(self.config.dropout)
 
         block = nn.Sequential(input)
@@ -251,14 +249,14 @@ class MetaModel(BaseModel):
 
         # handle latent -> output 
         last_size = self.last_layer_size()
-        if is_first_layer:
-            assert last_size is not None
-            input_dim = last_size[1]
-            output_dim = self.config.input_hidden_dim
-        elif is_last_layer:
+        if is_last_layer:
             assert last_size is not None
             input_dim = last_size[1]
             output_dim = self.config.output_data_shape
+        elif is_first_layer:
+            assert last_size is not None
+            input_dim = last_size[1]
+            output_dim = self.config.output_hidden_dim
         else:
             input_dim = self.config.output_hidden_dim if last_size is None else last_size[1]
             output_dim = input_dim // 2 if reduce_dim else input_dim
@@ -282,9 +280,7 @@ class MetaModel(BaseModel):
             output['batch_norm'] = self.block_batch_norm(self.config.model_type, output_dim)
         
         # dropout
-        first_dropout = dropout_every == 0 and layer_num == 0
-        should_dropout = dropout_every > 0 and (layer_num + 1) % dropout_every == 0
-        if first_dropout or should_dropout:
+        if dropout_every > 0 and (layer_num + 1) % dropout_every == 0:
             output['dropout'] = nn.Dropout(self.config.dropout)
 
         block = nn.Sequential(output)
@@ -328,9 +324,7 @@ class MetaModel(BaseModel):
             output['batch_norm'] = self.block_batch_norm(self.config.model_type, output_dim)
         
         # dropout
-        first_dropout = dropout_every == 0 and layer_num == 0
-        should_dropout = dropout_every > 0 and (layer_num + 1) % dropout_every == 0
-        if first_dropout or should_dropout:
+        if dropout_every > 0 and (layer_num + 1) % dropout_every == 0:
             output['dropout'] = nn.Dropout(self.config.dropout)
 
         block = nn.Sequential(output)

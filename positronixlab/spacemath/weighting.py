@@ -67,16 +67,20 @@ def mask_cluster_membership(
     """
     if labels is None:
         return None
-    lab = torch.as_tensor(labels, device=device).long()
+    lab = torch.as_tensor(labels, device=device).long().reshape(-1)
     if num_units is not None and lab.numel() != num_units:
         raise ValueError(f"Expected {num_units} cluster labels, got {lab.numel()}.")
     if lab.numel() == 0:
         return None
-    K = int(lab.max().item()) + 1
+    valid_mask = lab >= 0
+    unique_ids = torch.unique(lab[valid_mask])
+    K = int(unique_ids.numel())
     if K < 2:
         return None
-    M = F.one_hot(lab.clamp_min(0), K).T.to(dtype)  # (K, U)
-    valid = (lab >= 0).to(dtype).unsqueeze(0)
+    mapped = torch.searchsorted(unique_ids, lab.clamp_min(int(unique_ids[0].item())))
+    mapped = torch.where(valid_mask, mapped, torch.zeros_like(mapped))
+    M = F.one_hot(mapped, K).T.to(dtype)  # (K, U)
+    valid = valid_mask.to(dtype).unsqueeze(0)
     if unit_mask is not None:
         valid = valid * unit_mask.to(device=device, dtype=dtype).unsqueeze(0)
     return M * valid

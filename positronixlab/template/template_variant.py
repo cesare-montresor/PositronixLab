@@ -43,7 +43,7 @@ class TemplateVariant:
         Used to identify common phase prior trials that can bootstrap this variant.
         """
         for k, v in self.fixed_features.items():
-            if k in parameters and parameters[k] != v:
+            if k not in parameters or parameters[k] != v:
                 return False
         return True
 

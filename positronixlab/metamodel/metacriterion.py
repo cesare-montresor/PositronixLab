@@ -43,7 +43,7 @@ class MetaCriterion:
         
 class MetaMetric:
     def __init__(self, config: PipelineConfig, metric_type: str | None = None):
-        self.custom_metric = {}  # type: ignore[method-assign, assignment]
+        self.custom_metrics: dict[str, Any] = {}
         self.task =  config.task  # Default task is regression
         self.metric_type = metric_type 
         if self.metric_type is None:
@@ -56,7 +56,7 @@ class MetaMetric:
           # Use task as metric type for simplicity
 
     def custom_metric(self, name, function):
-        self.custom_metric[name] = function  # pyright: ignore[reportIndexIssue]
+        self.custom_metrics[name] = function
     
     def metric(self, x, y, y_hat):
         result = None 
@@ -71,8 +71,8 @@ class MetaMetric:
             union = y_hat.sum() + y.sum() - intersection
             iou = intersection / (union + 1e-8)
             result = iou
-        elif self.metric_type in self.custom_metric:  # pyright: ignore[reportOperatorIssue]
-            result = self.custom_metric[self.metric_type](x, y, y_hat)  # pyright: ignore[reportIndexIssue]
+        elif self.metric_type in self.custom_metrics:
+            result = self.custom_metrics[self.metric_type](x, y, y_hat)
         else:
             raise ValueError(f"Unsupported metric type: {self.metric_type}")
 

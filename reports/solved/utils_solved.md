@@ -15,3 +15,4 @@
 | **v0.1.3 A9c** | `signature_settings()` crashed on `Path`/NumPy/`dtype`/dataclasses and failed MD5 under FIPS | Fixed in `utils.py:232-252`: added `_json_default` encoder and `usedforsecurity=False`. |
 | **Exports** | Empty `utils/__init__.py` | Populated (`utils/__init__.py:1-47`) exporting all 21 functions with `__all__`. |
 | **Error-path & FIPS (2026-11-27)** | `suppress_output()` `KeyError`/FD leak if `os.open`/`os.dup2` raised; `model_hash()` missing `usedforsecurity=False` | Guarded `os.open`/`os.dup2` cleanup & `_SUPPRESS_STATE.get(fd)` (`utils.py:49-78`); added `usedforsecurity=False` fallback in `model_hash()` (`utils.py:371-375`). |
+| **B3 / v0.1.3 C9 (P0, 2026-11-27)** | `seed_everything()` set `cudnn.benchmark = True` & used `manual_seed` instead of `manual_seed_all` | Fixed to `torch.cuda.manual_seed_all(seed)` and `torch.backends.cudnn.benchmark = False` (`utils.py:182-184`); xfail removed and passing. |

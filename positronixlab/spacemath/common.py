@@ -33,13 +33,13 @@ def zclamp(x: torch.Tensor, eps: float = 1e-8, force_zero: bool = False) -> torc
     """Out-of-place version of zclamp_."""
     return zclamp_(x.clone(), eps, force_zero)
 
-def spow_(x: torch.Tensor, power: float, eps: float = 1e-8, force_zero: bool = True) -> torch.Tensor:
+def spow_(x: torch.Tensor, power: float, eps: float = 1e-8, force_zero: bool = False) -> torch.Tensor:
     """In-place safe pow: clamps near-zero values before raising to power. Pushes near-zero values to ±eps or zero if force_zero is True."""
     zclamp_(x, eps, force_zero)       # explicit free-function call, no ordering magic
     x.pow_(power)
     return x
 
-def spow(x: torch.Tensor, power: float, eps: float = 1e-8, force_zero: bool = True) -> torch.Tensor:
+def spow(x: torch.Tensor, power: float, eps: float = 1e-8, force_zero: bool = False) -> torch.Tensor:
     """Out-of-place safe pow."""
     return spow_(x.clone(), power, eps, force_zero)
 

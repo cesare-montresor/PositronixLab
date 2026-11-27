@@ -153,7 +153,6 @@ def test_bug_is_linear_matches_identity():
     assert not is_linear(nn.Identity())
 
 
-@pytest.mark.xfail(strict=True, reason="common.py:30 spow defaults to force_zero=True, producing inf for negative powers")
 def test_bug_spow_negative_power_near_zero():
     out = spow(torch.tensor([1e-10]), -1.0)
     assert torch.isfinite(out).all()
@@ -292,10 +291,6 @@ def test_mask_cluster_membership_edge_cases():
         mask_cluster_membership(torch.tensor([0, 1]), num_units=5, device=dev, dtype=torch.float32)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="weighting.py:74 mask_cluster_membership uses max()+1 instead of unique non-negative cluster count",
-)
 def test_bug_mask_cluster_membership_single_nonzero_cluster_id():
     labels = torch.tensor([-1, -1, 2, 2])
     m = mask_cluster_membership(labels, num_units=4, device=torch.device("cpu"), dtype=torch.float32)
@@ -344,7 +339,6 @@ def test_bug_loss_layer_alignment_empty_list():
     assert out.item() == 0.0
 
 
-@pytest.mark.xfail(strict=True, reason="losses.py:45-54 loss_batch_repulsion ignores `mixed` for 2D inputs")
 def test_bug_loss_batch_repulsion_2d_ignores_mixed():
     pts = torch.randn(4, 6)
     mixed = torch.zeros(4)

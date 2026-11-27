@@ -78,7 +78,8 @@ class DeeplearningBase:
         
         if self.optimizer is not None:
             self.optimizer.zero_grad()
-        y_hat = self.model(x)
+        with torch.set_grad_enabled(self.is_training):
+            y_hat = self.model(x)
 
         self._did_prediction(epoch, epoch_total, batch_idx, batch_total, data_batch, y_hat)
 

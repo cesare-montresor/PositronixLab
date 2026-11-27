@@ -1,6 +1,6 @@
 # `positronixlab/modularcluster` — Open Issues Analysis
 
-> **Status (2026-11-27 — `v0.1.3` / `5740a0c` + working tree):** **29 passed, 3 xfailed, 0 failed** (`tests/modularcluster/`).
+> **Status (2026-11-27):** **31 passed, 1 xfailed, 0 failed** (`tests/modularcluster/`).
 > **Solved issues archive:** Resolved B1–B5/B7 (`ModularClusterKmeans`), A6a–d, and cleanup moved to [solved/modularcluster_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/modularcluster_solved.md).
 
 ---

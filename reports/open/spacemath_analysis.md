@@ -1,7 +1,7 @@
 # `positronixlab.spacemath` — Open Issues Analysis
 
-> **Status (2026-11-27 — `v0.1.3` / `5740a0c` + working tree):** **44 passed, 9 xfailed, 0 failed** (`tests/spacemath/`).
-> **Solved issues archive:** Resolved v2 bugs (#1-v2, #6-`is_linear`, #7, #16, v0.1.3 A10a–e, stale 3D test & exports) moved to [solved/spacemath_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/spacemath_solved.md).
+> **Status (2026-11-27):** **47 passed, 6 xfailed, 0 failed** (`tests/spacemath/`).
+> **Solved issues archive:** Resolved v2 bugs (#1-v2, #6-`is_linear`, #7, #9, #10, #11, #16, v0.1.3 A10a–e, stale 3D test & exports) moved to [solved/spacemath_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/spacemath_solved.md).
 
 ---
 
@@ -10,10 +10,7 @@
 ### High / Medium Severity (Active v2 Primitives)
 1. **`infer_shape` has a stray `self` parameter & mismatched `x_in` typing** (`common.py:51-56`, xfail `test_spacemath_extended.py:149`): Calling `infer_shape(x_in, x_out)` raises `TypeError`.
 2. **`loss_layer_alignment` crashes on empty sequence & returns `sqrt(eps)` on single-layer 3D Euclidean tensor** (`losses.py:116-126`, xfail `test_spacemath_extended.py:346`).
-3. **`loss_batch_repulsion` silently ignores `mixed` for 2D inputs** (`losses.py:45-55`, xfail `test_spacemath_extended.py:352`): `if mixed is not None:` is nested inside `if centers_on.ndim == 3:`.
-4. **`mask_cluster_membership` fails for single non-zero cluster ID & non-contiguous IDs** (`weighting.py:74-81`, xfail `test_spacemath_extended.py:300`): Uses `max()+1` instead of unique non-negative cluster count.
-5. **`spow` / `spow_` defaults to `force_zero=True` → `inf` on negative powers** (`common.py:32-40`, xfail `test_spacemath_extended.py:161`).
-6. **Euclidean `distance_elementwise(x, x)` returns `sqrt(eps)=1e-4` instead of `0.0`** (`space_type.py:70`, xfail `test_spacemath_extended.py:202`): Inconsistent with `distance_pairwise` (`0.0`).
+3. **Euclidean `distance_elementwise(x, x)` returns `sqrt(eps)=1e-4` instead of `0.0`** (`space_type.py:70`, xfail `test_spacemath_extended.py:202`): Inconsistent with `distance_pairwise` (`0.0`).
 7. **Sign-preserving scorers & silent Softmax override (v0.1.3 B4)** (`scoring.py:19-20, 55-86, 139`):
    - `score_sign_preserving_*` with ReLU collapses negative branch to `[0, 1]` with no warning.
    - `activations_to_scores` overrides `score_method` when `isinstance(activation_fn, nn.Softmax)` even when `apply_activation=False`.

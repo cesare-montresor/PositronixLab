@@ -1,7 +1,7 @@
 # `positronixlab/utils` — Open Issues Analysis
 
-> **Status (2026-11-27 — `v0.1.3` / `5740a0c` + working tree):** **34 passed, 6 xfailed, 0 failed** (`tests/utils/`).
-> **Solved issues archive:** Resolved B1, B6, B8, B12, v0.1.3 A7–A9, and `__init__.py` moved to [solved/utils_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/utils_solved.md).
+> **Status (2026-11-27):** **35 passed, 5 xfailed, 0 failed** (`tests/utils/`).
+> **Solved issues archive:** Resolved B1, B3 (P0), B6, B8, B12, v0.1.3 A7–A9, and `__init__.py` moved to [solved/utils_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/utils_solved.md).
 
 ---
 
@@ -13,11 +13,7 @@
    - **Location:** `positronixlab/utils/utils.py:33-38` (xfail `test_utils.py:71`)
    - **Details:** When current method is `'fork'` or `'forkserver'`, it warns and never calls `mp.set_start_method('spawn', force=True)`.
 
-2. **`seed_everything()` sets contradictory cuDNN flags & omits multi-GPU seeding (B3 / v0.1.3 C9)**
-   - **Location:** `positronixlab/utils/utils.py:150-161` (xfail `test_utils.py:266`)
-   - **Details:** Sets `cudnn.deterministic = True` followed by `cudnn.benchmark = True`; calls `torch.cuda.manual_seed` instead of `manual_seed_all`; no `deterministic` toggle.
-
-3. **`check_tensor()` / `info_tensor()` early-bound `debug`, missing forwarding, and wrong Inf message (B4)**
+2. **`check_tensor()` / `info_tensor()` early-bound `debug`, missing forwarding, and wrong Inf message (B4)**
    - **Location:** `positronixlab/utils/utils.py:164-172` (xfails `test_utils.py:300, 311`)
    - **Details:** `debug=debug` bound at import time; `check_tensor` does not forward `debug=debug` to `info_tensor`; reports `"NaN detected"` on `Inf`.
 

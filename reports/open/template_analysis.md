@@ -1,7 +1,8 @@
 # `positronixlab/template` — Open Issues Analysis
 
-> **Status (2026-11-27 — `v0.1.3` / `5740a0c` + working tree):** **21 passed, 7 xfailed, 0 failed** (`tests/template/`).
-> **Note:** `__init__.py` now exports 16 classes (eagerly pulling in optional `ax-platform`); all 11 bugs below (**#1–#11**) remain open, plus v0.1.3 **E5** (top-level `ax.api.configs` import without `[nas]` hint) and **F** (`RUF013` implicit `Optional` in 6 template files).
+> **Status (2026-11-27):** **25 passed, 3 xfailed, 0 failed** (`tests/template/`).
+> **Solved issues archive:** Resolved P0 bugs #2, #3, and #5 moved to [solved/template_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/template_solved.md).
+> **Note:** Remaining bugs (#1, #4, #6–#11) remain open, plus v0.1.3 **E5** (top-level `ax.api.configs` import without `[nas]` hint).
 
 ---
 

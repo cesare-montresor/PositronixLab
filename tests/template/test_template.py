@@ -278,19 +278,11 @@ class TestConcreteTemplates:
             parameter_constraints=tpl.get_constraints() or None,
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug #3: TemplateFMnistFC/CNN set dataset_name='fmnist' instead of DataProviderFactory's 'fashion_mnist'",
-    )
     @pytest.mark.parametrize("cls", [TemplateFMnistFC, TemplateFMnistCNN])
     def test_fmnist_dataset_name_matches_dataprovider_factory(self, cls):
         tpl = cls()
         assert tpl.fixed["dataset_name"] == "fashion_mnist"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug #5: TemplateFMnistCNN forgets to override nas_min_acc=0.85 (inherits 0.95 from TemplateDL)",
-    )
     def test_fmnist_cnn_nas_min_acc_matches_fmnist_fc(self):
         assert TemplateFMnistCNN().fixed["nas_min_acc"] == TemplateFMnistFC().fixed["nas_min_acc"]
 
@@ -360,10 +352,6 @@ class TestTemplateVariants:
             {"exp_metric_modularity": False, "exp_modularizer": False}
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug #2: matches_trial_parameters() returns True when fixed keys are missing from parameters",
-    )
     def test_variant_matches_trial_parameters_missing_keys_returns_false(self):
         v = TemplateVariant(
             "v_b",

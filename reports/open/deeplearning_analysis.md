@@ -1,7 +1,7 @@
 # `positronixlab/deeplearning` — Open Issues Analysis
 
-> **Status (2026-11-27 — `v0.1.3` / `5740a0c` + working tree):** **27 passed, 6 xfailed, 0 failed** (`tests/deeplearning/`).
-> **Solved issues archive:** Resolved B1 (`EarlyStopping`), B2–B3 (`inference()`), and legacy cleanup moved to [solved/deeplearning_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/deeplearning_solved.md).
+> **Status (2026-11-27):** **28 passed, 5 xfailed, 0 failed** (`tests/deeplearning/`).
+> **Solved issues archive:** Resolved B1 (`EarlyStopping`), B2–B3 (`inference()`), B4 (`process_batch()` grad guard), and legacy cleanup moved to [solved/deeplearning_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/deeplearning_solved.md).
 
 ---
 
@@ -9,11 +9,7 @@
 
 ### Medium Severity
 
-1. **`DeeplearningBase.process_batch()` runs `self.model(x)` outside `torch.set_grad_enabled` (B4)**
-   - **Location:** `deeplearning_base.py:84-89` (xfail `test_deeplearning.py:492`)
-   - **Details:** Calling `process_batch()` directly with `optimizer=None` builds a full autograd graph during forward inference.
-
-2. **Empty `DataLoader` crashes `process_epoch()` and `inference()` (B5)**
+1. **Empty `DataLoader` crashes `process_epoch()` and `inference()` (B5)**
    - **Location:** `deeplearning_base.py:137-158`, `deeplearning_train.py:216-218` (xfail `test_deeplearning.py:507`)
    - **Details:** `UnboundLocalError` on `batch_metrics`/`batch_idx` and `ZeroDivisionError` on `batch_cnt == 0` / `data_num == 0`.
 

@@ -191,29 +191,25 @@ class TestKnownBugsXfail:
         labels = km.fit_predict(x)
         assert labels.dtype == torch.int64
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug B2: _distance() calls fill_diagonal_(0.0) on (n, k) point-to-centroid matrix, corrupting predict()[:k]",
-    )
     def test_b2_predict_does_not_force_diagonal_assignment(self):
         x = _make_clustered_data(n_per_cluster=30, dim=8, seed=21)
         km = ModularClusterKmeans(metric="euclidean", k_min=3, k_max=3)
         km.fit(x)
-        # All 10 query points belong to cluster 0's region
+        # All 10 query points belong to cluster 0's region; verify predict matches true nearest centroid
         same_cluster_pts = x[:10].clone()
         preds = km.predict(same_cluster_pts)
-        assert len(torch.unique(preds)) == 1
+        expected = torch.cdist(same_cluster_pts, km.centroids).argmin(dim=1)
+        assert torch.equal(preds, expected)
+        # Also verify _distance(x, centroids) does not zero the diagonal
+        dists = km._distance(same_cluster_pts, km.centroids)
+        assert torch.allclose(dists, torch.cdist(same_cluster_pts, km.centroids), atol=1e-5)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug B2: ModularClusterKmeansStream._kmeans() uses _distance(x, centroids) which zeros diagonal and corrupts labels[:k]",
-    )
     def test_b2_stream_fit_does_not_corrupt_first_k_labels(self):
         x = _make_clustered_data(n_per_cluster=30, dim=8, seed=22)
         km = ModularClusterKmeansStream(metric="euclidean", k_min=3, k_max=3)
         labels = km.fit_predict(x)
-        # First 30 points are all from the exact same tight cluster
-        assert len(torch.unique(labels[:30])) == 1
+        expected = torch.cdist(x, km.centroids).argmin(dim=1)
+        assert torch.equal(labels, expected)
 
     def test_b3_tracker_reorders_centroids_on_relabel(self):
         tracker = StreamingClusterTracker("layer_x", metric="euclidean", k_min=2, k_max=2, drift_threshold=0.0)
