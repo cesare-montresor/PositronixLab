@@ -1,31 +1,19 @@
 # Open `xfail` Bugs Analysis
 
 > **Scope:** All remaining `@pytest.mark.xfail(strict=True)` regression tests under `tests/`.
-> **Totals (2026-11-27 — ALL P0 & P1 xfails across all 14 active modules solved!):** **9** open `xfail` markers (**9** test cases) in **1** legacy prototype test file (`tests/tasks/test_tasks_compositionality.py`).
-> **Modules now at 0 open `xfail`s (14 of 15):** `baselines`, `dataprovider`, `deeplearning`, `metamodel`, `modularcluster`, `modularobserver`, `modularspace`, `modularui`, `nas`, `pipeline`, `spacemath`, `stats`, `template`, `utils` *(plus all active `tasks/` APIs: `SubnetworkMask`, `MaskApplier`, `AtlasDiscoverer`, `ModularityBenchmark`)*.
+> **Totals (2026-11-27 — 100% RESOLVED!):** **0** open `xfail` markers across all **15 of 15** modules!
+> **All 92 original `xfail` bugs have been fixed, verified, and archived under [`reports/solved/`](file:///home/cesare/Projects/PositronixLab/reports/solved/).**
 
 ---
 
-## 1. Summary by Module
+## Status
 
-| Module | Open `xfail`s | Test File(s) | Detailed Module Audit |
-| :--- | :---: | :--- | :--- |
-| **`tasks` (`compositionality/` prototype)** | 9 | [test_tasks_compositionality.py](file:///home/cesare/Projects/PositronixLab/tests/tasks/test_tasks_compositionality.py) | [tasks_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/tasks_analysis.md) |
-| **Total** | **9** | **1 test file** | |
-
----
-
-## 2. Priority Triage
-
-### P0 — Silent Correctness & Data Corruption
-*All P0 silent-correctness bugs have been fixed and archived under `reports/solved/`.*
-
-### P1 — Crashes, Leaks & Broken Features
-*All P1 `xfail` bugs across all 15 modules have been fixed and archived under `reports/solved/`.*
-
-### P2 — Legacy / Prototype Code (Remaining: 9)
-- **Earlier `tasks/compositionality` prototype (9):**
-  - `atlas_check.py`, `weightmask_check.py`, `compositionality.py` — superseded for new benchmarks by `positronixlab.tasks` (`SubnetworkMask`, `MaskApplier`, `AtlasDiscoverer`, `ModularityBenchmark`), though still tested and exposed.
+| Priority | Open `xfail`s | Status |
+| :--- | :---: | :--- |
+| **P0 — Silent Correctness & Data Corruption** | **0** | All fixed & archived in `reports/solved/` |
+| **P1 — Crashes, Leaks & Broken Features** | **0** | All fixed & archived in `reports/solved/` |
+| **P2 — Refactor Gaps & Legacy Prototype** | **0** | All fixed & archived in `reports/solved/` |
+| **Total** | **0** | **15 / 15 modules green!** |
 
 ---
 

@@ -1,7 +1,7 @@
 # `positronixlab/tasks` — Open Issues Analysis
 
-> **Status (2026-11-27 — `v0.1.3` / `5740a0c` + working tree):** **35 passed, 9 xfailed, 0 failed** (`tests/tasks/`; all 9 xfails are in legacy `tasks/compositionality/`).
-> **Solved issues archive:** Unified `SubnetworkMask`/`MaskApplier`/`AtlasDiscoverer`/`ModularityBenchmark` and resolved v0.1.3 A2–A4, B1–B3, C1, C2 (`atlas_discoverer.py`), D1 moved to [solved/tasks_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/tasks_solved.md).
+> **Status (2026-11-27):** **44 passed, 0 xfailed, 0 failed** (`tests/tasks/`).
+> **Solved issues archive:** Unified `SubnetworkMask`/`MaskApplier`/`AtlasDiscoverer`/`ModularityBenchmark`, resolved v0.1.3 A2–A4, B1–B3, C1, C2, D1, and all 9 legacy `tasks/compositionality/` xfail bugs (#1–#4, #6–#10) moved to [solved/tasks_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/tasks_solved.md).
 
 ---
 
@@ -31,20 +31,11 @@
 
 ## 2. Open Issues in Legacy `tasks/compositionality/` Prototype (Superseded)
 
-The earlier prototype under `positronixlab/tasks/compositionality/` (`atlas_check.py`, `weightmask_check.py`, `compositionality.py`) has been superseded for new benchmarks by the unified `tasks/` API above, but remains exposed and tested (9 strict xfails):
+The earlier prototype under `positronixlab/tasks/compositionality/` (`atlas_check.py`, `weightmask_check.py`, `compositionality.py`) has been superseded for new benchmarks by the unified `tasks/` API above. All 9 strict `xfail` bugs have been fixed and archived; remaining low-priority legacy items:
 
-1. **Atlas mask key & 1D shape mismatch with `StaticMaskApplier` (#1):** `atlas_check.py:227-240`, `compositionality.py:27-37` (xfail `test_tasks_compositionality.py:435`).
-2. **`WeightmaskCheck.run()` ignores `num_epochs` (#2):** `weightmask_check.py:16, 31` (xfail `:293`).
-3. **Empty class slice in `WeightmaskCheck.run()` → `NaN` loss (#3):** `weightmask_check.py:39-51` (xfail `:318`).
-4. **`AtlasCheck` leaks forward hooks permanently (#4):** `atlas_check.py:115` (xfail `:226`).
-5. **`AtlasCheck._on_prediction()` infinite busy-wait loop (#5):** `atlas_check.py:144-145`.
-6. **`MultiClassWeightmaskManager.remove_hooks()` doesn't restore `requires_grad` & not exception-safe (#6):** `weightmask_check.py:26-66, 93-94, 142-156` (xfail `:341`).
-7. **`MultiClassWeightmaskManager` `KeyError` on weightless layers (#7):** `weightmask_check.py:81-86, 96-115` (xfail `:352`).
-8. **`AtlasCheck.modularity_score()` `ZeroDivisionError` on empty stats (#8):** `atlas_check.py:308-313` (xfail `:211`).
-9. **`CompositionalityCheck.run()` `ZeroDivisionError` on empty dataloader (#9):** `compositionality.py:151` (xfail `:424`).
-10. **`CompositionalityPipeline` crashes when `dataprovider.test` is `None` (#10):** `compositionality.py:229` (xfail `:453`).
-11. **`AtlasCheck._cluster_class_attribution()` device mismatch (#11):** `atlas_check.py:181-187`.
-12. **Broken WIP `AtlasCheck._cluster_output_attribution()` (#12 / v0.1.3 B7):** `atlas_check.py:199-225` (shadows args, unvalidated broadcast).
-13. **`WeightMasksMetrics.compute_sparsity()` returns density (#13):** `weightmask_check.py:200-203`.
-14. **`DiscreteDistribution.update()` mutates `total_count` to Tensor / CPU-GPU mismatch (#14):** `atlas_check.py:37, 49-51`.
-15. **Dead code (#15 remaining):** Unused `compute_spatial_loss()` (`weightmask_check.py:131-136`) and dead branch at `:166`.
+1. **`AtlasCheck._on_prediction()` infinite busy-wait loop (#5):** `atlas_check.py:144-145`.
+2. **`AtlasCheck._cluster_class_attribution()` device mismatch (#11):** `atlas_check.py:181-187`.
+3. **Broken WIP `AtlasCheck._cluster_output_attribution()` (#12 / v0.1.3 B7):** `atlas_check.py:199-225` (shadows args, unvalidated broadcast).
+4. **`WeightMasksMetrics.compute_sparsity()` returns density (#13):** `weightmask_check.py:200-203`.
+5. **`DiscreteDistribution.update()` mutates `total_count` to Tensor / CPU-GPU mismatch (#14):** `atlas_check.py:37, 49-51`.
+6. **Dead code (#15 remaining):** Unused `compute_spatial_loss()` (`weightmask_check.py:131-136`) and dead branch at `:166`.

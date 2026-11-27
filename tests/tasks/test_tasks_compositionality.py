@@ -208,10 +208,6 @@ class TestAtlasCheck:
         finally:
             atlas.observer.on_forward_layer(None)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Confirmed bug (atlas_check.py:310-315): modularity_score() divides by len(stats)==0 when empty.",
-    )
     def test_modularity_score_before_run_handles_empty_stats(self):
         model = make_modular_model(num_classes=3)
         dp = make_synthetic_dataprovider()
@@ -223,10 +219,6 @@ class TestAtlasCheck:
         finally:
             atlas.observer.on_forward_layer(None)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Confirmed bug (atlas_check.py:117): AtlasCheck never detaches forward hooks after run().",
-    )
     def test_atlas_detaches_hooks_after_run(self):
         model = make_modular_model(num_classes=3)
         dp = make_synthetic_dataprovider()
@@ -290,10 +282,6 @@ class TestWeightmaskCheck:
         assert isinstance(model.fc1.weight, nn.Parameter)
         assert len(model.fc1._forward_pre_hooks) == 0
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Confirmed bug (weightmask_check.py:18,33): num_epochs is ignored; only 1 epoch executes.",
-    )
     def test_weightmask_respects_num_epochs(self):
         model = make_modular_model(num_classes=3)
         dp = make_synthetic_dataprovider(num_samples=18, in_features=6, num_classes=3, batch_size=18)
@@ -315,10 +303,6 @@ class TestWeightmaskCheck:
         checker.run(target_layers={"fc1": model.fc1}, num_epochs=3, lr=0.05)
         assert iter_count == 3
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Confirmed bug (weightmask_check.py:41-54): empty class slice produces NaN task_loss/total_loss.",
-    )
     def test_weightmask_handles_batch_missing_a_class(self):
         model = make_modular_model(num_classes=3)
         # Batch with only classes 0 and 1 (class 2 absent)
@@ -338,10 +322,6 @@ class TestWeightmaskCheck:
         finally:
             mgr.remove_hooks()
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Confirmed bug (weightmask_check.py:95-96,144-159): remove_hooks() does not restore requires_grad.",
-    )
     def test_weightmask_restores_requires_grad(self):
         model = make_modular_model(num_classes=3)
         assert all(p.requires_grad for p in model.parameters())
@@ -349,10 +329,6 @@ class TestWeightmaskCheck:
         WeightmaskCheck(model=model, dataprovider=dp).run(target_layers={"fc1": model.fc1}, num_epochs=1)
         assert all(p.requires_grad for p in model.parameters())
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Confirmed bug (weightmask_check.py:98-117): target layer without weight raises KeyError in pre_hook.",
-    )
     def test_weightmask_manager_ignores_weightless_layers(self):
         model = make_modular_model(num_classes=3)
         mgr = MultiClassWeightmaskManager(model, {"fc1": model.fc1, "act": model.act}, num_classes=3)
@@ -421,10 +397,6 @@ class TestCompositionality:
         res = checker.evaluate_masked_runs(partial, method_name="Partial")
         assert list(res.keys()) == [0]
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Confirmed bug (compositionality.py:151): run() divides by zero on empty dataloader.",
-    )
     def test_compositionality_check_empty_dataloader(self):
         model = make_modular_model(num_classes=3)
         empty_loader = DataLoader(TensorDataset(torch.empty(0, 6), torch.empty(0, dtype=torch.long)), batch_size=4)
@@ -432,14 +404,6 @@ class TestCompositionality:
         res = checker.run(atlas_masks={}, csordas_masks={})
         assert res["untainted"]["accuracy"] == 0.0
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Confirmed bug (atlas_check.py:235-240 + compositionality.py:28-36): "
-            "Atlas 1D mask (out_features,) fails to broadcast against non-square weight (out, in) "
-            "and uses dotted keys ('net.0') ignored by StaticMaskApplier ('net_0')."
-        ),
-    )
     def test_static_mask_applier_accepts_raw_atlas_masks(self):
         model = NestedMLP(in_features=6, hidden=4, num_classes=2)
         # Raw AtlasCheck mask format: dotted key + 1D bool tensor of length out_features
@@ -450,10 +414,6 @@ class TestCompositionality:
             out_masked = model(x)
         assert not torch.allclose(out_unmasked, out_masked)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Confirmed bug (compositionality.py:229): CompositionalityPipeline crashes when dataprovider.test is None.",
-    )
     def test_compositionality_pipeline_handles_missing_test_split(self):
         model = make_modular_model(num_classes=3)
         dp = make_synthetic_dataprovider(include_test=False)

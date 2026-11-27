@@ -28,43 +28,50 @@ class WeightmaskCheck:
         
         mask_mgr.train()
         device = next(self.model.parameters()).device
-        for batch in tqdm(self.dataprovider.train, desc="Batch Processing", leave=False):
-            if len(batch) == 2:
-                x, y = batch
-            elif len(batch) == 3:
-                x, y, idxs = batch
-            
-            optimizer.zero_grad()
-            
-            for c in range(num_classes):
-                mask = (y == c)
-                
-                x_c = x[mask].to(device) 
-                y_c = y[mask].to(device)
-                
-                # Route the hook to apply the correct mask slice for this class
-                mask_mgr.current_class = c
-                
-                logits = mask_mgr(x_c)
-                
-                loss_dict = criterion(logits, y_c, mask_mgr.active_layer_masks)
-                loss_dict["total_loss"].backward()
-                
-            # Step the optimizer once per batch after all classes have accumulated their gradients
-            optimizer.step()
+        try:
+            for _epoch in range(num_epochs):
+                for batch in tqdm(self.dataprovider.train, desc="Batch Processing", leave=False):
+                    if len(batch) == 2:
+                        x, y = batch
+                    elif len(batch) == 3:
+                        x, y, idxs = batch
 
-        logger.info("Completed optimization for all classes. Extracting binary masks...")
-        
-        mask_mgr.eval()
-        class_masks: dict[int, dict[str, torch.Tensor]] = {}
-        with torch.no_grad():
-            for c in range(num_classes):
-                class_masks[c] = {}
-                for name, param in mask_mgr.masks.items():
-                    class_masks[c][name] = (param[c] > 0).float()
-                    
-        mask_mgr.remove_hooks()
-            
+                    optimizer.zero_grad()
+                    had_grad = False
+
+                    for c in range(num_classes):
+                        mask = (y == c)
+                        if not mask.any():
+                            continue
+
+                        x_c = x[mask].to(device)
+                        y_c = y[mask].to(device)
+
+                        # Route the hook to apply the correct mask slice for this class
+                        mask_mgr.current_class = c
+
+                        logits = mask_mgr(x_c)
+
+                        loss_dict = criterion(logits, y_c, mask_mgr.active_layer_masks)
+                        loss_dict["total_loss"].backward()
+                        had_grad = True
+
+                    # Step the optimizer once per batch after all classes have accumulated their gradients
+                    if had_grad:
+                        optimizer.step()
+
+            logger.info("Completed optimization for all classes. Extracting binary masks...")
+
+            mask_mgr.eval()
+            class_masks: dict[int, dict[str, torch.Tensor]] = {}
+            with torch.no_grad():
+                for c in range(num_classes):
+                    class_masks[c] = {}
+                    for name, param in mask_mgr.masks.items():
+                        class_masks[c][name] = (param[c] > 0).float()
+        finally:
+            mask_mgr.remove_hooks()
+
         return class_masks
 
 class MultiClassWeightmaskManager(nn.Module):
@@ -88,15 +95,19 @@ class MultiClassWeightmaskManager(nn.Module):
 
         self.active_layer_masks: list[torch.Tensor] = []
         self._hook_handles: list[torch.utils.hooks.RemovableHandle] = []
+        self._orig_requires_grad: dict[nn.Parameter, bool] = {}
         self._setup_hooks_and_freezing()
 
     def _setup_hooks_and_freezing(self):
         for param in self.model.parameters():
+            self._orig_requires_grad[param] = param.requires_grad
             param.requires_grad = False
 
         for name, module in self.target_layers.items():
             safe_name = name.replace('.', '_')
-            
+            if safe_name not in self.masks:
+                continue
+
             # 1. Stash the parameter ONCE during setup and delete it from the module
             if hasattr(module, 'weight'):
                 module._original_weight_param = module.weight
@@ -156,6 +167,11 @@ class MultiClassWeightmaskManager(nn.Module):
                 module.weight = module._original_weight_param
                 delattr(module, '_original_weight_param')
 
+        # 3. Restore original requires_grad flags
+        for param, req_grad in self._orig_requires_grad.items():
+            param.requires_grad = req_grad
+        self._orig_requires_grad.clear()
+
 class WeightMaskCriterion(nn.Module):
     def __init__(self, lambda_l1: float = 1e-4):
         super().__init__()
@@ -171,7 +187,10 @@ class WeightMaskCriterion(nn.Module):
         return overall_weightmaskloss
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor, layer_masks: list[torch.Tensor]) -> dict[str, torch.Tensor]:
-        task_loss = self.task_loss_fn(logits, targets)
+        if targets.numel() == 0:
+            task_loss = logits.sum() * 0.0
+        else:
+            task_loss = self.task_loss_fn(logits, targets)
         overall_weightmaskloss = self._compute_overall_weightmaskloss(layer_masks)
         total_loss = task_loss + (self.lambda_l1 * overall_weightmaskloss)
         return {

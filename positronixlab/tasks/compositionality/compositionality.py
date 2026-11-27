@@ -27,9 +27,12 @@ class StaticMaskApplier:
     def __enter__(self):
         for name, module in self.model.named_modules():
             safe_name = name.replace('.', '_')
+            mask_key = name if name in self.masks else (safe_name if safe_name in self.masks else None)
             weight = getattr(module, 'weight', None)
-            if safe_name in self.masks and isinstance(weight, torch.Tensor):
-                mask = self.masks[safe_name].to(weight.device)
+            if mask_key is not None and isinstance(weight, torch.Tensor):
+                mask = self.masks[mask_key].to(device=weight.device, dtype=weight.dtype)
+                if mask.ndim == 1 and weight.ndim >= 2 and mask.shape[0] == weight.shape[0]:
+                    mask = mask.view(mask.shape[0], *([1] * (weight.ndim - 1)))
                 self._orig_weights[name] = weight
 
                 def make_pre_hook(m_mask, orig_w):
@@ -150,7 +153,8 @@ class CompositionalityCheck:
         csordas_masks: dict[int, dict[str, torch.Tensor]]
     ) -> dict[str, Any]:
         untainted_cm = self.compute_untainted_cm()
-        untainted_total_acc = untainted_cm.diag().sum().item() / untainted_cm.sum().item()
+        total_samples = untainted_cm.sum().item()
+        untainted_total_acc = (untainted_cm.diag().sum().item() / total_samples) if total_samples > 0 else 0.0
 
         logger.info("--- Evaluating Atlas Class Masks ---")
         atlas_results = self.evaluate_masked_runs(atlas_masks, method_name="Atlas")
@@ -226,7 +230,7 @@ class CompositionalityPipeline:
         )
         csordas_masks = csordas.run(target_layers=target_layers, num_epochs=csordas_epochs, lr=csordas_lr)
         
-        test_loader = self.dataprovider.test
+        test_loader = self.dataprovider.test or self.dataprovider.val or self.dataprovider.train
         checker = CompositionalityCheck(
             model=self.model,
             dataloader=test_loader,  # type: ignore[arg-type]

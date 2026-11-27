@@ -116,7 +116,6 @@ class AtlasCheck:
             dataloader=self.dataprovider.train, # all 3 ? all data? or just train? cordas ? 
         )
         
-        self.observer.on_forward_layer(self._process_activations)
         self.eval.on_prediction(self._on_prediction)
         self.eval.on_batch_start(self._on_batch_start)
 
@@ -129,8 +128,11 @@ class AtlasCheck:
         self.y_distribution = self.get_distribution()
         self.output_shape = None
         
-        self.eval.process_epoch(self.dataprovider.train, epoch=0, epoch_total=1, draft=False)
-        pass
+        self.observer.on_forward_layer(self._process_activations)
+        try:
+            self.eval.process_epoch(self.dataprovider.train, epoch=0, epoch_total=1, draft=False)
+        finally:
+            self.observer.on_forward_layer(None)
 
     
     def _on_batch_start(self, epoch, epoch_total, batch_idx, batch_total, data_batch):
@@ -315,11 +317,20 @@ class AtlasCheck:
             
             logger.info(f"Layer {layer_id} -> Avg Purity: {avg_purity:.4f}, Avg Entropy: {avg_entropy:.4f}, Avg KLD: {avg_kld:.4f}, Avg KLD Exp: {avg_kld_exp:.4f}")
 
-        stats['model'] = {
-            'modularity_purity': sum(s['modularity_purity'] for s in stats.values()) / len(stats),
-            'modularity_entropy': sum(s['modularity_entropy'] for s in stats.values()) / len(stats),
-            'modularity_kld': sum(s['modularity_kld'] for s in stats.values()) / len(stats),
-            'modularity_kld_exp': sum(s['modularity_kld_exp'] for s in stats.values()) / len(stats),
-        }
+        n_layers = len(stats)
+        if n_layers > 0:
+            stats['model'] = {
+                'modularity_purity': sum(s['modularity_purity'] for s in stats.values()) / n_layers,
+                'modularity_entropy': sum(s['modularity_entropy'] for s in stats.values()) / n_layers,
+                'modularity_kld': sum(s['modularity_kld'] for s in stats.values()) / n_layers,
+                'modularity_kld_exp': sum(s['modularity_kld_exp'] for s in stats.values()) / n_layers,
+            }
+        else:
+            stats['model'] = {
+                'modularity_purity': 0.0,
+                'modularity_entropy': 0.0,
+                'modularity_kld': 0.0,
+                'modularity_kld_exp': 0.0,
+            }
             
         return stats

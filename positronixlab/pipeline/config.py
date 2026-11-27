@@ -96,7 +96,11 @@ class BaseConfig:
                 data = json.load(f)
             else:
                 data = yaml.safe_load(f)
-        return cls.from_dict(data or {})
+        if data is None:
+            data = {}
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected mapping in {path}, got {type(data).__name__}")
+        return cls.from_dict(data)
 
     @classmethod
     def from_dict(cls: type[TConfig], data: dict[str, Any]) -> TConfig:

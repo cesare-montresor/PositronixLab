@@ -214,10 +214,6 @@ def test_from_dict_runtime_union_type_and_yaml_tuple_roundtrip(tmp_path):
     assert loaded.modes == ("retain",) and isinstance(loaded.modes, tuple)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug B7: BaseConfig.load() raises AttributeError instead of ValueError on non-dict YAML root.",
-)
 def test_load_non_dict_yaml_root_bug(tmp_path):
     bad_path = tmp_path / "list.yaml"
     bad_path.write_text("- item1\n- item2\n", encoding="utf-8")
