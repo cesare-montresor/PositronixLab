@@ -138,10 +138,6 @@ def test_extract_layer_io_metrics(module, expected_in, expected_out, expected_ty
     assert metrics["param_ids"] == expected_ids
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug (modelmapper.py:43-48): nn.GroupNorm exposes num_channels, not num_features/normalized_shape",
-)
 def test_extract_layer_io_metrics_groupnorm_bug():
     metrics = extract_layer_io_metrics(nn.GroupNorm(2, 8))
     assert metrics["in_units"] == 8
@@ -229,10 +225,6 @@ def test_graph_formatter_exports():
         assert "id: " in ne["data"]["label"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug (modelmapper.py:115): ModelNode.to_dict() assumes activation_fn has __name__",
-)
 def test_model_node_to_dict_callable_without_dunder_name_bug():
     fc = nn.Linear(4, 4)
     node = ModelNode(
@@ -335,10 +327,6 @@ def test_model_mapper_map_standard_nn_module_without_device_bug():
     assert len(graph.edges) == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug (modelmapper.py:465-474, 523-524): float trace_samples is never sampled and is decremented to 0",
-)
 def test_model_mapper_float_trace_budget_standing_rate_bug():
     model = DeviceMLP()
     mapper = ModelMapper(model, trace_samples=0.5, is_suitable_layer=lambda m, n: is_layer(m))
@@ -347,10 +335,6 @@ def test_model_mapper_float_trace_budget_standing_rate_bug():
     assert mapper.trace_budget == 0.5
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug (modelmapper.py:244): _MapperInterceptor.target_ops omits F.leaky_relu",
-)
 def test_model_mapper_discovers_leaky_relu_bug():
     class LeakyNet(nn.Module):
         def __init__(self):
@@ -426,10 +410,6 @@ def test_modular_observer_hooks_lifecycle():
     assert bwd_hits == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug (modularobserver.py:94-103): ModularObserver.map() omits return statement and returns None",
-)
 def test_modular_observer_map_return_value_bug():
     model = DeviceMLP()
     observer = ModularObserver(config=None, model=model)

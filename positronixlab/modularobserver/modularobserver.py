@@ -111,7 +111,7 @@ class ModularObserver:
         """Returns the LayerObserver for a given layer module."""
         return self.nodes_by_layer.get(layer, None)
     
-    def map(self, dummy_data: torch.Tensor | None = None, trace_samples: int = 1) -> None:
+    def map(self, dummy_data: torch.Tensor | None = None, trace_samples: int = 1) -> dict[str, Any]:
         """
         Runs a traced forward pass to accurately construct edges and
         discover functional activations, then returns the ready Cytoscape dictionary.
@@ -121,6 +121,7 @@ class ModularObserver:
             trace_samples: number of samples to use for tracing.
         """
         self.mapper.map(self.model, dummy_data, trace_samples=trace_samples)
+        return self.graph()
 
     # =====================================================================
     # Callbacks Forwarding

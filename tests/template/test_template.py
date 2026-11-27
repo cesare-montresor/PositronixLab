@@ -90,10 +90,6 @@ class TestTemplateBase:
         assert configs["act"].is_ordered is False
         assert configs["arch"].dependent_parameters == {"cnn": ["kernel_size"]}
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug #1: ChoiceParameterConfig in Ax 1.3 does not accept log_scale kwarg",
-    )
     def test_add_choice_with_log_scale_converts_to_ax(self):
         t = TemplateBase("choice_log").add_choice(
             "lr_grid", [1e-4, 1e-3, 1e-2], ParameterType.FLOAT, log_scale=True
@@ -185,10 +181,6 @@ class TestTemplateBase:
         t_loaded = TemplateBase.load(str(yaml_path))
         assert t_loaded.to_dict() == d
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug #4: save() uses yaml.dump (emits !!python/tuple) while load() uses yaml.safe_load",
-    )
     def test_yaml_round_trip_with_tuple_fixed_value(self, tmp_path):
         t = TemplateBase("tuple_rt").add_fixed("shape", (1, 28, 28))
         path = tmp_path / "tuple.yaml"
@@ -196,10 +188,6 @@ class TestTemplateBase:
         loaded = TemplateBase.load(str(path))
         assert list(loaded.fixed["shape"]) == [1, 28, 28]
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug #6: to_parameter_configs() silently ignores unknown parameter types instead of raising ValueError",
-    )
     def test_unknown_param_kind_raises(self):
         t = TemplateBase("bad_kind")
         t.params["oops"] = {"name": "oops", "type": "unknown_kind", "parameter_type": "int"}

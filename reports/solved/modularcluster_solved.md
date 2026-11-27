@@ -19,3 +19,4 @@
 | **B9 (imports)** | Unused imports (`time`, `override`, `os`, `contextlib`) | Removed from both KMeans modules. |
 | **Cleanup** | Empty `__init__.py` & stale `tests/test_kmeans_plugin.py` | `__init__.py` populated (`__init__.py:1-9`); stale `test_kmeans_plugin.py` deleted. |
 | **Cleanup (2026-11-27)** | Mismatched return annotation on `_relabel_to_match_previous` & stale B3 xfail test | Fixed return annotation to `-> tuple[torch.Tensor, torch.Tensor]` (`streaming_cluster_tracker.py:125`), updated `test_b3_tracker_reorders_centroids_on_relabel` to unpack tuple and removed stale `xfail`. |
+| **B6 (P1, 2026-11-27)** | `ModularClusterKmeansStream.fit()` warm-start ignored `self.k_min` / `self.k_max` | Clamped warm-start `[k_min, k_max]` against `self._compute_k_range(n)` (`modularcluster_kmeans_stream.py:257-260`); xfail removed and passing. |

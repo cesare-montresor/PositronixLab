@@ -1,8 +1,8 @@
 # `positronixlab/template` — Open Issues Analysis
 
-> **Status (2026-11-27):** **25 passed, 3 xfailed, 0 failed** (`tests/template/`).
-> **Solved issues archive:** Resolved P0 bugs #2, #3, and #5 moved to [solved/template_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/template_solved.md).
-> **Note:** Remaining bugs (#1, #4, #6–#11) remain open, plus v0.1.3 **E5** (top-level `ax.api.configs` import without `[nas]` hint).
+> **Status (2026-11-27):** **28 passed, 0 xfailed, 0 failed** (`tests/template/`).
+> **Solved issues archive:** Resolved P0/P1 bugs #1–#6 moved to [solved/template_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/template_solved.md).
+> **Note:** Remaining low/medium issues (#7–#11) remain open, plus v0.1.3 **E5** (top-level `ax.api.configs` import without `[nas]` hint).
 
 ---
 
@@ -31,39 +31,7 @@ The `positronixlab/template` module provides lightweight, Ax 1.3-compatible sear
 
 ## 2. Bugs & Defects
 
-### High Severity
-
-1. **`TemplateBase.to_parameter_configs()` crashes when `add_choice(..., log_scale=...)` is used**
-   - **Location:** `positronixlab/template/template_base.py:81`, `template_base.py:96-97`, `template_base.py:199-200`
-   - **Root cause:** `add_choice()` accepts `log_scale: Optional[bool] = None` and stores it in `spec["log_scale"]`. `to_parameter_configs()` forwards `kwargs["log_scale"] = spec["log_scale"]` directly to `ax.api.configs.ChoiceParameterConfig(**kwargs)`. In Ax 1.3.1, `ChoiceParameterConfig` does **not** accept a `log_scale` argument (its signature is `(name, values, parameter_type, is_ordered=None, dependent_parameters=None)`).
-   - **Impact:** Raises `TypeError: ChoiceParameterConfig.__init__() got an unexpected keyword argument 'log_scale'` whenever any choice parameter sets `log_scale=True` or `log_scale=False`.
-
-2. **`TemplateVariant.matches_trial_parameters()` returns `True` when fixed keys are missing**
-   - **Location:** `positronixlab/template/template_variant.py:45-48`
-   - **Root cause:** Line 46 checks `if k in parameters and parameters[k] != v: return False`. When a required key `k` is absent from `parameters`, the condition is `False` and the loop continues, ultimately returning `True`.
-   - **Impact:** An empty dict `{}` or a trial missing one or more variant keys falsely matches **every** variant, corrupting warm-start / prior-trial filtering. Should be `if k not in parameters or parameters[k] != v: return False`.
-
-3. **`TemplateFMnistFC` and `TemplateFMnistCNN` set `dataset_name='fmnist'`, which `DataProviderFactory` rejects**
-   - **Location:** `positronixlab/template/template_fmnist.py:13`, `template_fmnist.py:23` (vs `positronixlab/dataprovider/dataprovider_factory.py:42`)
-   - **Root cause:** Both Fashion-MNIST templates set `self.add_fixed('dataset_name', 'fmnist', "str")`, whereas `DataProviderFactory.from_config()` only recognizes `'fashion_mnist'` (matching `DataConfig`, `PipelineConfigV1`, and `PipelineConfigV2`).
-   - **Impact:** Passing a Fashion-MNIST template's merged config to `DataProviderFactory.from_config()` raises `ValueError: Unknown dataset: fmnist`.
-
 ### Medium Severity
-
-4. **`TemplateBase.save()` / `load()` fails YAML round-trip on tuples (and non-primitive fixed values)**
-   - **Location:** `positronixlab/template/template_base.py:241`, `template_base.py:247`
-   - **Root cause:** `save()` uses `yaml.dump(...)` (default `Dumper`, which emits Python-specific tags such as `!!python/tuple`), while `load()` uses `yaml.safe_load(...)`, which refuses Python tags.
-   - **Impact:** Calling `save()` then `load()` on a template containing a tuple in `fixed` (e.g. `add_fixed("image_shape", (1, 28, 28))`) raises `yaml.constructor.ConstructorError`. Switching `save()` to `yaml.safe_dump()` (or normalizing tuples to lists) avoids generating unreadable YAML.
-
-5. **`TemplateFMnistCNN` inherits `nas_min_acc=0.95` instead of `0.85`**
-   - **Location:** `positronixlab/template/template_fmnist.py:17-24` (vs `template_fmnist.py:12` and `template_base.py:255`)
-   - **Root cause:** `TemplateFMnistFC` overrides `nas_min_acc` to `0.85`, but `TemplateFMnistCNN` omits it and inherits MNIST's `0.95` from `TemplateDL`.
-   - **Impact:** Fashion-MNIST CNN runs inherit an overly strict accuracy threshold (`0.95`) compared to Fashion-MNIST FC (`0.85`).
-
-6. **`TemplateBase.to_parameter_configs()` silently drops unrecognized parameter kinds**
-   - **Location:** `positronixlab/template/template_base.py:171-211`
-   - **Root cause:** The `if p_kind == "range" / elif p_kind == "choice" / elif p_kind == "derived"` chain has no `else:` branch.
-   - **Impact:** A typo or legacy YAML containing `"type": "fixed"` inside `params` is silently omitted from the Ax search space instead of raising `ValueError`.
 
 7. **`TemplateVariant.validate()` performs incomplete validation**
    - **Location:** `positronixlab/template/template_variant.py:25-34`

@@ -16,7 +16,7 @@
 | **B5** | `_load_or_build_npy()` `FileNotFoundError` on `HIGGS.csv` → `HIGGS.npy` rename | Fixed temp filename to `f"{npy_file.stem}.tmp.npy"` (`higgs_dataprovider.py:308-310`); `test_b5_*` passes. |
 | **B6** | `IrisDataProvider` 100% train/val/test leakage & ignored `split`/`transforms` | Properly splits `IrisDataset` and applies transforms (`iris_dataprovider.py:19-54`); `test_b6_*` passes. |
 | **B7** | 3-way `split` crashed 9 of 12 providers (`too many values to unpack`) | Unified `_split_dataset` (`dataprovider.py:410-436`) and `higgs_dataprovider.py:93-131`; `test_b7_*` passes. |
-| **B8 (partial)** | `provider.train` defaulted to `shuffle=False` | `shuffle_train=True` added (`dataprovider.py:375, 468`). *(Note: `drop_last=True` on `val`/`test` remains open.)* |
+| **B8** | `provider.train` defaulted to `shuffle=False` | `shuffle_train=True` added (`dataprovider.py:375, 468`). *(Keeping `drop_last=True` is intentional to avoid partial-batch crashes.)* |
 | **B9** | `HIGGS` 2-way split ignored `split_seed`; `epoch_size=1` / `bool` edge case | Fixed in `higgs_dataprovider.py:117-129, 134, 391`; `test_b9_*` passes. |
 | **B10** | `transforms` contract mismatch (`.apply()` vs callable) | Unified via `apply_transform()` (`dataprovider.py:65-71`) + `MetaTransform.__call__`; `test_b10_*` passes. |
 | **B11** | `Dataset.copy()` reloaded entire dataset from disk/sklearn per split | Replaced with zero-copy index views via `BaseTensorDataset` (`dataprovider.py:90-220`). |

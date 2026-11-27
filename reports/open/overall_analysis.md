@@ -22,7 +22,7 @@ Since the initial `layerspace`-branch audit, `positronixlab` has undergone a **m
 
 ### Current Full-Suite Verification Results
 
-**Pytest (2026-11-27 — all P0 + `modularspace`/`nas`/`deeplearning` P1s solved!):** **475 passed, 58 xfailed** *(ZERO real test failures; 3 sandbox-only `../parallelazy` stub errors in `tests/nas/test_nas.py`; see [xfail_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/xfail_analysis.md) for the remaining 58 P1/P2 `xfail` markers)*.
+**Pytest (2026-11-27 — all P0 + P1 Batch 1 & Batch 2 solved!):** **489 passed, 44 xfailed** *(ZERO real test failures; 9 of 15 modules at 0 open `xfail`s; 3 sandbox-only `../parallelazy` stub errors in `tests/nas/test_nas.py`; see [xfail_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/xfail_analysis.md) for the remaining 44 P1/P2 `xfail` markers)*.
 
 **Ruff (`ruff check positronixlab tests`):** **0 hits** (all checks passed).
 **Typing (`mypy` / `pyright`):** **0 mypy errors**, **0 pyright errors** (see [`reports/typing/typing_summary.md`](file:///home/cesare/Projects/PositronixLab/reports/typing/typing_summary.md)).
@@ -38,7 +38,7 @@ Since the initial `layerspace`-branch audit, `positronixlab` has undergone a **m
 | Module | Current Status | Remaining High/Med Issues | Report | Pytest (Pass / XFail / Fail) |
 | :--- | :--- | :---: | :--- | :---: |
 | **`baselines`** *(new)* | Complete SOTA hub (Csordás, Lepori, NeuroSurgeon, SimCLR, `ModelLoader`, `DataProviderLoader`) | 4 Med | [baselines_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/baselines_analysis.md) | 14P / 0X / 0F |
-| **`dataprovider`** | Refactored; 16 providers, `CompositionalDataProvider`, lazy exports | 3 Med (`F601` dup keys, `drop_last`, split seeds) | [dataprovider_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/dataprovider_analysis.md) | 44P / 0X / 0F |
+| **`dataprovider`** | Refactored; 16 providers, `CompositionalDataProvider`, lazy exports | 1 Med (split seeds / `dataset_test` alias) | [dataprovider_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/dataprovider_analysis.md) | 44P / 0X / 0F |
 | **`tasks`** | Unified `SubnetworkMask`/`MaskApplier`/`AtlasDiscoverer`/`ModularityBenchmark` + legacy `compositionality/` | 3 Med (new API) + 9 legacy xfails | [tasks_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/tasks_analysis.md) | 35P / 9X / 0F |
 | **`spacemath`** | v2 primitives + 3D sequence reducers + `POSITRONIXLAB_COMPILE`; legacy `SpaceMath` still present | 3 High/Med (v2) + legacy bugs | [spacemath_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/spacemath_analysis.md) | 43P / 9X / **1F** *(stale test)* |
 | **`modularspace`** | `LayerSpace`/`SpaceStep`/`presets` active; `layerspace_old.py` removed | 6 High/Med | [modularspace_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/modularspace_analysis.md) | 40P / 4X / 0F |

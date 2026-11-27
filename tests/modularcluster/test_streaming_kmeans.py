@@ -236,10 +236,6 @@ class TestKnownBugsXfail:
         assert km.best_k is not None
         assert km.labels is not None
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug B6: ModularClusterKmeansStream.fit(warm_start_k=..., k_search_radius=...) ignores self.k_min/self.k_max",
-    )
     def test_b6_warm_start_respects_configured_k_bounds(self):
         x = _make_clustered_data(n_per_cluster=20, dim=8, seed=23)
         km = ModularClusterKmeansStream(metric="euclidean", k_min=3, k_max=4)

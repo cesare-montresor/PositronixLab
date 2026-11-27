@@ -1,8 +1,8 @@
 # Open `xfail` Bugs Analysis
 
 > **Scope:** All remaining `@pytest.mark.xfail(strict=True)` regression tests under `tests/`.
-> **Totals (2026-11-27 — all P0 + `modularspace`/`nas`/`deeplearning` P1s solved!):** **58** open `xfail` markers (**58** test cases) across **10** modules (10 test files).
-> **Modules now at 0 open `xfail`s (5 of 15):** `baselines`, `dataprovider`, `modularspace`, `nas`, `pipeline`.
+> **Totals (2026-11-27 — all P0 + P1 Batch 1 & Batch 2 solved!):** **44** open `xfail` markers (**44** test cases) across **6** modules (6 test files).
+> **Modules now at 0 open `xfail`s (9 of 15):** `baselines`, `dataprovider`, `modularcluster`, `modularobserver`, `modularspace`, `nas`, `pipeline`, `template`, `utils`.
 
 ---
 
@@ -15,12 +15,8 @@
 | **`modularui`** | 8 | [test_modularui.py](file:///home/cesare/Projects/PositronixLab/tests/modularui/test_modularui.py) | [modularui_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularui_analysis.md) |
 | **`metamodel`** | 6 | [test_metamodel.py](file:///home/cesare/Projects/PositronixLab/tests/metamodel/test_metamodel.py) | [metamodel_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/metamodel_analysis.md) |
 | **`spacemath`** | 6 | [test_spacemath_extended.py](file:///home/cesare/Projects/PositronixLab/tests/spacemath/test_spacemath_extended.py) | [spacemath_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/spacemath_analysis.md) |
-| **`modularobserver`** | 5 | [test_modularobserver.py](file:///home/cesare/Projects/PositronixLab/tests/modularobserver/test_modularobserver.py) | [modularobserver_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularobserver_analysis.md) |
-| **`utils`** | 5 | [test_utils.py](file:///home/cesare/Projects/PositronixLab/tests/utils/test_utils.py) | [utils_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/utils_analysis.md) |
-| **`template`** | 3 | [test_template.py](file:///home/cesare/Projects/PositronixLab/tests/template/test_template.py) | [template_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/template_analysis.md) |
 | **`deeplearning`** | 1 | [test_deeplearning.py](file:///home/cesare/Projects/PositronixLab/tests/deeplearning/test_deeplearning.py) | [deeplearning_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/deeplearning_analysis.md) |
-| **`modularcluster`** | 1 | [test_streaming_kmeans.py](file:///home/cesare/Projects/PositronixLab/tests/modularcluster/test_streaming_kmeans.py) | [modularcluster_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularcluster_analysis.md) |
-| **Total** | **58** | **10 test files** | |
+| **Total** | **44** | **6 test files** | |
 
 ---
 
@@ -29,24 +25,16 @@
 ### P0 — Silent Correctness & Data Corruption
 *All P0 silent-correctness bugs have been fixed and archived under `reports/solved/`.*
 
-### P1 — Crashes, Leaks & Broken Features
-- **`modularspace` (4):** `ModularSpace.get_space()` crashes with `stats_enabled=False` (B1); `LayerSpace.process_scores()` calls `.backward()` on detached zero tensor (B3); `ClusterTracker` `k_old == 0` crash (B4) and single-child split offset (B5).
-- **`nas` (5):** Solo OOM retry off-by-one; `TrialConfig` `device=None` not overridden by `gpu_id`; `extract_metrics` treats `bool` as numeric and crashes on `(mean, None)`; `export_best()` leaves stale YAML; `warm_start_from()` leaks global `SESSION_FACTORY` on error.
-- **`pipeline` (3):** `BaseConfig.from_dict()` fails to coerce `int | None` and `Optional[str]` without future annotations (B2 ×2); `BaseConfig.load()` raises `AttributeError` on non-dict YAML root (B7).
-- **`deeplearning` (4):** Empty DataLoader `UnboundLocalError` (B5); draft mode runs 21 instead of 20 batches (B7); `on_batch_start` signature mismatch (B8); multiple `backward=True` metrics fail without `retain_graph` (B9).
-- **`modularobserver` (5):** `GroupNorm` metrics; `ModelNode.to_dict()` callable without `__name__`; float `trace_samples` decremented; `F.leaky_relu` omitted from `_MapperInterceptor`; `ModularObserver.map()` returns `None`.
+### P1 — Crashes, Leaks & Broken Features (Remaining: 28)
 - **`modularui` (8):** Empty `visible_layers` shows all; scalar epoch crash; broken relative CSS paths; `add_point(None)` crash; non-contiguous position indices misalign clusters; `VarsDisplay` mixed key types; `get_model_graph()` mutable ref; `DashboardLayout` drops >3 top panels.
 - **`stats` (14):** `_as_tensor` non-scalar list crash; `DisplacementFilter` invalid method & empty tensor; `WindowReducer` shape change & `maxlen=0`; `DisplacementReducer` empty tensor; `UmapProcessor` `last_index` ambiguity, `n_neighbors`, warm-start neuron count change, empty `centroids_2d`; `OverallProcessor` empty items; `Stream` empty generator & displacement-gated `_count`; `merge_streams(reducer_args=None)`.
-- **`template` (4):** Ax 1.3 `ChoiceParameterConfig` `log_scale` crash (#1); YAML tuple round-trip (#4); unknown param kind silently ignored (#6); `TemplateFMnistCNN` `nas_min_acc` (#5).
-- **`utils` (5):** `process_start_spawn(force=True)` ignores `'fork'` (B2); `check_tensor`/`info_tensor` `debug` forwarding & early-binding (B4 ×2); `info_tensor` crashes on int/empty tensors (B5 ×2).
 - **`metamodel` (6):** `MetaModel.__init__` ignores `device="cpu"`; CNN classification `BatchNorm2d`/missing `Flatten`; CNN autoencoder `ConvTranspose2d` `layer_size()`; `nmum_fop()` on `Conv1d`; `layer_size(resnet_block)`; hardcoded `padding=1` breaks `cnn_kernel_size != 3`.
 
-### P2 — Refactor Gaps & Legacy / Prototype Code
-- **Config / feature gaps (2):**
-  - `deeplearning`: `DeeplearningBase.__init__` requires `config.task`, incompatible with standalone `TrainConfig`.
-  - `metamodel`: `'rnn'` listed in `LAYER_TYPES` but unimplemented in `block_layer()`.
+### P2 — Refactor Gaps & Legacy / Prototype Code (Remaining: 16)
+- **Config / feature gaps (1):**
+  - `deeplearning` (1): `DeeplearningBase.__init__` requires `config.task`, incompatible with standalone `TrainConfig`.
 - **Legacy `SpaceMath` & minor primitives (6):**
-  - `spacemath`: `infer_shape` stray `self`, Euclidean `distance_elementwise(x, x)` `sqrt(eps)` floor, `loss_layer_alignment([])`, and 3 legacy `spacemath.py` bugs.
+  - `spacemath` (6): `infer_shape` stray `self`, Euclidean `distance_elementwise(x, x)` `sqrt(eps)` floor, `loss_layer_alignment([])`, and 3 legacy `spacemath.py` bugs.
 - **Earlier `tasks/compositionality` prototype (9):**
   - `atlas_check.py`, `weightmask_check.py`, `compositionality.py` — superseded for new benchmarks by `positronixlab.tasks` (`SubnetworkMask`, `MaskApplier`, `AtlasDiscoverer`, `ModularityBenchmark`), though still tested and exposed.
 

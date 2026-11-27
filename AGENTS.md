@@ -75,6 +75,7 @@ Split from a single monorepo into 4 sibling repos (plus SOTA reference symlinks 
 - Archived pre-cleanup snapshot: git tag `archive/pre-cleanup`.
 
 ## Conventions and gotchas
+- Keep `drop_last=True` as the default across `DataProvider`/`DataReader` splits (`drop_last=False` causes partial-batch crashes downstream).
 - Keep typo in `modularspace/custertracker.py` (re-exported in `modularspace/__init__.py`) unless updating all callers.
 - `stats/common.py:_as_tensor()` may return a view over recycled IPC/cudagraph buffers; callers retaining values must `.clone()`.
 - Known remaining bugs (P1/P2) are cataloged in `reports/overall_analysis.md` and pinned via `@pytest.mark.xfail(strict=True)` in `tests/`.

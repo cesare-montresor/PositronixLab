@@ -202,8 +202,6 @@ class TemplateBase:
                 deps = spec.get("dependent_parameters") or spec.get("dependents")
                 if deps is not None:
                     kwargs["dependent_parameters"] = deps
-                if spec.get("log_scale") is not None:
-                    kwargs["log_scale"] = spec["log_scale"]
                 configs.append(ChoiceParameterConfig(**kwargs))
 
             elif p_kind == "derived":
@@ -214,6 +212,9 @@ class TemplateBase:
                         parameter_type=p_type,
                     )
                 )
+
+            else:
+                raise ValueError(f"Unsupported parameter kind {p_kind!r} for parameter {name!r}.")
 
         return configs
 
@@ -240,11 +241,13 @@ class TemplateBase:
         return tpl
 
     def save(self, filepath: str | None = None) -> str:
+        from positronixlab.utils.utils import to_plain_python
+
         if filepath is None:
             filepath = os.path.join(self.CONFIG_PATH, f"template_{self.name}.yaml")
         os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
         with open(filepath, "w", encoding="utf-8") as f:
-            yaml.dump(self.to_dict(), f, sort_keys=False)
+            yaml.safe_dump(to_plain_python(self.to_dict()), f, sort_keys=False)
         return filepath
 
     @classmethod

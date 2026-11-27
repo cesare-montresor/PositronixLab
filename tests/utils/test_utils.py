@@ -65,10 +65,6 @@ def test_process_start_spawn_warns_when_fork():
     assert "Expected spawn start method, got 'fork'" in proc.stdout
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug B2: process_start_spawn(force=True) only warns when start method is 'fork' and never calls mp.set_start_method('spawn', force=True)",
-)
 def test_process_start_spawn_force_overrides_fork():
     code = (
         "import multiprocessing as mp; "
@@ -278,7 +274,7 @@ def test_check_tensor_noop_when_debug_false():
 def test_check_tensor_raises_on_nan_and_inf_when_debug_true():
     with pytest.raises(Exception, match="NaN detected"):
         check_tensor(torch.tensor([float("nan")]), name="nan_t", debug=True)
-    with pytest.raises(Exception, match="NaN detected"):
+    with pytest.raises(Exception, match="Inf detected"):
         check_tensor(torch.tensor([float("inf")]), name="inf_t", debug=True)
 
 
@@ -290,10 +286,6 @@ def test_info_tensor_prints_stats_when_debug_true(capsys):
     assert "Zeros: 1" in out
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug B4: check_tensor(t, debug=True) calls info_tensor(tensor, name) without forwarding debug=debug",
-)
 def test_check_tensor_forwards_debug_to_info_tensor(capsys):
     with pytest.raises(Exception):
         check_tensor(torch.tensor([float("nan")]), name="broken", debug=True)
@@ -301,10 +293,6 @@ def test_check_tensor_forwards_debug_to_info_tensor(capsys):
     assert "Tensor: broken" in out
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug B4: info_tensor default argument debug=debug is early-bound to False at import time, ignoring runtime utils.debug = True",
-)
 def test_info_tensor_respects_module_debug_flag(monkeypatch, capsys):
     monkeypatch.setattr(utils, "debug", True)
     info_tensor(torch.tensor([1.0, 2.0]), name="runtime_dbg")
@@ -312,18 +300,10 @@ def test_info_tensor_respects_module_debug_flag(monkeypatch, capsys):
     assert "Tensor: runtime_dbg" in out
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug B5: info_tensor() calls tensor.mean() directly, raising RuntimeError on integer tensors",
-)
 def test_info_tensor_handles_integer_tensor():
     info_tensor(torch.tensor([1, 2, 3], dtype=torch.int64), name="ints", debug=True)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug B5: info_tensor() calls tensor.min() without checking numel() == 0, raising RuntimeError on empty tensors",
-)
 def test_info_tensor_handles_empty_tensor():
     info_tensor(torch.tensor([]), name="empty", debug=True)
 

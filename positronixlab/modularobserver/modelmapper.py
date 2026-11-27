@@ -1,3 +1,4 @@
+import random
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -42,6 +43,8 @@ def extract_layer_io_metrics(module: nn.Module) -> dict[str, Any]:
     elif isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.LayerNorm, nn.GroupNorm)):
         if hasattr(module, 'num_features'):
             metrics.update({'in_units': module.num_features, 'out_units': module.num_features, 'unit_type': 'normalized_channels'})
+        elif hasattr(module, 'num_channels'):
+            metrics.update({'in_units': module.num_channels, 'out_units': module.num_channels, 'unit_type': 'normalized_channels'})
         elif hasattr(module, 'normalized_shape'):
             shape = module.normalized_shape[0] if isinstance(module.normalized_shape, (tuple, list)) else module.normalized_shape
             metrics.update({'in_units': shape, 'out_units': shape, 'unit_type': 'normalized_features'})
@@ -111,7 +114,7 @@ class ModelNode:
             'class_name': self.class_name,
             'module_ref': str(self.module_ref),
             'layer_type': self.layer_type,
-            'activation_fn': str(self.activation_fn.__name__) if self.activation_fn is not None else '',
+            'activation_fn': str(getattr(self.activation_fn, '__name__', type(self.activation_fn).__name__)) if self.activation_fn is not None else '',
             'in_units': self.in_units,
             'out_units': self.out_units,
             'unit_type': self.unit_type,
@@ -240,7 +243,23 @@ class _MapperInterceptor(TorchFunctionMode):
     def __init__(self, mapper: 'ModelMapper'):
         super().__init__()
         self.mapper = mapper
-        self.target_ops = {F.relu, F.gelu, F.silu, F.softmax, F.log_softmax, torch.relu, torch.sigmoid, torch.tanh}
+        self.target_ops = {
+            F.relu,
+            F.leaky_relu,
+            F.elu,
+            F.selu,
+            F.prelu,
+            F.gelu,
+            F.silu,
+            F.mish,
+            F.hardswish,
+            F.hardsigmoid,
+            F.softmax,
+            F.log_softmax,
+            torch.relu,
+            torch.sigmoid,
+            torch.tanh,
+        }
 
     def __torch_function__(self, func, types, args=(), kwargs=None):
         kwargs = kwargs or {}
@@ -478,6 +497,10 @@ class ModelMapper:
         if self.trace_budget == 0:
             return _DummyContext()
 
+        if isinstance(self.trace_budget, float):
+            if random.random() >= self.trace_budget:
+                return _DummyContext()
+
         return self._ActiveTraceContext(self)
 
     class _ActiveTraceContext:
@@ -527,7 +550,7 @@ class ModelMapper:
                 )
 
             self.mapper._assign_dynamic_depths()
-            if self.mapper.trace_budget != TRACE_ALWAYS:
+            if isinstance(self.mapper.trace_budget, int) and self.mapper.trace_budget != TRACE_ALWAYS:
                 self.mapper.trace_budget = max(0, self.mapper.trace_budget - 1)
 
             if self.mapper._graph_changed_in_pass and self.mapper.on_graph_changed:

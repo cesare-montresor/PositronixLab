@@ -38,6 +38,8 @@ def process_start_spawn(force=False):
             f"Expected spawn start method, got '{current}'. CUDA may be unreliable.",
             stacklevel=2,
         )
+        if force:
+            mp.set_start_method('spawn', force=True)
     elif current is None:
         mp.set_start_method('spawn', force=force)
 
@@ -184,28 +186,39 @@ def seed_everything(seed: int):
     torch.backends.cudnn.benchmark = False
     
 
-def check_tensor(tensor, name="tensor", debug = debug):
-    if not debug:
+def check_tensor(tensor, name="tensor", debug: bool | None = None):
+    is_debug = globals()["debug"] if debug is None else debug
+    if not is_debug:
         return
-    if torch.isnan(tensor).any() or torch.isinf(tensor).any():
-        print(f"NaN detected in {name}")
-        info_tensor(tensor, name)
-        raise Exception("NaN detected")
-    
-def info_tensor(tensor, name="tensor", threshold=1e-10, debug = debug):
-    if not debug:
+    has_nan = bool(torch.isnan(tensor).any().item())
+    has_inf = bool(torch.isinf(tensor).any().item())
+    if has_nan or has_inf:
+        kind = "NaN" if has_nan else "Inf"
+        print(f"{kind} detected in {name}")
+        info_tensor(tensor, name, debug=is_debug)
+        raise ValueError(f"{kind} detected in {name}")
+
+
+def info_tensor(tensor, name="tensor", threshold=1e-10, debug: bool | None = None):
+    is_debug = globals()["debug"] if debug is None else debug
+    if not is_debug:
         return
     print("-----")
     print(f"Tensor: {name}")
     print(f"Shape: {tensor.shape}")
+    if tensor.numel() == 0:
+        print("Empty tensor (numel=0)")
+        print("=====")
+        return
     print(f"Min: {tensor.min()}")
     print(f"Max: {tensor.max()}")
-    print(f"Mean: {tensor.mean()}")
+    mean_t = tensor if (tensor.is_floating_point() or tensor.is_complex()) else tensor.float()
+    print(f"Mean: {mean_t.mean()}")
     if torch.isnan(tensor).any().item():
         print("NaNs!")
     if torch.isinf(tensor).any().item():
         print("Infs!")
-    near_zero_count = (torch.abs(tensor) < threshold).sum()
+    near_zero_count = (torch.abs(tensor.float() if tensor.dtype == torch.bool else tensor) < threshold).sum()
     if near_zero_count > 0:
         print(f"Zeros: {near_zero_count}")
     print("=====")

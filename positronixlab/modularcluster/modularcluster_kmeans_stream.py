@@ -256,8 +256,9 @@ class ModularClusterKmeansStream:
             self.distance_cache = dists.cpu().numpy()
 
         if warm_start_k is not None and k_search_radius is not None:
-            k_min = max(2, warm_start_k - k_search_radius)
-            k_max = min(warm_start_k + k_search_radius, n - 1)
+            bound_min, bound_max = self._compute_k_range(n)
+            k_min = max(bound_min, warm_start_k - k_search_radius)
+            k_max = min(bound_max, warm_start_k + k_search_radius)
             if self.verbose:
                 print(f"Warm-started search for K in [{k_min}, {k_max}] (center={warm_start_k})")
             for k in range(k_min, k_max + 1):
