@@ -78,7 +78,7 @@ class SpaceMath:
 
         if distance_type == 'euclidean':
             if pairwise:
-                dist = torch.cdist(x,y, p=2).squeeze()
+                dist = torch.cdist(x, y, p=2)
             else:
                 dist = zclamp(x - y).pow(2).sum(dim=dim).clamp(min=cls.eps).sqrt()
 
@@ -105,8 +105,11 @@ class SpaceMath:
         act = activation_fn
         
         if layer_type == LayerType.CONV:
-            q, scores = cls.get_quantile_k_kernels_per_sample(xd, x_quantile, locality_weight=cnn_locality_weight)[1].unsqueeze(1).detach()
-            scores = cls.normalize_by_threshold(scores, q)
+            _, kernel_scores = cls.rank_kernels_by_activation_per_sample(
+                xd, locality_weight=cnn_locality_weight
+            )
+            q = torch.quantile(kernel_scores, x_quantile, interpolation='higher', dim=1).unsqueeze(1).detach()
+            scores = cls.normalize_by_threshold(kernel_scores, q)
             return scores
                 
         if isinstance(act, nn.Softmax): 
@@ -253,10 +256,11 @@ class SpaceMath:
                                 device=feature_maps.device)
         
         for b in range(feature_maps.shape[0]):
-            sample_indices = torch.where(selected_mask[b])[0]
-            num_selected = len(sample_indices)
-            top_k_indices[b, :num_selected] = sorted_indices[b, sample_indices]
-            top_k_scores[b, :num_selected] = scores[b, sample_indices]
+            order = sorted_indices[b]
+            chosen = order[selected_mask[b, order]]
+            num_selected = len(chosen)
+            top_k_indices[b, :num_selected] = chosen
+            top_k_scores[b, :num_selected] = scores[b, chosen]
         
         # Get corresponding feature maps
         batch_indices = torch.arange(feature_maps.shape[0], device=feature_maps.device)

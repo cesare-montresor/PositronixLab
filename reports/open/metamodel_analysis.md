@@ -1,8 +1,8 @@
 # `positronixlab/metamodel` — Open Issues Analysis
 
-> **Status (2026-11-27):** **33 passed, 6 xfailed, 0 failed** (`tests/metamodel/`).
-> **Solved issues archive:** Resolved P0 bugs B1, B3, B8, plus B5 (`ConvTranspose2d` autoencoder), partial B2 (lazy `__init__.py`), and `MetaTransform` cleanups moved to [solved/metamodel_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/metamodel_solved.md).
-> **Note:** Remaining bugs **B2 (partial), B4, B6–B7, B9–B15** remain open, plus v0.1.3 **E2** (`torchsummary` top-level import at `metamodel.py:11`).
+> **Status (2026-11-27):** **39 passed, 0 xfailed, 0 failed** (`tests/metamodel/`).
+> **Solved issues archive:** Resolved all xfail bugs (B1, B3, B4, B5, B7, B8, B9, B10-`Conv1d`, B11, B12-`rnn`), partial B2 (lazy `__init__.py`), and `MetaTransform` cleanups moved to [solved/metamodel_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/metamodel_solved.md).
+> **Note:** Remaining non-xfail issues **B2 (partial), B6, B12 (`transformer`/`decnn` BN), B13–B15** remain open, plus v0.1.3 **E2** (`torchsummary` top-level import at `metamodel.py:11`).
 
 ---
 

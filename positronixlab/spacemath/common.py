@@ -53,7 +53,7 @@ _TensorCls.spow = spow
 
 
 
-def infer_shape(self, x_in:torch.Tensor, x_out:torch.Tensor):
+def infer_shape(x_in: Any, x_out: torch.Tensor):
     """Infer batch size, input shape, and output shape from the input and output tensors."""
     batch_size = x_in[0].shape[0]
     input_shape = x_in[0].shape[1:]

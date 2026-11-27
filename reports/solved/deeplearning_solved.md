@@ -19,3 +19,4 @@
 | **B7 (P1, 2026-11-27)** | Draft mode ran 21 batches instead of 20 | Changed `< 0` to `<= 0` (`deeplearning_base.py:140`, `deeplearning_train.py:206`); xfail removed and passing. |
 | **B8 (P1, 2026-11-27)** | `DeeplearningTrain.on_batch_start()` dropped `with_data` | Added `with_data: bool = False` and forwarded to trainer/validator (`deeplearning_train.py:87-91`); xfail removed and passing. |
 | **B9 (P1, 2026-11-27)** | Multiple `backward=True` metrics crashed without summing losses | Sums all `backward=True` losses before a single `.backward()` call and replaces `.data.item()` with `.detach().item()` (`deeplearning_base.py:87-105`); xfail removed and passing. |
+| **Config gap (P2, 2026-11-27)** | `DeeplearningBase.__init__` required `config.task`, failing on standalone `TrainConfig` | Changed to `getattr(config, "task", None)` (`deeplearning_base.py:29`); xfail removed and passing. |

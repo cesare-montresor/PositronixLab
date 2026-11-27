@@ -23,3 +23,9 @@
 | **#9 (P0, 2026-11-27)** | `loss_batch_repulsion` ignored `mixed` for 2D inputs | Filtered `centers_on[mixed > 0]` for 2D inputs (`losses.py:46-52`); xfail removed and passing. |
 | **#10 (P0, 2026-11-27)** | `mask_cluster_membership` used `max()+1` instead of unique non-negative cluster count | Uses `torch.unique(lab[lab >= 0])` + `torch.searchsorted` (`weighting.py:70-86`); xfail removed and passing. |
 | **#11 (P0, 2026-11-27)** | `spow`/`spow_` defaulted to `force_zero=True`, producing `inf` for negative powers near zero | Changed default to `force_zero=False` (`common.py:36, 42`); xfail removed and passing. |
+| **#1 (P2, 2026-11-27)** | `infer_shape` had stray `self` parameter | Removed stray `self` (`common.py:56`); xfail removed and passing. |
+| **#2 (P2, 2026-11-27)** | `loss_layer_alignment([])` indexed `[0]` on empty sequence | Added `if len(centers_per_layer) == 0: return torch.tensor(0.0)` (`losses.py:117-118`); xfail removed and passing. |
+| **#3 (P2, 2026-11-27)** | Euclidean `distance_elementwise(x, x)` returned `sqrt(eps)=1e-4` instead of `0.0` | Replaced with grad-safe double-`torch.where` Euclidean norm (`space_type.py:69-72`); xfail removed and passing. |
+| **#13 (Legacy, 2026-11-27)** | `SpaceMath.activations_to_scores` `LayerType.CONV` unpacked `(B, 1, k)` into `q, scores` | Computed per-kernel scores via `rank_kernels_by_activation_per_sample` and quantile threshold `q` (`spacemath.py:107-113`); xfail removed and passing. |
+| **#14 (Legacy, 2026-11-27)** | `SpaceMath.get_quantile_k_kernels_per_sample` indexed `sorted_indices` with unsorted mask positions | Filtered `sorted_indices[b]` via `selected_mask[b, order]` (`spacemath.py:258-263`); xfail removed and passing. |
+| **#16 (Legacy, 2026-11-27)** | `SpaceMath.distance` Euclidean pairwise `.squeeze()` collapsed `(1, N)` to `(N,)` | Removed `.squeeze()` (`spacemath.py:81`); xfail removed and passing. |

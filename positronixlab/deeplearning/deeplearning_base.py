@@ -26,7 +26,7 @@ class DeeplearningBase:
         self.device: Any = model.device
         self.dataloader = dataloader
 
-        self.task = config.task
+        self.task = getattr(config, "task", None)
         self.draft = draft
         
         self.optimizer = optimizer

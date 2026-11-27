@@ -6,8 +6,6 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from positronixlab.spacemath.common import zclamp
-
 
 class SpaceType:
     """Supported embedding space geometries (shared by space optimization and clustering)."""
@@ -68,7 +66,9 @@ def distance_elementwise(
         y_norm = F.normalize(y, p=2, dim=dim, eps=eps)
         dist = 1.0 - (x_norm * y_norm).sum(dim=dim)
     else:
-        dist = zclamp(x - y, eps=eps).pow(2).sum(dim=dim).clamp(min=eps).sqrt()
+        sq = (x - y).pow(2).sum(dim=dim)
+        sq_safe = torch.where(sq > 0, sq, torch.ones_like(sq))
+        dist = torch.where(sq > 0, sq_safe.sqrt(), torch.zeros_like(sq))
     return dist.clamp(min=0.0)
 
 

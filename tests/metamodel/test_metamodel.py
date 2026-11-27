@@ -285,10 +285,6 @@ class TestMetaModel:
 
     # --- Confirmed bug xfail tests ---
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in metamodel.py:61-72: MetaModel.__init__ ignores device arg and unconditionally calls to_gpu()",
-    )
     def test_init_respects_cpu_device_arg(self):
         if not torch.cuda.is_available():
             pytest.skip("CUDA unavailable; bug only manifests when CUDA is available")
@@ -329,10 +325,6 @@ class TestMetaModel:
             first_out_block = first_out_block.module
         assert first_out_block.layer.out_features == 12
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in metamodel.py:264-276: CNN classification attaches BatchNorm2d after Linear and lacks Flatten",
-    )
     def test_cnn_classification_forward(self):
         cfg = MetaModelConfig(
             task="classification",
@@ -379,20 +371,12 @@ class TestMetaModel:
         model = MetaModel("no_drop", cfg)
         assert not any(isinstance(m, nn.Dropout) for m in model.modules())
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in metamodel.py:420: nmum_fop() indexes kernel_size[1] on nn.Conv1d causing IndexError",
-    )
     def test_nmum_fop_handles_conv1d(self):
         cfg = MetaModelConfig(input_data_shape=8, input_hidden_dim=8, output_data_shape=4)
         model = MetaModel("conv1d_flops", cfg)
         model.nn_latent = nn.Conv1d(8, 8, kernel_size=3)
         assert model.nmum_fop() > 0
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in metamodel.py:392-403: layer_size(resnet_block) unwraps to nn.Sequential instead of inner layer",
-    )
     def test_layer_size_accepts_resnet_block(self):
         cfg = MetaModelConfig(
             input_data_shape=8,
@@ -406,10 +390,6 @@ class TestMetaModel:
         assert isinstance(resnet_block, ResNet)
         assert model.layer_size(resnet_block) == (8, 8)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in metamodel.py:164: hardcoded padding=1 shrinks spatial dims and breaks ResNet skip when cnn_kernel_size != 3",
-    )
     def test_cnn_kernel_size_5_with_residual(self):
         cfg = MetaModelConfig(
             task="classification",
@@ -430,10 +410,6 @@ class TestMetaModel:
         out = model.nn_input(x)
         assert out.shape == (2, 8, 16, 16)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in metamodel.py:58,158-172: 'rnn' is listed in LAYER_TYPES but unimplemented in block_layer()",
-    )
     def test_rnn_listed_in_layer_types_builds(self):
         cfg = MetaModelConfig(model_type="rnn", input_data_shape=8, input_hidden_dim=8)
         MetaModel("rnn_net", cfg)

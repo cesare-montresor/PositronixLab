@@ -1,4 +1,5 @@
 
+import math
 import os
 import time
 from collections import OrderedDict
@@ -58,7 +59,7 @@ class MetaModel(BaseModel):
     # TODO: implementre support for 'rnn', 'transformer']
         
     def __init__(self, name, config:PipelineConfig, device=None):
-        super().__init__()
+        super().__init__(name=name, device=device)
         self.name = name
         self.config = config
         self.criterion = None
@@ -68,7 +69,11 @@ class MetaModel(BaseModel):
         self.nn_output = None
 
         self.build_model()
-        self.to_gpu()
+        if device is not None:
+            self.device = torch.device(device)
+            self.to(self.device)
+        else:
+            self.to_gpu()
 
     def forward(self, x):
         assert self.nn_input is not None and self.nn_latent is not None and self.nn_output is not None
@@ -166,11 +171,13 @@ class MetaModel(BaseModel):
         if model_type == 'fc':
             return nn.Linear(input_dim, output_dim)
         if model_type == 'cnn':
-            return nn.Conv2d(input_dim, output_dim, kernel_size=self.config.cnn_kernel_size, stride=1, padding=1)
+            padding = self.config.cnn_kernel_size // 2
+            return nn.Conv2d(input_dim, output_dim, kernel_size=self.config.cnn_kernel_size, stride=1, padding=padding)
         if model_type == 'decnn':
-            return nn.ConvTranspose2d(input_dim, output_dim, kernel_size=self.config.cnn_kernel_size, stride=1, padding=1)
-        #if model_type == 'rnn':
-        #     return nn.RNN(input_dim, output_dim, num_layers=self.options.num_layers, batch_first=True)
+            padding = self.config.cnn_kernel_size // 2
+            return nn.ConvTranspose2d(input_dim, output_dim, kernel_size=self.config.cnn_kernel_size, stride=1, padding=padding)
+        if model_type == 'rnn':
+            return nn.RNN(input_dim, output_dim, batch_first=True)
         # if model_type == 'transformer':
         #     return nn.TransformerEncoderLayer(d_model=self.options.input_hidden_dim, nhead=8, dim_feedforward=self.options.hidden_dim)
         
@@ -178,15 +185,13 @@ class MetaModel(BaseModel):
     
     def block_batch_norm(self, model_type, input_dim):
         # batch normalization
-        if model_type == 'fc':
+        if model_type in ('fc', 'rnn'):
             return nn.BatchNorm1d(input_dim)
         elif model_type == 'cnn':
             if self.config.task == 'autoencoder':
                 return nn.GroupNorm(input_dim, input_dim)
             else:    
                 return nn.BatchNorm2d(input_dim) 
-        # elif model_type == 'rnn':
-        #     return nn.BatchNorm1d(output_dim)  #
         # elif model_type == 'transformer':
         #     return nn.LayerNorm(output_dim)  # LayerNorm
         else:
@@ -268,16 +273,16 @@ class MetaModel(BaseModel):
         model_type = self.config.model_type
         if self.config.task in ['classification', 'regression']:
             model_type = 'fc'  # For classification and regression, we use fully connected layers
-                
+
+        if is_first_layer and self.config.model_type == 'cnn' and model_type == 'fc':
+            output['pool'] = nn.AdaptiveAvgPool2d(1)
+            output['flatten'] = nn.Flatten()
+
         output['layer'] = self.block_layer(model_type, input_dim, output_dim)
-        
-
-
-
 
         output['activation'] = self.block_activation(self.config.activation)
         if batch_norm:
-            output['batch_norm'] = self.block_batch_norm(self.config.model_type, output_dim)
+            output['batch_norm'] = self.block_batch_norm(model_type, output_dim)
         
         # dropout
         if dropout_every > 0 and (layer_num + 1) % dropout_every == 0:
@@ -395,12 +400,14 @@ class MetaModel(BaseModel):
             return None
         if isinstance(layer, ResNet):
             layer = layer.module
+        if isinstance(layer, nn.Sequential) and hasattr(layer, 'layer'):
+            layer = layer.layer
         if isinstance(layer, nn.Linear):
             return (layer.in_features, layer.out_features)
-        if isinstance(layer, (nn.Conv1d, nn.Conv2d, nn.Conv3d)):
+        if isinstance(layer, (nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.ConvTranspose1d, nn.ConvTranspose2d, nn.ConvTranspose3d)):
             return (layer.in_channels, layer.out_channels)
-        # elif isinstance(lo, (nn.RNN, nn.LSTM, nn.GRU)):
-        #     return (lo.input_size, lo.hidden_size)
+        if isinstance(layer, (nn.RNN, nn.LSTM, nn.GRU)):
+            return (layer.input_size, layer.hidden_size)
         # elif isinstance(lo, (nn.TransformerEncoderLayer, nn.TransformerDecoderLayer)):
         #     return (lo.d_model, lo.d_model)
         
@@ -421,9 +428,9 @@ class MetaModel(BaseModel):
             if isinstance(layer, nn.Linear):
                 flops += layer.in_features * layer.out_features
             elif isinstance(layer, (nn.Conv1d, nn.Conv2d, nn.Conv3d)):
-                flops += layer.in_channels * layer.out_channels * layer.kernel_size[0] * layer.kernel_size[1]
-            # elif isinstance(layer, (nn.RNN, nn.LSTM, nn.GRU)):
-            #     flops += layer.input_size * layer.hidden_size
+                flops += layer.in_channels * layer.out_channels * math.prod(layer.kernel_size)
+            elif isinstance(layer, (nn.RNN, nn.LSTM, nn.GRU)):
+                flops += layer.input_size * layer.hidden_size
             # elif isinstance(layer, (nn.TransformerEncoderLayer, nn.TransformerDecoderLayer)):
             #     flops += layer.d_model * layer.d_model
         return flops

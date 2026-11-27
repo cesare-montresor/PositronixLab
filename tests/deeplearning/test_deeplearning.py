@@ -544,10 +544,6 @@ class TestKnownBugs:
         metrics = base.process_batch(0, 1, 0, 1, batch)
         assert "loss_ce" in metrics and "loss_l2" in metrics
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Config gap: DeeplearningBase.__init__ requires config.task, which standalone TrainConfig does not define",
-    )
     def test_standalone_train_config_accepted_by_deeplearning_base(self):
         model = TinyClassifier()
         tr_dl, _ = _make_classification_loaders(n_train=8, batch_size=8)

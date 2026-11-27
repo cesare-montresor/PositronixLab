@@ -141,7 +141,6 @@ def test_clear_cache_docstring_safety_and_compile_env_switch(monkeypatch):
     assert torch_compile(raw_fn) is raw_fn
 
 
-@pytest.mark.xfail(strict=True, reason="common.py:49 infer_shape has stray `self` parameter")
 def test_bug_infer_shape_stray_self():
     x_in = (torch.randn(4, 8),)
     x_out = torch.randn(4, 16)
@@ -193,10 +192,6 @@ def test_space_normalize_euclidean_is_identity():
     assert torch.equal(space_sigreg_prepare(x, space_type=SpaceType.EUCLIDEAN), x)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="space_type.py:70 Euclidean distance_elementwise(x, x) returns sqrt(eps)=1e-4 instead of 0.0",
-)
 def test_bug_distance_elementwise_euclidean_zero_floor():
     x = torch.randn(4, 6)
     d = distance_elementwise(x, x, space_type=SpaceType.EUCLIDEAN)
@@ -333,7 +328,6 @@ def test_losses_degenerate_and_small_inputs():
     assert loss_layer_alignment([torch.randn(4, 6)]).item() == 0.0
 
 
-@pytest.mark.xfail(strict=True, reason="losses.py:120 loss_layer_alignment indexes [0] on empty sequence")
 def test_bug_loss_layer_alignment_empty_list():
     out = loss_layer_alignment([])
     assert out.item() == 0.0
@@ -432,17 +426,12 @@ def test_legacy_spacemath_distance_and_linear_scoring():
     assert SpaceMath.count_active(on, off) is True
 
 
-@pytest.mark.xfail(strict=True, reason="spacemath.py:112 unpacks (B, 1, k) tensor into `q, scores`")
 def test_bug_legacy_spacemath_conv_activations_to_scores():
     fmap = torch.randn(4, 8, 5, 5)
     scores = SpaceMath.activations_to_scores(fmap, layer_type=LayerType.CONV, x_quantile=0.75)
     assert scores.shape == (4, 8)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="spacemath.py:262 get_quantile_k_kernels_per_sample indexes sorted_indices with unsorted mask positions",
-)
 def test_bug_legacy_spacemath_get_quantile_k_kernels_mismatch():
     torch.manual_seed(11)
     fmap = torch.randn(3, 10, 5, 5)
@@ -454,10 +443,6 @@ def test_bug_legacy_spacemath_get_quantile_k_kernels_mismatch():
         assert torch.allclose(gathered, top_scores[b], atol=1e-5)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="spacemath.py:85 SpaceMath.distance Euclidean pairwise calls .squeeze(), collapsing (1, N) to (N,)",
-)
 def test_bug_legacy_spacemath_euclidean_squeeze():
     x = torch.randn(1, 6)
     y = torch.randn(5, 6)

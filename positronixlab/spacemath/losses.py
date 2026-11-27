@@ -114,6 +114,8 @@ def loss_layer_alignment(
     if isinstance(centers_per_layer, Tensor):
         stacked = centers_per_layer  # (L, bs, D)
     else:
+        if len(centers_per_layer) == 0:
+            return torch.tensor(0.0)
         if len(centers_per_layer) < 2:
             ref = centers_per_layer[0]
             return ref.new_zeros(())

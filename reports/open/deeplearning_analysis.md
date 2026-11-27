@@ -1,7 +1,7 @@
 # `positronixlab/deeplearning` — Open Issues Analysis
 
-> **Status (2026-11-27):** **32 passed, 1 xfailed, 0 failed** (`tests/deeplearning/`).
-> **Solved issues archive:** Resolved B1–B9 and legacy cleanup moved to [solved/deeplearning_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/deeplearning_solved.md).
+> **Status (2026-11-27):** **33 passed, 0 xfailed, 0 failed** (`tests/deeplearning/`).
+> **Solved issues archive:** Resolved B1–B9, standalone `TrainConfig` compatibility, and legacy cleanup moved to [solved/deeplearning_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/deeplearning_solved.md).
 
 ---
 
@@ -9,9 +9,9 @@
 
 ### Medium Severity
 
-1. **`DeeplearningBase.__init__` requires `config.task` & eagerly imports `PipelineConfig` (Config gap)**
-   - **Location:** `deeplearning_base.py:12, 33`, `__init__.py:1-12` (xfail `test_deeplearning.py:551`)
-   - **Details:** Incompatible with standalone `TrainConfig`; `__init__.py` eagerly imports `torch`, `sklearn`, `tqdm.asyncio`, and `PipelineConfig` (`parallelazy`).
+1. **Eager `PipelineConfig` import couples `deeplearning` to `parallelazy`**
+   - **Location:** `deeplearning_base.py:9`, `__init__.py:1-12`
+   - **Details:** `__init__.py` eagerly imports `torch`, `sklearn`, `tqdm.asyncio`, and `PipelineConfig` (`parallelazy`).
 
 ### Low Severity
 

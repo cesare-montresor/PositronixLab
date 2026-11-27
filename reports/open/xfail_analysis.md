@@ -1,8 +1,8 @@
 # Open `xfail` Bugs Analysis
 
 > **Scope:** All remaining `@pytest.mark.xfail(strict=True)` regression tests under `tests/`.
-> **Totals (2026-11-27 — all P0 + P1 Batches 1–3 solved!):** **22** open `xfail` markers (**22** test cases) across **4** modules (4 test files).
-> **Modules now at 0 open `xfail`s (11 of 15):** `baselines`, `dataprovider`, `modularcluster`, `modularobserver`, `modularspace`, `modularui`, `nas`, `pipeline`, `stats`, `template`, `utils`.
+> **Totals (2026-11-27 — ALL P0 & P1 xfails across all 14 active modules solved!):** **9** open `xfail` markers (**9** test cases) in **1** legacy prototype test file (`tests/tasks/test_tasks_compositionality.py`).
+> **Modules now at 0 open `xfail`s (14 of 15):** `baselines`, `dataprovider`, `deeplearning`, `metamodel`, `modularcluster`, `modularobserver`, `modularspace`, `modularui`, `nas`, `pipeline`, `spacemath`, `stats`, `template`, `utils` *(plus all active `tasks/` APIs: `SubnetworkMask`, `MaskApplier`, `AtlasDiscoverer`, `ModularityBenchmark`)*.
 
 ---
 
@@ -10,11 +10,8 @@
 
 | Module | Open `xfail`s | Test File(s) | Detailed Module Audit |
 | :--- | :---: | :--- | :--- |
-| **`tasks`** | 9 | [test_tasks_compositionality.py](file:///home/cesare/Projects/PositronixLab/tests/tasks/test_tasks_compositionality.py) | [tasks_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/tasks_analysis.md) |
-| **`metamodel`** | 6 | [test_metamodel.py](file:///home/cesare/Projects/PositronixLab/tests/metamodel/test_metamodel.py) | [metamodel_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/metamodel_analysis.md) |
-| **`spacemath`** | 6 | [test_spacemath_extended.py](file:///home/cesare/Projects/PositronixLab/tests/spacemath/test_spacemath_extended.py) | [spacemath_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/spacemath_analysis.md) |
-| **`deeplearning`** | 1 | [test_deeplearning.py](file:///home/cesare/Projects/PositronixLab/tests/deeplearning/test_deeplearning.py) | [deeplearning_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/deeplearning_analysis.md) |
-| **Total** | **22** | **4 test files** | |
+| **`tasks` (`compositionality/` prototype)** | 9 | [test_tasks_compositionality.py](file:///home/cesare/Projects/PositronixLab/tests/tasks/test_tasks_compositionality.py) | [tasks_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/tasks_analysis.md) |
+| **Total** | **9** | **1 test file** | |
 
 ---
 
@@ -23,14 +20,10 @@
 ### P0 — Silent Correctness & Data Corruption
 *All P0 silent-correctness bugs have been fixed and archived under `reports/solved/`.*
 
-### P1 — Crashes, Leaks & Broken Features (Remaining: 6)
-- **`metamodel` (6):** `MetaModel.__init__` ignores `device="cpu"`; CNN classification `BatchNorm2d`/missing `Flatten`; CNN autoencoder `ConvTranspose2d` `layer_size()`; `nmum_fop()` on `Conv1d`; `layer_size(resnet_block)`; hardcoded `padding=1` breaks `cnn_kernel_size != 3`.
+### P1 — Crashes, Leaks & Broken Features
+*All P1 `xfail` bugs across all 15 modules have been fixed and archived under `reports/solved/`.*
 
-### P2 — Refactor Gaps & Legacy / Prototype Code (Remaining: 16)
-- **Config / feature gaps (1):**
-  - `deeplearning` (1): `DeeplearningBase.__init__` requires `config.task`, incompatible with standalone `TrainConfig`.
-- **Legacy `SpaceMath` & minor primitives (6):**
-  - `spacemath` (6): `infer_shape` stray `self`, Euclidean `distance_elementwise(x, x)` `sqrt(eps)` floor, `loss_layer_alignment([])`, and 3 legacy `spacemath.py` bugs.
+### P2 — Legacy / Prototype Code (Remaining: 9)
 - **Earlier `tasks/compositionality` prototype (9):**
   - `atlas_check.py`, `weightmask_check.py`, `compositionality.py` — superseded for new benchmarks by `positronixlab.tasks` (`SubnetworkMask`, `MaskApplier`, `AtlasDiscoverer`, `ModularityBenchmark`), though still tested and exposed.
 
