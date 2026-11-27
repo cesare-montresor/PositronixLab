@@ -1,3 +1,4 @@
+from positronixlab.spacemath.common import effective_rank
 from positronixlab.spacemath.contrast import (
     CONTRASTS,
     ContrastResult,
@@ -65,6 +66,7 @@ from positronixlab.spacemath.weighting import (
 __all__ = [
     # Space geometry & distances
     "SpaceType",
+    "effective_rank",
     "space_is_cosine",
     "space_normalize",
     "space_sigreg_prepare",

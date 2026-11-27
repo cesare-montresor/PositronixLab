@@ -2,7 +2,7 @@
 
 Practical recipes for mapping PyTorch models, exporting Dash Cytoscape graphs, and collecting activations/gradients with `ModelMapper` and `ModularObserver`.
 
-> **Note on imports**: `positronixlab/modularobserver/__init__.py` is currently empty, so import classes from their submodules (`positronixlab.modularobserver.modelmapper` and `positronixlab.modularobserver.modularobserver`).
+> **Note on imports**: `positronixlab.modularobserver` lazily exports `ModularObserver`, `ActivationCache`, `infer_layer_info`, and `reduce_activation_2d` alongside eager `ModelMapper`/`LayerObserver` exports, so standalone scripts and notebooks can use `ActivationCache` without `parallelazy`.
 
 ---
 
@@ -180,4 +180,22 @@ Re-registering any `on_*` callback automatically removes the previous hook handl
 
 ```python
 observer.clear()
+```
+
+---
+
+## 5. Frozen-Model Activation & Score Disk Cache (`ActivationCache`)
+
+For offline analysis, HPO, or standalone notebooks without `parallelazy`, `ActivationCache` persists detached 2D layer activations (`cache_mode="activations"`) or `[-1, 1]` unit scores (`cache_mode="scores"`) atomically to disk:
+
+```python
+from positronixlab.modularobserver import ActivationCache
+
+cache_dir = ActivationCache.compute_cache_path(
+    "/tmp/act_cache",
+    signature_fields={"model": "mlp", "split": "val"},
+    cache_mode="activations",
+)
+cache = ActivationCache(cache_dir, cache_mode="activations", cache_dtype="float32")
+meta, tensors, hit = cache.load_or_build(lambda: (model, val_loader), device="cpu")
 ```

@@ -414,3 +414,33 @@ def model_hash(model: torch.nn.Module, algo: str = "sha256") -> str:
         hasher.update(raw_bytes)
 
     return hasher.hexdigest()
+
+
+def atomic_write_json(
+    path: str | os.PathLike[str],
+    payload: Any,
+    *,
+    indent: int = 2,
+    sort_keys: bool = True,
+) -> Path:
+    """Write JSON atomically via a PID-scoped temp file, ``fsync``, and ``os.replace``."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = target.with_suffix(target.suffix + f".{os.getpid()}.tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=indent, sort_keys=sort_keys, default=str)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, target)
+    return target
+
+
+def to_plain_python(obj: Any) -> Any:
+    """Recursively convert PyTorch tensors and NumPy arrays/scalars to plain Python types."""
+    if isinstance(obj, dict):
+        return {str(k): to_plain_python(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [to_plain_python(v) for v in obj]
+    if hasattr(obj, "detach"):
+        obj = obj.detach().cpu().numpy()
+    return obj.tolist() if hasattr(obj, "tolist") else obj

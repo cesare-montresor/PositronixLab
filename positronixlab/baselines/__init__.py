@@ -1,6 +1,11 @@
 """External SOTA baselines organized by work (csordas, lepori, neurosurgeon)."""
 
 from positronixlab.baselines import csordas, lepori, neurosurgeon
+from positronixlab.baselines.artifacts import (
+    BaselineArtifact,
+    BaselineArtifactLoader,
+    CheckpointStore,
+)
 from positronixlab.baselines.base import (
     MASKABLE_LAYER_TYPES,
     CompositionalDataProvider,
@@ -11,7 +16,10 @@ from positronixlab.baselines.base import (
     get_maskable_layer_names,
 )
 from positronixlab.baselines.csordas import CsordasGumbelDiscoverer
-from positronixlab.baselines.lepori import OddOneOutHead
+from positronixlab.baselines.lepori import (
+    ContinuousSparsificationDiscoverer,
+    OddOneOutHead,
+)
 from positronixlab.baselines.loader import DataProviderLoader, ModelLoader
 from positronixlab.baselines.neurosurgeon import (
     NeuroSurgeonDiscoverer,
@@ -20,7 +28,11 @@ from positronixlab.baselines.neurosurgeon import (
 )
 
 __all__ = [
+    "BaselineArtifact",
+    "BaselineArtifactLoader",
+    "CheckpointStore",
     "CompositionalDataProvider",
+    "ContinuousSparsificationDiscoverer",
     "CsordasGumbelDiscoverer",
     "DataProviderLoader",
     "MASKABLE_LAYER_TYPES",

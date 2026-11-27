@@ -6,6 +6,8 @@ from positronixlab.tasks.benchmarks import (
     ModularityBenchmark,
     SubnetworkEvalResult,
     default_eval_accuracy,
+    make_accuracy_fn,
+    resolve_subtask_criterion,
 )
 from positronixlab.tasks.discoverer import (
     RandomMaskDiscoverer,
@@ -31,5 +33,7 @@ __all__ = [
     "SubnetworkEvalResult",
     "SubnetworkMask",
     "default_eval_accuracy",
+    "make_accuracy_fn",
+    "resolve_subtask_criterion",
     "unpack_batch",
 ]

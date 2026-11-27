@@ -154,6 +154,22 @@ provider = SyntheticDataProvider(batch_size=16, split=[0.7, 0.15, 0.15], num_wor
 print(len(provider.train), len(provider.val), len(provider.test))
 ```
 
+### Device-Resident Fast Batching (`FastTensorLoader`)
+
+For small/medium datasets, preload tensors onto CPU/GPU memory once to eliminate PyTorch `DataLoader` Python/IPC overhead (automatically falling back to the original dataloader if transforms are present or memory exceeds `max_preload_mb`):
+
+```python
+from positronixlab.dataprovider import make_fast_loader
+
+fast_train = make_fast_loader(
+    provider.train,
+    device="cuda",
+    batch_size=64,
+    shuffle=True,
+    max_preload_mb=512.0,
+)
+```
+
 ---
 
 ## 7. Running Tests & Examples

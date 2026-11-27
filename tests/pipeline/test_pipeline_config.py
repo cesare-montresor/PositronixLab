@@ -180,17 +180,38 @@ def test_lazy_init_unknown_attribute_raises():
         _ = pipeline_pkg.DoesNotExist
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug B2: BaseConfig.from_dict() fails to coerce PEP 604 union annotations (int | None).",
-)
 def test_from_dict_pep604_optional_coercion_bug():
     @dataclass
     class _Pep604Config(BaseConfig):
         count: int | None = None
+        modes: tuple[str, ...] | None = None
 
-    cfg = _Pep604Config.from_dict({"count": "42"})
+    cfg = _Pep604Config.from_dict({"count": "42", "modes": ["retain", "zero_ablate"]})
     assert cfg.count == 42 and isinstance(cfg.count, int)
+    assert cfg.modes == ("retain", "zero_ablate") and isinstance(cfg.modes, tuple)
+
+
+def test_from_dict_runtime_union_type_and_yaml_tuple_roundtrip(tmp_path):
+    # Explicitly construct a dataclass with runtime types.UnionType (not stringified)
+    from dataclasses import make_dataclass
+
+    RuntimeCfg = make_dataclass(
+        "RuntimeCfg",
+        [
+            ("count", int | None, None),
+            ("modes", tuple[str, ...] | None, ("retain", "zero_ablate")),
+        ],
+        bases=(BaseConfig,),
+    )
+    cfg = RuntimeCfg.from_dict({"count": "7", "modes": ["retain"]})
+    assert cfg.count == 7 and isinstance(cfg.count, int)
+    assert cfg.modes == ("retain",) and isinstance(cfg.modes, tuple)
+
+    yaml_path = tmp_path / "cfg.yaml"
+    cfg.save(yaml_path)
+    loaded = RuntimeCfg.load(yaml_path)
+    assert loaded.count == 7
+    assert loaded.modes == ("retain",) and isinstance(loaded.modes, tuple)
 
 
 @pytest.mark.xfail(
@@ -263,10 +284,6 @@ def test_pipeline_options_and_config_hierarchy():
     assert v2.modular_space_loss_sigreg == pytest.approx(0.5)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug B2: pipeline_config_v2.py omits `from __future__ import annotations`, so Optional[str] is not coerced.",
-)
 def test_pipeline_config_v2_optional_str_coercion_bug():
     _ensure_parallelazy_stub()
     from positronixlab.pipeline import PipelineConfigV2

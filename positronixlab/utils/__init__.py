@@ -1,5 +1,6 @@
 from positronixlab.utils.utils import (
     assert_tensor,
+    atomic_write_json,
     camel_to_kebab,
     camel_to_snake,
     check_tensor,
@@ -19,11 +20,13 @@ from positronixlab.utils.utils import (
     set_best,
     signature_settings,
     suppress_output,
+    to_plain_python,
     truth_table_from_cm,
 )
 
 __all__ = [
     "assert_tensor",
+    "atomic_write_json",
     "camel_to_kebab",
     "camel_to_snake",
     "check_tensor",
@@ -43,5 +46,6 @@ __all__ = [
     "set_best",
     "signature_settings",
     "suppress_output",
+    "to_plain_python",
     "truth_table_from_cm",
 ]

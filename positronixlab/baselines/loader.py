@@ -6,7 +6,7 @@ benchmarks across all baseline works (``csordas``, ``lepori``, ``neurosurgeon``)
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -250,6 +250,33 @@ class ModelLoader:
         return model, mask
 
     @classmethod
+    def infer_kwargs(
+        cls,
+        arch: str,
+        dp: Any,
+        model_kwargs: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Infer architecture I/O dimensions from ``dp`` without overriding explicit kwargs.
+
+        Currently populates defaults for ``csordas:mlp``, ``csordas:conv``,
+        ``csordas:resnet110``, and ``csordas:lstm``; other architectures pass
+        ``model_kwargs`` through unchanged.
+        """
+        kwargs = dict(model_kwargs or {})
+        if arch == "csordas:mlp":
+            kwargs.setdefault("n_inputs", dp.num_features)
+            kwargs.setdefault("n_outputs", dp.num_classes)
+            kwargs.setdefault("layer_sizes", [128, 64])
+        elif arch == "csordas:conv":
+            kwargs.setdefault("out_channels", dp.num_classes)
+        elif arch == "csordas:resnet110":
+            kwargs.setdefault("num_classes", dp.num_classes)
+        elif arch == "csordas:lstm":
+            kwargs.setdefault("n_inputs", dp.num_features)
+            kwargs.setdefault("n_outputs", dp.num_classes)
+        return kwargs
+
+    @classmethod
     def wrap_neurosurgeon(
         cls,
         model: nn.Module,
@@ -302,12 +329,42 @@ class DataProviderLoader:
         return sorted(k for k, v in cls._REGISTRY.items() if v.source == source)
 
     @classmethod
-    def create(cls, name: str, **kwargs: Any) -> DataProvider:
+    def create(
+        cls,
+        name: str,
+        *,
+        base_dataset_name: str | None = None,
+        base_dataset_kwargs: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> DataProvider:
+        if name == "csordas:class_removal" and base_dataset_name:
+            from positronixlab.dataprovider.dataprovider_factory import DataProviderFactory
+
+            base_kw = dict(base_dataset_kwargs or {})
+            if "batch_size" in kwargs:
+                base_kw.setdefault("batch_size", kwargs["batch_size"])
+            base_dp = DataProviderFactory.create(base_dataset_name, **base_kw)
+            wrap_kw = {k: v for k, v in kwargs.items() if k != "seed"}
+            wrap_kw.setdefault("name", f"class_removal:{base_dataset_name}")
+            return ClassRemovalDataProvider.from_provider(base_dp, **wrap_kw)
+
         if name not in cls._REGISTRY:
             raise ValueError(
                 f"Unknown baseline dataset {name!r}. Available: {cls.list_datasets()}"
             )
         return cls._REGISTRY[name].builder(**kwargs)
+
+    @classmethod
+    def resolve_subtasks(
+        cls,
+        dp: Any,
+        subtasks: Sequence[str] | None = None,
+    ) -> list[str]:
+        """Return explicit ``subtasks`` if given, else non-full subtasks from ``dp``."""
+        if subtasks:
+            return list(subtasks)
+        names = [name for name in dp.list_subtasks() if name not in ("full", "all")]
+        return names if names else list(dp.list_subtasks())
 
 
 # ---------------------------------------------------------------------------

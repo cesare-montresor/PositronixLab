@@ -81,18 +81,46 @@ add_loader = dp.get_subtask("add").train_loader()
 csordas = CsordasGumbelDiscoverer(mask_loss_weight=1e-4, lr=1e-2, epochs=5)
 csordas_mask = csordas.discover(model, add_loader, target_layers=target_layers, mask_name="csordas_add")
 
-# 2. NeuroSurgeon Continuous Sparsification (weight- or neuron-level)
+# 2. Native PyTorch 2.x Continuous Sparsification (zero NeuroSurgeon dependency)
+from positronixlab.baselines import ContinuousSparsificationDiscoverer
+lepori = ContinuousSparsificationDiscoverer(
+    mask_unit="weight",  # or "neuron"
+    l0_lambda=1e-4,
+    lr=5e-2,
+    epochs=5,
+)
+lepori_mask = lepori.discover(model, add_loader, target_layers=target_layers, mask_name="lepori_add")
+
+# 3. NeuroSurgeon wrapper (supports backend="neurosurgeon" | "native" | "auto")
 ns = NeuroSurgeonDiscoverer(
     mask_method="continuous_sparsification",  # or "hard_concrete", "magnitude_pruning"
     mask_unit="weight",                       # or "neuron"
     l0_lambda=1e-4,
     lr=1e-2,
     epochs=5,
+    backend="auto",                           # uses native PyTorch 2.x for continuous_sparsification
 )
 ns_mask = ns.discover(model, add_loader, target_layers=target_layers, mask_name="ns_add")
 
 print("Csordás sparsity:", csordas_mask.sparsity(), "NS sparsity:", ns_mask.sparsity())
 print("Cross-method IoU:", csordas_mask.iou(ns_mask))
+```
+
+### Portable Baseline Checkpoints & Artifacts (`CheckpointStore` / `BaselineArtifactLoader`)
+
+`CheckpointStore` manages crash-safe, multiprocess-safe stage/subtask checkpoints and writes relative paths into `checkpoint_state.json` and `baseline_manifest.json` so artifact directories can be moved freely:
+
+```python
+from positronixlab.baselines import BaselineArtifactLoader, CheckpointStore
+
+store = CheckpointStore("/data/baselines/run_01")
+# ... save model bundle + subtask masks, then write canonical manifest ...
+store.write_manifest(config_dict={"dataset_name": "csordas:add_mul"}, subtasks=["add", "mul"])
+
+# Load directly or relative to a parametrized root_dir
+artifact = BaselineArtifactLoader.load("run_01", root_dir="/data/baselines")
+model, info = artifact.load_model(device="cpu")
+all_masks = artifact.load_all_masks()
 ```
 
 ### Direct NeuroSurgeon Wrapping

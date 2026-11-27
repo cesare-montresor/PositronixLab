@@ -16,7 +16,10 @@ from positronixlab.modularobserver.modelmapper import (
 )
 
 _LAZY_EXPORTS = {
+    "ActivationCache": ("positronixlab.modularobserver.activation_cache", "ActivationCache"),
     "ModularObserver": ("positronixlab.modularobserver.modularobserver", "ModularObserver"),
+    "infer_layer_info": ("positronixlab.modularobserver.activation_cache", "infer_layer_info"),
+    "reduce_activation_2d": ("positronixlab.modularobserver.activation_cache", "reduce_activation_2d"),
 }
 
 
@@ -31,6 +34,7 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
+    "ActivationCache",
     "TRACE_ALWAYS",
     "GraphFormatter",
     "LayerObserver",
@@ -40,4 +44,6 @@ __all__ = [
     "ModelNode",
     "ModularObserver",
     "extract_layer_io_metrics",
+    "infer_layer_info",
+    "reduce_activation_2d",
 ]

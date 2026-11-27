@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import time
 from collections.abc import Callable, Iterable
 from typing import Any
 
@@ -56,6 +57,19 @@ class _GumbelMaskParametrization(nn.Module):
         return weight * mask
 
 
+def _binary_flip_fraction(
+    prev_masks: dict[str, torch.Tensor],
+    curr_masks: dict[str, torch.Tensor],
+) -> float:
+    flips = 0
+    total = 0
+    for k, curr in curr_masks.items():
+        prev = prev_masks[k]
+        flips += int((curr ^ prev).sum().item())
+        total += int(curr.numel())
+    return flips / max(1, total)
+
+
 class CsordasGumbelDiscoverer(SubnetworkDiscoverer):
     """Modern PyTorch 2.x implementation of Csordas et al. (ICLR 2021) weight masking.
 
@@ -74,6 +88,11 @@ class CsordasGumbelDiscoverer(SubnetworkDiscoverer):
         init_logit: float = 2.0,
         tau: float = 1.0,
         loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+        *,
+        use_amp: bool = False,
+        use_compile: bool = False,
+        early_stop_patience: int = 0,
+        early_stop_tol: float = 1e-3,
     ) -> None:
         self.mask_loss_weight = mask_loss_weight
         self.lr = lr
@@ -81,6 +100,11 @@ class CsordasGumbelDiscoverer(SubnetworkDiscoverer):
         self.init_logit = init_logit
         self.tau = tau
         self.loss_fn = loss_fn or F.cross_entropy
+        self.use_amp = use_amp
+        self.use_compile = use_compile
+        self.early_stop_patience = early_stop_patience
+        self.early_stop_tol = early_stop_tol
+        self.last_stats: dict[str, Any] = {}
 
     def discover(
         self,
@@ -92,6 +116,7 @@ class CsordasGumbelDiscoverer(SubnetworkDiscoverer):
     ) -> SubnetworkMask:
         import torch.nn.utils.parametrize as parametrize
 
+        t0 = time.monotonic()
         work_model = copy.deepcopy(model)
         work_model.eval()
         for p in work_model.parameters():
@@ -124,27 +149,81 @@ class CsordasGumbelDiscoverer(SubnetworkDiscoverer):
             raise ValueError("No maskable target_layers with weights found.")
 
         device = next(iter(mask_modules.values())).logits.device
+        run_model: Any = (
+            torch.compile(work_model) if (self.use_compile and device.type == "cuda") else work_model
+        )
         optimizer = torch.optim.Adam(
             [m.logits for m in mask_modules.values()], lr=self.lr
         )
+        amp_enabled = bool(self.use_amp and device.type == "cuda")
+        amp_dtype = (
+            torch.bfloat16 if (amp_enabled and torch.cuda.is_bf16_supported()) else torch.float16
+        )
+        scaler = torch.amp.GradScaler(
+            device.type, enabled=bool(amp_enabled and amp_dtype == torch.float16)
+        )
 
-        for _ in range(self.epochs):
+        prev_binary: dict[str, torch.Tensor] | None = None
+        prev_loss: float | None = None
+        stable_epochs = 0
+        epochs_run = 0
+        last_task_loss = 0.0
+
+        for epoch in range(max(0, self.epochs)):
+            epochs_run = epoch + 1
+            ep_loss = 0.0
+            n_batches = 0
             for batch in dataloader:
                 x, y = unpack_batch(batch)
-                x, y = x.to(device), y.to(device)
-                batch_size = max(1, x.shape[0])
-                optimizer.zero_grad()
-                logits = work_model(x)
-                task_loss = self.loss_fn(logits, y)
-                logit_penalty = sum(m.logits.sum() for m in mask_modules.values())
-                total_loss = task_loss + (self.mask_loss_weight / batch_size) * logit_penalty
-                total_loss.backward()
-                optimizer.step()
+                if x.device != device:
+                    x = x.to(device, non_blocking=True)
+                if y.device != device:
+                    y = y.to(device, non_blocking=True)
+                batch_size = max(1, int(x.shape[0]))
+                optimizer.zero_grad(set_to_none=True)
+                with torch.amp.autocast(
+                    device_type=device.type, dtype=amp_dtype, enabled=amp_enabled
+                ):
+                    logits = run_model(x)
+                    task_loss = self.loss_fn(logits, y)
+                    logit_penalty = sum(m.logits.sum() for m in mask_modules.values())
+                    total_loss = task_loss + (self.mask_loss_weight / batch_size) * logit_penalty
+                if scaler.is_enabled():
+                    scaler.scale(total_loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    total_loss.backward()
+                    optimizer.step()
+                ep_loss += float(task_loss.detach().item())
+                n_batches += 1
+
+            last_task_loss = ep_loss / max(1, n_batches)
+
+            if self.early_stop_patience > 0:
+                curr_binary = {k: (m.logits.detach() >= 0.0) for k, m in mask_modules.items()}
+                if prev_binary is not None and prev_loss is not None:
+                    flip_frac = _binary_flip_fraction(prev_binary, curr_binary)
+                    loss_delta = abs(last_task_loss - prev_loss)
+                    if flip_frac <= self.early_stop_tol and loss_delta <= self.early_stop_tol:
+                        stable_epochs += 1
+                        if stable_epochs >= self.early_stop_patience:
+                            break
+                    else:
+                        stable_epochs = 0
+                prev_binary = curr_binary
+                prev_loss = last_task_loss
 
         binary_masks = {
             k: (m.logits.detach() >= 0.0).clone() for k, m in mask_modules.items()
         }
         raw_scores = {k: m.logits.detach().clone() for k, m in mask_modules.items()}
+        self.last_stats = {
+            "epochs_run": epochs_run,
+            "final_task_loss": last_task_loss,
+            "duration_sec": time.monotonic() - t0,
+            "backend": "native_fast",
+        }
         return SubnetworkMask(
             name=mask_name,
             granularity="weight",
@@ -155,5 +234,6 @@ class CsordasGumbelDiscoverer(SubnetworkDiscoverer):
                 "mask_loss_weight": self.mask_loss_weight,
                 "init_logit": self.init_logit,
                 "tau": self.tau,
+                **self.last_stats,
             },
         )

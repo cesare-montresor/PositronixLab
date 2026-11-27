@@ -17,6 +17,10 @@ import torch.nn as nn
 
 from positronixlab.baselines.base import get_maskable_layer_names
 from positronixlab.modularcluster.modularcluster_kmeans import ModularClusterKmeans
+from positronixlab.modularobserver.activation_cache import (
+    infer_layer_info,
+    reduce_activation_2d as _reduce_activation_to_2d,
+)
 from positronixlab.modularspace.config import LayerSpaceConfig
 from positronixlab.modularspace.layerspace import LayerSpace
 from positronixlab.tasks.discoverer import SubnetworkDiscoverer
@@ -25,29 +29,6 @@ from positronixlab.tasks.masks import SubnetworkMask
 
 AttributionMode = Literal["selectivity", "contrastive", "raw"]
 EnergyMode = Literal["abs", "relu"]
-
-
-def _reduce_activation_to_2d(
-    act: torch.Tensor,
-    module: nn.Module | None = None,
-) -> torch.Tensor:
-    """Reduce arbitrary layer output tensor to ``(B, U)`` unit activations.
-
-    Handles:
-    - 2D Linear: ``(B, U)`` -> unchanged
-    - Conv1d / Conv2d / Conv3d (``_ConvNd``): ``(B, C, *spatial)`` -> mean over spatial dims
-    - 4D fallback (when *module* is ``None``): ``(B, C, H, W)`` -> spatial mean over ``(H, W)``
-    - 3D Sequence (Transformer / RNN / ViT): ``(B, T, U)`` -> mean over ``T``
-    """
-    if act.ndim == 2:
-        return act
-    if isinstance(module, nn.modules.conv._ConvNd):
-        return act.mean(dim=tuple(range(2, act.ndim)))
-    if act.ndim == 4:
-        return act.mean(dim=(2, 3))
-    if act.ndim == 3:
-        return act.mean(dim=1)
-    return act.reshape(act.shape[0], -1)
 
 
 def _model_device(model: nn.Module) -> torch.device:
@@ -64,18 +45,8 @@ def _ensure_reiterable(dataloader: Iterable[Any], name: str = "dataloader") -> N
 
 
 def _infer_out_units(module: nn.Module) -> int | None:
-    if isinstance(module, nn.Linear):
-        return int(module.out_features)
-    if isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Conv3d)):
-        return int(module.out_channels)
-    if type(module).__name__ == "Conv1D":
-        nf: Any = getattr(module, "nf", None)
-        if nf is not None:
-            return int(nf)
-    w = getattr(module, "weight", None)
-    if isinstance(w, torch.Tensor) and w.ndim >= 1:
-        return int(w.shape[0])
-    return None
+    out_units = infer_layer_info("", module)["out_units"]
+    return out_units if out_units > 0 else None
 
 
 class AtlasDiscoverer(SubnetworkDiscoverer):

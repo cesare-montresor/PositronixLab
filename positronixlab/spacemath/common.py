@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import functools
 import getpass
+import math
 import os
 import shutil
 from collections.abc import Callable
@@ -189,4 +190,24 @@ def clear_torch_compile_cache(triton: bool = True, verbose: bool = False) -> Non
     if verbose:
         print("torch.compile cache cleared.")
         print("[clear_torch_compile_cache] --------------------------- ")
+
+
+def effective_rank(positions: torch.Tensor) -> float:
+    """Compute spectral effective rank ``exp(H(sigma_norm))`` of centered 2D embeddings.
+
+    Used to quantify dimensional utilization and detect embedding collapse in
+    modular spaces (Roy & Vetterli, 2007).
+    """
+    if positions.ndim != 2 or positions.shape[0] < 2 or positions.shape[1] < 2:
+        return 1.0
+    centered = positions.detach().cpu().float()
+    centered = centered - centered.mean(dim=0, keepdim=True)
+    sv = torch.linalg.svdvals(centered)
+    total = float(sv.sum().item())
+    if total <= 1e-12:
+        return 0.0
+    p = (sv / total).clamp_min(1e-12)
+    entropy = float(-(p * p.log()).sum().item())
+    return math.exp(entropy)
+
     

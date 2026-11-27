@@ -39,21 +39,21 @@ Split from a single monorepo into 4 sibling repos (plus SOTA reference symlinks 
 
 ## Directory map
 - `positronixlab/` — Pure library source code (no `tests/`, `docs/`, `examples/`, or `legacy/`):
-  - `spacemath/` — Modular primitives (`scoring.py`, `contrast.py`, `weighting.py`, `losses.py`, `reducers.py`, `space_type.py`, `sigreg.py`), `SpaceMath`, and `common.py` (`torch.compile` wrappers, tensor helpers).
+  - `spacemath/` — Modular primitives (`scoring.py`, `contrast.py`, `weighting.py`, `losses.py`, `reducers.py`, `space_type.py`, `sigreg.py`), `SpaceMath`, and `common.py` (`torch.compile` wrappers, tensor helpers, `effective_rank`).
   - `modularspace/` — `LayerSpace`, `LayerSpaceConfig`, `SpaceStep`, `presets.py`, `ModularSpace`, `ModularOverSpace`, and `custertracker.py` [sic].
-  - `modularobserver/` — `ModelMapper` (static + `TorchFunctionMode` dynamic graph tracing, Cytoscape export), `ModularObserver` (configurable `observable_types` / `target_layers` / `exclude_patterns`), `LayerObserver`.
+  - `modularobserver/` — `ModelMapper` (static + `TorchFunctionMode` dynamic graph tracing, Cytoscape export), `ModularObserver` (configurable `observable_types` / `target_layers` / `exclude_patterns`), `LayerObserver`, and `ActivationCache` (`activation_cache.py`, lazy-exported, no `parallelazy`).
   - `modularcluster/` — Adaptive FAISS K-Means (`ModularClusterKmeans`), streaming K-Means, `StreamingClusterTracker`.
   - `deeplearning/` — `TrainConfig`, `DeeplearningBase`, `DeeplearningTrain` (+ `EarlyStopping`), `DeeplearningEval`.
   - `metamodel/` — `MetaModelConfig`, `BaseModel`/`MetaModel`, `MetaCriterion`, `MetaTransform`.
-  - `dataprovider/` — `DataConfig`, `DataReader`/`DataProvider`, `CompositionalDataProvider`, `DataProviderFactory`, 16 concrete providers (incl. `ClassRemovalDataProvider`, `AddMul`, `TupleArithmetic`, `PermutedMnist`, `SCAN`, `Math`, `CVR`/`CVRSimCLR`/`SynEval`).
-  - `tasks/` — Shared evaluation contract (`SubnetworkMask`, `MaskApplier`, `SubnetworkDiscoverer`, `RandomMaskDiscoverer`), PositronixLab's `AtlasDiscoverer`, `ModularityBenchmark` (`benchmarks.py`), and `compositionality/` (earlier prototype).
-  - `baselines/` — External SOTA works organized by paper (`csordas/`, `lepori/`, `neurosurgeon/`) + shared `ModelLoader` (`save`/`load_bundle`/`load`), `DataProviderLoader`, `SOTAModel`, `CompositionalDataProvider`.
-  - `pipeline/` — `BaseConfig` (`config.py`), `Pipeline` ABC (wraps `parallelazy.PluginManager`), `PipelineConfig`/`V1`/`V2`.
+  - `dataprovider/` — `DataConfig`, `DataReader`/`DataProvider`, `CompositionalDataProvider`, `DataProviderFactory`, `FastTensorLoader` (`fast_loader.py`), 16 concrete providers (incl. `ClassRemovalDataProvider`, `AddMul`, `TupleArithmetic`, `PermutedMnist`, `SCAN`, `Math`, `CVR`/`CVRSimCLR`/`SynEval`).
+  - `tasks/` — Shared evaluation contract (`SubnetworkMask`, `MaskApplier`, `SubnetworkDiscoverer`, `RandomMaskDiscoverer`), PositronixLab's `AtlasDiscoverer`, `ModularityBenchmark` + `make_accuracy_fn`/`resolve_subtask_criterion` (`benchmarks.py`), and `compositionality/` (earlier prototype).
+  - `baselines/` — External SOTA works organized by paper (`csordas/`, `lepori/` incl. pure-PyTorch `ContinuousSparsificationDiscoverer`, `neurosurgeon/`) + shared `ModelLoader` (`save`/`load_bundle`/`load`/`infer_kwargs`), `DataProviderLoader`, `CheckpointStore`/`BaselineArtifactLoader` (`artifacts.py`), `SOTAModel`, `CompositionalDataProvider`.
+  - `pipeline/` — `BaseConfig` (`config.py`, YAML/JSON + tuple & PEP 604 optional coercion), `Pipeline` ABC (wraps `parallelazy.PluginManager`), `PipelineConfig`/`V1`/`V2`.
   - `nas/` — Ax 1.3+ `Experiment`, `TrialConfig`, `TrialPipeline`.
   - `template/` — `TemplateBase`, `TemplateVariant`, `TemplateFactory`, dataset templates.
   - `stats/` — `Reducer` (`Last`/`Ema`/`Mean`/`Window`/`Displacement`), `Processor` (`Umap`/`Overall`), `DisplacementFilter`, `Stream`.
   - `modularui/` — Thread-safe Dash/Plotly/Cytoscape view store (`ModularUI`, `UILocks`, `layouts`, `docks`, `components`, `plots`).
-  - `utils/` — Misc helpers (`process_start_spawn`, `seed_everything`, `session_path`, `save_data`/`load_data`).
+  - `utils/` — Misc helpers (`process_start_spawn`, `seed_everything`, `session_path`, `save_data`/`load_data`, `atomic_write_json`, `to_plain_python`).
 - `tests/` — Unit tests mirroring `positronixlab/` (`pytest.ini` sets `testpaths = tests`).
 - `docs/` — Per-module `*_SYSTEM.md` / `*_USAGE.md` docs, Ax guides, `components.md`, and media.
 - `examples/` — Standalone runnable CPU examples per module (incl. `examples/tasks/example_atlas_vs_sota.py`).

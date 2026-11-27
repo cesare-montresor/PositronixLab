@@ -175,3 +175,16 @@ def test_additional_losses(space_type):
     total.backward()
     assert torch.isfinite(centers_on.grad).all()
     assert {"centers", "batch", "sigreg", "sigreg_centers", "alignment"}.issubset(LOSSES)
+
+
+def test_effective_rank_identifies_collapse_and_full_rank():
+    from positronixlab.spacemath import effective_rank
+
+    eye = torch.cat([torch.eye(4), -torch.eye(4)], dim=0)
+    assert effective_rank(eye) == pytest.approx(4.0, abs=1e-4)
+
+    col = torch.linspace(-1.0, 1.0, 16).unsqueeze(1).repeat(1, 4)
+    assert effective_rank(col) == pytest.approx(1.0, abs=1e-4)
+
+    zeros = torch.zeros(8, 4)
+    assert effective_rank(zeros) == 0.0

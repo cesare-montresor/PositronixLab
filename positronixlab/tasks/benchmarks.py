@@ -44,6 +44,87 @@ def default_eval_accuracy(model: nn.Module, dataloader: Iterable[Any]) -> float:
     return correct / max(1, total)
 
 
+def make_accuracy_fn(
+    dp: Any,
+    subtask: str | None = None,
+) -> Callable[[nn.Module, Iterable[Any]], float]:
+    """Return a task-appropriate accuracy function supporting both integer and multi-digit modes.
+
+    Handles ``AddMulDataProvider`` and ``TupleArithmeticDataProvider`` in
+    ``target_mode="digits"`` as well as standard classification tasks.
+    """
+    from positronixlab.dataprovider.addmul_dataprovider import (
+        AddMulDataProvider,
+        addmul_exact_accuracy,
+    )
+    from positronixlab.dataprovider.tuple_arithmetic_dataprovider import (
+        TupleArithmeticDataProvider,
+        tuple_arithmetic_accuracy,
+    )
+
+    target_mode = getattr(dp, "target_mode", "integer")
+
+    def _eval(model: nn.Module, dataloader: Iterable[Any]) -> float:
+        was_training = model.training
+        model.eval()
+        first_param = next(model.parameters(), None)
+        device = first_param.device if first_param is not None else torch.device("cpu")
+        eff_subtask = subtask or getattr(dataloader, "subtask", None)
+        total_correct = 0.0
+        total_items = 0
+        try:
+            with torch.no_grad():
+                for batch in dataloader:
+                    x, y = _unpack_batch(batch)
+                    x = x.to(device, non_blocking=True)
+                    y = y.to(device, non_blocking=True)
+                    logits = model(x)
+                    bsz = int(y.shape[0])
+                    if target_mode == "digits" and isinstance(dp, AddMulDataProvider):
+                        acc = addmul_exact_accuracy(logits, y)
+                        total_correct += acc * bsz
+                    elif target_mode == "digits" and isinstance(dp, TupleArithmeticDataProvider):
+                        scores = tuple_arithmetic_accuracy(
+                            logits,
+                            y,
+                            n_tuples=dp.n_tuples,
+                            n_digits=dp.n_digits,
+                        )
+                        key = eff_subtask if (eff_subtask and eff_subtask in scores) else "total"
+                        total_correct += scores[key] * bsz
+                    else:
+                        preds = logits.argmax(dim=-1)
+                        total_correct += float((preds == y).sum().item())
+                    total_items += bsz
+        finally:
+            model.train(was_training)
+        return total_correct / max(1, total_items)
+
+    return _eval
+
+
+def resolve_subtask_criterion(dp: Any, subtask: str | None = None) -> nn.Module:
+    """Return the exact task criterion (respecting single-tuple restriction for ``TupleArithmetic``)."""
+    from positronixlab.dataprovider.tuple_arithmetic_dataprovider import (
+        TupleArithmeticDataProvider,
+        TupleArithmeticLoss,
+    )
+
+    if (
+        subtask is not None
+        and getattr(dp, "target_mode", "integer") == "digits"
+        and isinstance(dp, TupleArithmeticDataProvider)
+        and subtask.startswith("tuple_")
+    ):
+        t_idx = int(subtask.split("_", 1)[1])
+        return TupleArithmeticLoss(
+            n_tuples=dp.n_tuples,
+            n_digits=dp.n_digits,
+            restrict_tuple=t_idx,
+        )
+    return getattr(dp, "criterion", None) or nn.CrossEntropyLoss()
+
+
 def _mask_counts(mask: SubnetworkMask, model: nn.Module) -> dict[str, Any]:
     """Compute unit-level and weight-level active counts & sparsities."""
     unit_mask = mask.to_unit_mask()

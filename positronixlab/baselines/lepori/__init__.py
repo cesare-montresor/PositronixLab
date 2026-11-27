@@ -26,6 +26,9 @@ from positronixlab.baselines.lepori.datasets import (
     syneval_sv_plural,
     syneval_sv_singular,
 )
+from positronixlab.baselines.lepori.discoverer import (
+    ContinuousSparsificationDiscoverer,
+)
 from positronixlab.baselines.lepori.models import (
     CVRDecisionMLP,
     CVRResNetModel,
@@ -50,6 +53,7 @@ __all__ = [
     "CVROddOneOutSOTAProvider",
     "CVRSimCLRDataProvider",
     "CVRSimCLRDataset",
+    "ContinuousSparsificationDiscoverer",
     "ContrastiveTransformations",
     "OddOneOutHead",
     "PAPER_CONFIGS",

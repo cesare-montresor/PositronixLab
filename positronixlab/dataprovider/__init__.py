@@ -55,6 +55,11 @@ if TYPE_CHECKING:
         resolve_data_root,
     )
     from positronixlab.dataprovider.dataprovider_factory import DataProviderFactory
+    from positronixlab.dataprovider.fast_loader import (
+        FastTensorLoader,
+        make_fast_loader,
+        materialize_dataset_tensors,
+    )
     from positronixlab.dataprovider.fmnist_dataprovider import (
         FashionMnistDataProvider,
         FashionMnistDataset,
@@ -124,6 +129,9 @@ _LAZY_EXPORTS = {
     "apply_transform": ("positronixlab.dataprovider.dataprovider", "apply_transform"),
     "resolve_data_root": ("positronixlab.dataprovider.dataprovider", "resolve_data_root"),
     "DataProviderFactory": ("positronixlab.dataprovider.dataprovider_factory", "DataProviderFactory"),
+    "FastTensorLoader": ("positronixlab.dataprovider.fast_loader", "FastTensorLoader"),
+    "make_fast_loader": ("positronixlab.dataprovider.fast_loader", "make_fast_loader"),
+    "materialize_dataset_tensors": ("positronixlab.dataprovider.fast_loader", "materialize_dataset_tensors"),
     "CIFAR10DataProvider": ("positronixlab.dataprovider.cifar10_dataprovider", "CIFAR10DataProvider"),
     "CIFAR10Dataset": ("positronixlab.dataprovider.cifar10_dataprovider", "CIFAR10Dataset"),
     "CIFAR100DataProvider": ("positronixlab.dataprovider.cifar100_dataprovider", "CIFAR100DataProvider"),

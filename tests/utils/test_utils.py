@@ -562,3 +562,26 @@ def test_model_hash_special_dtypes_and_scalars():
     m = BufferModel()
     h = model_hash(m)
     assert isinstance(h, str) and len(h) == 64
+
+
+# ---------------------------------------------------------------------------
+# atomic_write_json & to_plain_python
+# ---------------------------------------------------------------------------
+
+
+def test_atomic_write_json_and_to_plain_python(tmp_path):
+    from positronixlab.utils import atomic_write_json, to_plain_python
+
+    payload = {
+        "tensor": torch.tensor([1.0, 2.0]),
+        "np_arr": np.array([3, 4]),
+        "nested": (torch.tensor(5), {"x": np.float32(1.5)}),
+    }
+    plain = to_plain_python(payload)
+    assert plain["tensor"] == [1.0, 2.0]
+    assert plain["np_arr"] == [3, 4]
+    assert plain["nested"][0] == 5
+
+    out = atomic_write_json(tmp_path / "sub" / "data.json", plain)
+    assert out.is_file()
+    assert not list(out.parent.glob("*.tmp"))

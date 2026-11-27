@@ -30,10 +30,13 @@ atlas_masks = atlas.discover_subtasks(
     target_layers=target_layers,
 )
 
-# Apply a discovered mask cleanly without mutating model weights
-add_mask = atlas_masks["add"]
+# Evaluate with task-aware accuracy (supports both integer and multi-digit modes)
+from positronixlab.tasks import make_accuracy_fn, resolve_subtask_criterion
+
+acc_fn = make_accuracy_fn(dp, subtask="add")
+criterion = resolve_subtask_criterion(dp, subtask="add")
 with MaskApplier(model, add_mask, mode="retain"):
-    retained_acc = default_eval_accuracy(model, dp.get_subtask("add").test_loader())
+    retained_acc = acc_fn(model, dp.get_subtask("add").test_loader())
 
 with MaskApplier(model, add_mask, mode="zero_ablate"):
     ablated_acc = default_eval_accuracy(model, dp.get_subtask("add").test_loader())
