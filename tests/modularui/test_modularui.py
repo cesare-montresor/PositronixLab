@@ -434,43 +434,23 @@ class TestWidgetsAndFigures:
 
 
 class TestConfirmedBugs:
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug (plots.py:237-242): _filtered_layer_ids treats empty list [] as unfiltered and returns all layers.",
-    )
     def test_layer_board_empty_visible_layers_hides_all(self, ui: ModularUI):
         ui.set_observed_layers(["fc1", "fc2"])
         lb = LayerBoardDisplay(ui=ui)
         assert lb._filtered_layer_ids([]) == []
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug (layouts.py:98-104): _format_epoch crashes with TypeError when given a scalar epoch int.",
-    )
     def test_format_epoch_handles_scalar_int(self):
         div = HomeLayout._format_epoch(5)
         assert "5" in div.children
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug (layouts.py:34 & modularui.py:123): external_stylesheets contains nonexistent relative themes/*.css paths.",
-    )
     def test_external_stylesheets_has_no_broken_relative_theme_paths(self, ui: ModularUI):
         for sheet in ui.app.config.external_stylesheets:
             assert not sheet.startswith("themes/")
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug (modularui.py:257-266): add_point raises TypeError on None instead of ignoring non-numeric scalar.",
-    )
     def test_add_point_ignores_none_value(self, ui: ModularUI):
         ui.add_point("train", "global", "loss", None)
         assert ui.get_series("train", "global") == {}
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug (modularui.py:441-445): _position_offset_locked assumes contiguous +1 indices; gaps misalign cluster lookup.",
-    )
     def test_non_contiguous_position_indices_align_clusters(self, ui: ModularUI):
         ui.add_position_step("fc1", np.zeros((2, 2)), index=0)
         ui.add_position_step("fc1", np.ones((2, 2)), index=5)
@@ -478,29 +458,17 @@ class TestConfirmedBugs:
         # relative index 0 corresponds to absolute index 0 (before cluster at 2), so should be None
         assert ui.get_cluster_for_index("fc1", 0) is None
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug (components.py:70): VarsDisplay.render crashes with TypeError on nested dict with mixed key types.",
-    )
     def test_vars_display_handles_mixed_key_types(self):
         vd = VarsDisplay()
         out = vd.render({"mixed": {1: "one", "a": "alpha"}})
         assert isinstance(out, html.Div)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug (modularui.py:232-234): get_model_graph returns internal mutable dict reference instead of a copy.",
-    )
     def test_get_model_graph_returns_defensive_copy(self, ui: ModularUI):
         ui.set_model_graph({"nodes": {"fc1": {}}, "edges": []})
         g = ui.get_model_graph()
         g["nodes"]["injected"] = {}
         assert "injected" not in ui.get_model_graph()["nodes"]
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug (docks.py:95,113): DashboardLayout silently drops top_panels beyond TOP_AREAS (3).",
-    )
     def test_dashboard_layout_renders_more_than_three_top_panels(self):
         tops = [Panel(f"t{i}", f"T{i}", Title(str(i))) for i in range(4)]
         layout = DashboardLayout(tops, Panel("l", "L", Title("L")), Panel("m", "M", Title("M")))

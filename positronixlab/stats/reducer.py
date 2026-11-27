@@ -107,7 +107,12 @@ class WindowReducer(Reducer):
         self._w: dict[str, deque] = {}
 
     def update(self, key, value):
-        self._w.setdefault(key, deque(maxlen=self.maxlen)).append(value.clone())
+        if self.maxlen <= 0:
+            return
+        dq = self._w.setdefault(key, deque(maxlen=self.maxlen))
+        if dq and dq[-1].shape != value.shape:
+            dq.clear()
+        dq.append(value.clone())
         self._dirty.add(key)
 
     def _snapshot(self, key):
@@ -141,6 +146,9 @@ class DisplacementReducer(Reducer):
                 self._keyframe[key] = value.clone()
                 self._pending[key] = value.clone()
                 self._dirty.add(key)
+                return
+
+            if value.numel() == 0:
                 return
 
             # Calcolo della differenza vettoriale, gestendo eventuali disallineamenti di device

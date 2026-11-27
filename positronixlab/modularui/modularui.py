@@ -1,4 +1,5 @@
 import bisect
+import copy
 import logging
 import threading
 from collections import deque
@@ -112,6 +113,7 @@ class ModularUI:
         # offset = last_index - len(window) + 1. Cluster snapshots are tagged with
         # absolute indices and converted in get_cluster_for_index.
         self.positions_plot: dict[str, deque[np.ndarray]] = {}
+        self._position_indices: dict[str, deque[int]] = {}
         self._position_last_index: dict[str, int] = {}
         self.position_progress: dict[str, Any] = {"required": 0, "layers": {}}
         self.cluster_history: dict[str, deque[dict[str, Any]]] = {}
@@ -189,6 +191,7 @@ class ModularUI:
             self.series.clear()
         with self.locks.positions:
             self.positions_plot.clear()
+            self._position_indices.clear()
             self._position_last_index.clear()
             self.position_progress = {"required": 0, "layers": {}}
             self.cluster_history.clear()
@@ -235,7 +238,7 @@ class ModularUI:
 
     def get_model_graph(self) -> dict[str, Any]:
         with self.locks.model_graph:
-            return self.model_graph
+            return copy.deepcopy(self.model_graph)
 
     def get_model_graph_version(self) -> int:
         with self.locks.model_graph:
@@ -260,10 +263,15 @@ class ModularUI:
 
     def add_point(self, family: str, layer_id: str, label: str, value: Any) -> None:
         """One scalar of one metric. layer_id is "global" for non-per-layer metrics."""
+        if value is None:
+            return
         arr = _to_numpy(value)
         if arr.size != 1:
             return
-        v = float(arr.reshape(-1)[0])
+        try:
+            v = float(arr.reshape(-1)[0])
+        except (TypeError, ValueError):
+            return
         with self.locks.metrics:
             dq = self.series.setdefault(family, {}).setdefault(layer_id, {}).setdefault(
                 label, deque(maxlen=self.metrics_maxlen))
@@ -296,9 +304,15 @@ class ModularUI:
             if window is None:
                 window = deque(maxlen=self.positions_maxlen)
                 self.positions_plot[layer_id] = window
-            window.append(pts)
+            idx_window = self._position_indices.get(layer_id)
+            if idx_window is None:
+                idx_window = deque(maxlen=self.positions_maxlen)
+                self._position_indices[layer_id] = idx_window
             last = self._position_last_index.get(layer_id, -1)
-            self._position_last_index[layer_id] = index if index is not None else last + 1
+            abs_idx = index if index is not None else last + 1
+            window.append(pts)
+            idx_window.append(abs_idx)
+            self._position_last_index[layer_id] = abs_idx
 
     def add_cluster(
         self,
@@ -443,6 +457,9 @@ class ModularUI:
             return len(self.positions_plot.get(layer_id, ()))
 
     def _position_offset_locked(self, layer_id: str) -> int:
+        idx_window = self._position_indices.get(layer_id)
+        if idx_window:
+            return idx_window[0]
         window = self.positions_plot.get(layer_id)
         if not window:
             return 0
@@ -484,7 +501,11 @@ class ModularUI:
             history = self.cluster_history.get(layer_id)
             if not history:
                 return None
-            absolute = position_index + self._position_offset_locked(layer_id)
+            idx_window = self._position_indices.get(layer_id)
+            if idx_window and 0 <= position_index < len(idx_window):
+                absolute = idx_window[position_index]
+            else:
+                absolute = position_index + self._position_offset_locked(layer_id)
             idxs = [h["position_index"] for h in history]
             pos = bisect.bisect_right(idxs, absolute) - 1
             if pos < 0:

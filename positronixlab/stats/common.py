@@ -14,7 +14,10 @@ def _as_tensor(value: Any) -> torch.Tensor:
     if isinstance(value, torch.Tensor):
         return value.detach().to(torch.float32)
     if isinstance(value, (list, tuple)) and value and isinstance(value[0], torch.Tensor):
-        return torch.stack([_as_tensor(v).reshape(()) for v in value])
+        tensors = [_as_tensor(v) for v in value]
+        if all(t.numel() == 1 for t in tensors):
+            return torch.stack([t.reshape(()) for t in tensors])
+        return torch.stack(tensors)
     return torch.as_tensor(np.asarray(value, dtype=np.float32))
 
 

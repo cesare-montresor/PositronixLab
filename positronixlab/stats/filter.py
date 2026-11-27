@@ -8,6 +8,8 @@ class DisplacementFilter:
     Returns True if the tensor deviates from the keyframe, False otherwise.
     """
     def __init__(self, threshold: float = 0.5, method: str = 'max') -> None:
+        if method not in ('max', 'rms'):
+            raise ValueError("DisplacementFilter method must be 'max' or 'rms'")
         self.threshold = threshold
         self.method = method
         self._keyframe: dict[str, torch.Tensor] = {}
@@ -19,6 +21,9 @@ class DisplacementFilter:
         if kf is None or kf.shape != value.shape:
             self._keyframe[key] = value.clone()
             return True
+
+        if value.numel() == 0:
+            return False
 
         # Calculate physical displacement
         diff_tensor = value.to(kf.device) - kf

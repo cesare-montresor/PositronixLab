@@ -111,7 +111,12 @@ class DashboardLayout(Widget):
             return state.get(pid, {}).get("maximized", False)
 
         children = []
-        for panel, area in zip(self.top_panels, self.TOP_AREAS, strict=False):
+        n_cols = max(len(self.TOP_AREAS), len(self.top_panels))
+        top_areas = [
+            self.TOP_AREAS[i] if i < len(self.TOP_AREAS) else f"top-{i}"
+            for i in range(n_cols)
+        ]
+        for panel, area in zip(self.top_panels, top_areas, strict=False):
             if is_visible(panel.panel_id):
                 children.append(panel.render(maximized=is_maxed(panel.panel_id), grid_area=area))
 
@@ -121,14 +126,17 @@ class DashboardLayout(Widget):
         if is_visible(self.main_panel.panel_id):
             children.append(self.main_panel.render(maximized=is_maxed(self.main_panel.panel_id), grid_area="main"))
 
+        top_row = " ".join(top_areas)
+        bottom_row = " ".join(["sidebar"] + ["main"] * (n_cols - 1))
+
         return html.Div(
             children,
             className="dashboard-grid",
             style={
                 "display": "grid",
-                "gridTemplateColumns": "1fr 1fr 1fr",
+                "gridTemplateColumns": " ".join(["1fr"] * n_cols),
                 "gridTemplateRows": "auto auto",
-                "gridTemplateAreas": '"top-a top-b top-c" "sidebar main main"',
+                "gridTemplateAreas": f'"{top_row}" "{bottom_row}"',
                 "gap": "12px",
                 "width": "100%",
             }

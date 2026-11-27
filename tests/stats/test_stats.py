@@ -148,10 +148,6 @@ class TestCommon:
         assert _as_tensor(5).dtype == torch.float32
         assert torch.allclose(_as_tensor([1, 2, 3]), torch.tensor([1.0, 2.0, 3.0]))
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in common.py:17 — _as_tensor calls .reshape(()) on each tensor in a list/tuple, crashing on non-scalar tensors",
-    )
     def test_as_tensor_list_of_1d_tensors_crashes(self):
         out = _as_tensor([torch.tensor([1.0, 2.0]), torch.tensor([3.0, 4.0])])
         assert out.shape == (2, 2)
@@ -222,18 +218,10 @@ class TestDisplacementFilter:
         # Mutating caller buffer must not mutate stored keyframe
         assert f.check_and_update("k", torch.full((2, 2), 10.0)) is True
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in filter.py:9-11 — DisplacementFilter does not validate method; invalid values silently fall through to 'rms'",
-    )
     def test_invalid_method_should_raise(self):
         with pytest.raises(ValueError):
             DisplacementFilter(threshold=0.5, method="invalid_method")
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in filter.py:26 — DisplacementFilter(method='max') crashes on empty tensors via .max()",
-    )
     def test_empty_tensor_max_crashes(self):
         f = DisplacementFilter(threshold=0.5, method="max")
         assert f.check_and_update("k", torch.empty(0, 2)) is True
@@ -325,10 +313,6 @@ class TestReducers:
         assert out["w"].tolist() == [2.0, 3.0, 4.0]
         assert r.drain() == {}
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in reducer.py:110-115 — WindowReducer does not reset deque on shape change, crashing torch.stack in drain()",
-    )
     def test_window_reducer_shape_change_crashes(self):
         r = WindowReducer(maxlen=5)
         r.update("w", torch.zeros(2))
@@ -336,10 +320,6 @@ class TestReducers:
         out = r.drain()
         assert out["w"].shape[-1] == 3
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in reducer.py:105-115 — WindowReducer(maxlen=0) marks key dirty with empty deque, crashing torch.stack([])",
-    )
     def test_window_reducer_maxlen_zero_crashes(self):
         r = WindowReducer(maxlen=0)
         r.update("w", torch.tensor(1.0))
@@ -376,10 +356,6 @@ class TestReducers:
         r_rms.update("fc1", torch.full((4, 2), 0.6))
         assert "fc1" in r_rms.drain()
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in reducer.py:153 — DisplacementReducer(method='max') crashes on empty tensors via .max()",
-    )
     def test_displacement_reducer_empty_tensor_crashes(self):
         r = DisplacementReducer(threshold=0.5, method="max")
         r.update("k", torch.empty(0, 2))
@@ -462,29 +438,17 @@ class TestProcessors:
         assert proc.centroids_2d("fc1", np.zeros(5)) is None  # length mismatch
         assert proc.centroids_2d("unknown", labels) is None
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in processor.py:168-170 — last_index() returns 0 before any emission, indistinguishable from first emission (index=0)",
-    )
     def test_umap_last_index_before_emission_ambiguous(self, fake_umap_env):
         proc_mod, _ = fake_umap_env
         proc = proc_mod.UmapProcessor(n_samples=2)
         assert proc.last_index("fc1") == -1
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in processor.py:98 — _create_mapper clamps n_neighbors UP to min_neighbors even when num_neurons <= min_neighbors",
-    )
     def test_umap_n_neighbors_exceeds_small_layer_size(self, fake_umap_env):
         proc_mod, _ = fake_umap_env
         proc = proc_mod.UmapProcessor(n_samples=1, min_neighbors=10, max_neighbors=50)
         mapper = proc._create_mapper(num_neurons=4)
         assert mapper.n_neighbors < 4
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in processor.py:119-124 — warm-start fit_transform does not guard against neuron count change after fit",
-    )
     def test_umap_warmstart_neuron_count_change_crashes(self, fake_umap_env):
         proc_mod, _ = fake_umap_env
         proc = proc_mod.UmapProcessor(n_samples=1, min_neighbors=2)
@@ -493,10 +457,6 @@ class TestProcessors:
         msgs = proc.process({"fc1": torch.randn(10, 4)})
         assert msgs[0]["value"].shape == (10, 2)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in processor.py:190 — centroids_2d crashes with ValueError on empty labels/points",
-    )
     def test_umap_centroids_2d_empty_crashes(self, fake_umap_env):
         proc_mod, _ = fake_umap_env
         proc = proc_mod.UmapProcessor(n_samples=1, min_neighbors=2)
@@ -519,10 +479,6 @@ class TestProcessors:
         msgs2 = proc.process({"fc1": torch.tensor([5.0, 7.0])})
         assert torch.allclose(msgs2[-1]["value"], torch.tensor([4.0, 6.0]))
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in processor.py:213 — OverallProcessor.process({}) crashes with RuntimeError when _latest is empty",
-    )
     def test_overall_processor_empty_items_crashes(self, fake_umap_env):
         proc_mod, _ = fake_umap_env
         proc = proc_mod.OverallProcessor(topic="stats_overall")
@@ -638,10 +594,6 @@ class TestStream:
         switched = stream_mod.Stream.merge_streams({"pos": {"reducer": "mean"}}, base)
         assert "reducer_args" not in switched["pos"]
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in stream.py:50 — 'if not items:' is always False for lazy generators, incrementing _count on 0-item yields",
-    )
     def test_stream_empty_generator_extractor_increments_count(self, fake_umap_env):
         _, stream_mod = fake_umap_env
 
@@ -657,10 +609,6 @@ class TestStream:
         s.ingest({})
         assert not s.due(time.monotonic())
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in stream.py:55 — Stream increments _count even when DisplacementReducer suppresses an update, yielding empty blocks",
-    )
     def test_stream_displacement_gated_should_not_be_due(self, fake_umap_env):
         _, stream_mod = fake_umap_env
         s = stream_mod.Stream(
@@ -681,10 +629,6 @@ class TestStream:
         s.ingest({"p": base + 0.01})
         assert not s.due(time.monotonic())
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug in stream.py:89 — merge_streams crashes with TypeError when reducer_args is explicitly None",
-    )
     def test_merge_streams_none_args_crashes(self, fake_umap_env):
         _, stream_mod = fake_umap_env
         base = {"s": {"topic": "t", "reducer": "ema", "reducer_args": {"alpha": 0.3}}}

@@ -1,7 +1,8 @@
 # `positronixlab/modularui` — Open Issues Analysis
 
-> **Status (2026-11-27 — `v0.1.3` / `5740a0c` + working tree):** **20 passed, 8 xfailed, 0 failed** (`tests/modularui/`).
-> **Note:** `__init__.py` is now populated with PEP 562 lazy exports (missing `TYPE_CHECKING` block); all 19 bugs below (**#1–#19**) + `get_model_graph()` mutable dict exposure remain open, plus v0.1.3 **E5** (top-level `[ui]` imports without extra hint) and **F** hygiene (`RUF013`, `B905`, `== False`, unnecessary lambda).
+> **Status (2026-11-27):** **28 passed, 0 xfailed, 0 failed** (`tests/modularui/`).
+> **Solved issues archive:** Resolved all 8 P1 xfail bugs (#1, #2, #11, #13, #14-`add_point`, #16, #19, `get_model_graph` copy) and `__init__.py` lazy exports moved to [solved/modularui_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/modularui_solved.md).
+> **Note:** Remaining architectural/UX issues below remain open, plus v0.1.3 **E5** (top-level `[ui]` imports without extra hint).
 
 ---
 

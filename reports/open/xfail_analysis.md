@@ -1,8 +1,8 @@
 # Open `xfail` Bugs Analysis
 
 > **Scope:** All remaining `@pytest.mark.xfail(strict=True)` regression tests under `tests/`.
-> **Totals (2026-11-27 — all P0 + P1 Batch 1 & Batch 2 solved!):** **44** open `xfail` markers (**44** test cases) across **6** modules (6 test files).
-> **Modules now at 0 open `xfail`s (9 of 15):** `baselines`, `dataprovider`, `modularcluster`, `modularobserver`, `modularspace`, `nas`, `pipeline`, `template`, `utils`.
+> **Totals (2026-11-27 — all P0 + P1 Batches 1–3 solved!):** **22** open `xfail` markers (**22** test cases) across **4** modules (4 test files).
+> **Modules now at 0 open `xfail`s (11 of 15):** `baselines`, `dataprovider`, `modularcluster`, `modularobserver`, `modularspace`, `modularui`, `nas`, `pipeline`, `stats`, `template`, `utils`.
 
 ---
 
@@ -10,13 +10,11 @@
 
 | Module | Open `xfail`s | Test File(s) | Detailed Module Audit |
 | :--- | :---: | :--- | :--- |
-| **`stats`** | 14 | [test_stats.py](file:///home/cesare/Projects/PositronixLab/tests/stats/test_stats.py) | [stats_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/stats_analysis.md) |
 | **`tasks`** | 9 | [test_tasks_compositionality.py](file:///home/cesare/Projects/PositronixLab/tests/tasks/test_tasks_compositionality.py) | [tasks_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/tasks_analysis.md) |
-| **`modularui`** | 8 | [test_modularui.py](file:///home/cesare/Projects/PositronixLab/tests/modularui/test_modularui.py) | [modularui_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularui_analysis.md) |
 | **`metamodel`** | 6 | [test_metamodel.py](file:///home/cesare/Projects/PositronixLab/tests/metamodel/test_metamodel.py) | [metamodel_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/metamodel_analysis.md) |
 | **`spacemath`** | 6 | [test_spacemath_extended.py](file:///home/cesare/Projects/PositronixLab/tests/spacemath/test_spacemath_extended.py) | [spacemath_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/spacemath_analysis.md) |
 | **`deeplearning`** | 1 | [test_deeplearning.py](file:///home/cesare/Projects/PositronixLab/tests/deeplearning/test_deeplearning.py) | [deeplearning_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/deeplearning_analysis.md) |
-| **Total** | **44** | **6 test files** | |
+| **Total** | **22** | **4 test files** | |
 
 ---
 
@@ -25,9 +23,7 @@
 ### P0 — Silent Correctness & Data Corruption
 *All P0 silent-correctness bugs have been fixed and archived under `reports/solved/`.*
 
-### P1 — Crashes, Leaks & Broken Features (Remaining: 28)
-- **`modularui` (8):** Empty `visible_layers` shows all; scalar epoch crash; broken relative CSS paths; `add_point(None)` crash; non-contiguous position indices misalign clusters; `VarsDisplay` mixed key types; `get_model_graph()` mutable ref; `DashboardLayout` drops >3 top panels.
-- **`stats` (14):** `_as_tensor` non-scalar list crash; `DisplacementFilter` invalid method & empty tensor; `WindowReducer` shape change & `maxlen=0`; `DisplacementReducer` empty tensor; `UmapProcessor` `last_index` ambiguity, `n_neighbors`, warm-start neuron count change, empty `centroids_2d`; `OverallProcessor` empty items; `Stream` empty generator & displacement-gated `_count`; `merge_streams(reducer_args=None)`.
+### P1 — Crashes, Leaks & Broken Features (Remaining: 6)
 - **`metamodel` (6):** `MetaModel.__init__` ignores `device="cpu"`; CNN classification `BatchNorm2d`/missing `Flatten`; CNN autoencoder `ConvTranspose2d` `layer_size()`; `nmum_fop()` on `Conv1d`; `layer_size(resnet_block)`; hardcoded `padding=1` breaks `cnn_kernel_size != 3`.
 
 ### P2 — Refactor Gaps & Legacy / Prototype Code (Remaining: 16)

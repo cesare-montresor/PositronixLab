@@ -64,12 +64,12 @@ class VarsDisplay(Widget):
             return html.Div("no other vars", className=self.css_id, style=self.css_style)
 
         sections = []
-        for name, value in sorted(all_vars.items()):
+        for name, value in sorted(all_vars.items(), key=lambda kv: str(kv[0])):
             if isinstance(value, dict):
-                content = "\n".join(f"{k}: {v}" for k, v in sorted(value.items()))
+                content = "\n".join(f"{k}: {v}" for k, v in sorted(value.items(), key=lambda kv: str(kv[0])))
             else:
                 content = str(value)
-            sections.append(self._section.render(title=name, content=content))
+            sections.append(self._section.render(title=str(name), content=content))
 
         return html.Div(sections, className=self.css_id, style=self.css_style)
 

@@ -85,8 +85,13 @@ class UmapProcessor(Processor):
         # 1. Calculate dynamic neighbors using Square Root scaling
         calculated_k = int(math.sqrt(num_neurons))
 
-        # 2. Clamp between topological safety (min) and compute safety (max)
+        # 2. Clamp between topological safety (min) and compute safety (max),
+        #    while never exceeding num_neurons - 1 on tiny layers.
         dynamic_n_neighbors = max(self.min_neighbors, min(calculated_k, self.max_neighbors))
+        if num_neurons > 1:
+            dynamic_n_neighbors = min(dynamic_n_neighbors, num_neurons - 1)
+        else:
+            dynamic_n_neighbors = 1
 
         if UMAP is None:
             raise ImportError(
@@ -113,9 +118,14 @@ class UmapProcessor(Processor):
                 if mapper is not None:
                     # WARM-START UPDATE:
                     # Create a new UMAP instance anchored to the previous frame
+                    # (fall back to spectral init if neuron count changed)
+                    prev_2d = self._to_numpy(self._last_2d[layer])
+                    init_arg: str | np.ndarray = (
+                        prev_2d if prev_2d.shape[0] == num_neurons else "spectral"
+                    )
                     mapper = self._create_mapper(
                         num_neurons=num_neurons,
-                        init=self._to_numpy(self._last_2d[layer]),
+                        init=init_arg,
                     )
 
                     transformed = self._to_numpy(mapper.fit_transform(pts))
@@ -164,7 +174,7 @@ class UmapProcessor(Processor):
 
     def last_index(self, layer: str) -> int:
         with self._lock:
-            return max(self._steps.get(layer, 0) - 1, 0)
+            return self._steps.get(layer, 0) - 1
 
     def centroids_2d(self, layer: str, labels: np.ndarray) -> np.ndarray | None:
         """2D centroids = mean of member neurons' latest 2D positions.
@@ -184,6 +194,8 @@ class UmapProcessor(Processor):
             return None
 
         ks = np.unique(labels)
+        if ks.size == 0:
+            return np.empty((0, pts.shape[1]), dtype=np.float32)
         return np.stack([pts[labels == k].mean(axis=0) for k in ks]).astype(np.float32)
 
     def progress(self) -> dict[str, Any]:
@@ -206,6 +218,8 @@ class OverallProcessor(Processor):
 
     def process(self, items):
         self._latest.update(items)
+        if not self._latest:
+            return []
         msgs = [{"key": k, "value": v} for k, v in items.items()]
         overall = torch.stack(list(self._latest.values())).mean(0)
         msgs.append({"topic": self.topic, "key": self.key, "value": overall})

@@ -39,7 +39,7 @@ class _BoundWidget(Widget):
 class HomeLayout:
 
     def __init__(self, ui: "ModularUI", theme: str = 'default', poll_interval_ms: int = 3000):
-        self.css = [f"themes/{theme}.css", "themes/toggle-switches.css"]
+        self.css: list[str] = []
         self.poll_interval_ms = poll_interval_ms
 
         self.title = Title("PositronixLab UI")
@@ -104,11 +104,13 @@ class HomeLayout:
 
     @staticmethod
     def _format_epoch(epoch_value):
-        if not epoch_value:
+        if epoch_value is None or (isinstance(epoch_value, (list, tuple)) and len(epoch_value) == 0):
             text = "epoch: —"
-        else:
+        elif isinstance(epoch_value, (list, tuple)) and len(epoch_value) == 2:
             epoch, epochs = epoch_value
             text = f"epoch: {epoch} / {epochs}"
+        else:
+            text = f"epoch: {epoch_value}"
         return html.Div(text, style={"fontFamily": "var(--font-mono, monospace)", "fontSize": "0.9em"})
 
     def register_callbacks(self, app: Dash, ui: "ModularUI") -> None:

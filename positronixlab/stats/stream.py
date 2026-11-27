@@ -25,10 +25,10 @@ class Stream:
         self.topic: str = cfg["topic"]
         ext = cfg.get("extract", name)
         self.extract: Extractor = extractors[ext] if isinstance(ext, str) else ext
-        self.reducer: Reducer = REDUCERS[cfg["reducer"]](**cfg.get("reducer_args", {}))
+        self.reducer: Reducer = REDUCERS[cfg["reducer"]](**(cfg.get("reducer_args") or {}))
         pname = cfg.get("processor")
         self.processor: Processor | None = (
-            PROCESSORS[pname](**cfg.get("processor_args", {})) if pname else None
+            PROCESSORS[pname](**(cfg.get("processor_args") or {})) if pname else None
         )
         self.names: list[str] | None = cfg.get("names")
         self.interval_s: float | None = cfg.get("interval_s")
@@ -49,9 +49,12 @@ class Stream:
         if not items:
             return
         with self._lock:
+            had_items = False
             for key, value in items:
+                had_items = True
                 self.reducer.update(key, _as_tensor(value))
-            self._count += 1
+            if had_items and self.reducer._dirty:
+                self._count += 1
 
     def due(self, now: float) -> bool:
         with self._lock:
@@ -85,6 +88,7 @@ class Stream:
                 if changed and args not in ov:
                     base.pop(args, None)  # nuovo tipo: i vecchi args non valgono piu'
                 elif not changed and args in ov:
-                    ov[args] = {**base.get(args, {}), **ov[args]}  # stesso tipo: merge
+                    if ov[args] is not None:
+                        ov[args] = {**(base.get(args) or {}), **ov[args]}  # stesso tipo: merge
             base.update(ov)
         return cfg

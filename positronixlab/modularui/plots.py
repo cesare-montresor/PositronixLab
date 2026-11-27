@@ -243,7 +243,7 @@ class LayerBoardDisplay(Widget):
 
     def _filtered_layer_ids(self, visible_layers: list[str] | None) -> list[str]:
         all_ids = self._known_layer_ids()
-        if not visible_layers:
+        if visible_layers is None:
             return all_ids
         visible = set(visible_layers)
         return [lid for lid in all_ids if lid in visible]
