@@ -1,38 +1,37 @@
 
 import os
 import time
-
-from positronixlab.pipeline import PipelineConfig
-import torch
-
-import torch.nn as nn
 from collections import OrderedDict
 
+import torch
+import torch.nn as nn
 from torchsummary import summary
 
 from positronixlab.metamodel.metacriterion import MetaCriterion
+from positronixlab.pipeline import PipelineConfig
 
 
 class BaseModel(nn.Module):
-    def __init__(self, name:str=None, device=None):
+    def __init__(self, name: str | None = None, device=None):
         super().__init__()
         self.name = self.__class__.__name__ if name is None else name
         self.timestamp = time.time()
         self.basepath = None
         self.device = device if device is not None else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    def model_path(self,path=None):
+    def model_path(self, path=None):
         if path is None and self.basepath is None:
             path = f'./checkpoint/{self.name}.pth'
-        elif path is None:
-            path = os.path.join(self.basepath,f'{self.name}.pth')
-        
+        elif path is None and self.basepath is not None:
+            path = os.path.join(self.basepath, f'{self.name}.pth')
+        assert path is not None
         path = os.path.abspath(path)
         return path
 
     def save(self, path=None):
         path = self.model_path(path)
-        if os.path.exists(path): os.remove(path)
+        if os.path.exists(path):
+            os.remove(path)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         torch.save(self.state_dict(), path)
         return path
@@ -40,7 +39,8 @@ class BaseModel(nn.Module):
     
     def load(self, path):
         path = self.model_path(path)
-        if not os.path.exists(path): return
+        if not os.path.exists(path):
+            return
         self.load_state_dict(torch.load(path, weights_only=True))
         return path
 
@@ -71,6 +71,7 @@ class MetaModel(BaseModel):
         self.to_gpu()
 
     def forward(self, x):
+        assert self.nn_input is not None and self.nn_latent is not None and self.nn_output is not None
         x = self.nn_input(x)
         x = self.nn_latent(x)
         x = self.nn_output(x)
@@ -145,17 +146,22 @@ class MetaModel(BaseModel):
         
 ## General block parts
     def block_activation(self, name):
-        # activation   
-        if name == 'relu': return  nn.ReLU()
-        if name == 'sigmoid': return nn.Sigmoid()
-        if name == 'tanh': return  nn.Tanh()
-        if name == 'leaky_relu': return nn.LeakyReLU()
+        # activation
+        if name == 'relu':
+            return nn.ReLU()
+        if name == 'sigmoid':
+            return nn.Sigmoid()
+        if name == 'tanh':
+            return nn.Tanh()
+        if name == 'leaky_relu':
+            return nn.LeakyReLU()
         
         raise ValueError(f"Unsupported activation function: {name}")
     
 ## General block parts
     def block_layer(self, model_type, input_dim, output_dim= None):
-        if output_dim is None: output_dim = input_dim 
+        if output_dim is None:
+            output_dim = input_dim 
         # layer
         if model_type == 'fc':
             return nn.Linear(input_dim, output_dim)
@@ -196,7 +202,6 @@ class MetaModel(BaseModel):
 
         reduce_dim = reduce_every > 1 and layer_num % reduce_every == 0
         is_first_layer = layer_num == 0
-        is_last_layer = layer_num == self.config.input_num_layers - 1
 
 
         # handle input player 
@@ -246,12 +251,14 @@ class MetaModel(BaseModel):
 
         # handle latent -> output 
         last_size = self.last_layer_size()
-        if is_first_layer: 
+        if is_first_layer:
+            assert last_size is not None
             input_dim = last_size[1]
-            output_dim = self.config.input_hidden_dim 
+            output_dim = self.config.input_hidden_dim
         elif is_last_layer:
+            assert last_size is not None
             input_dim = last_size[1]
-            output_dim = self.config.output_data_shape 
+            output_dim = self.config.output_data_shape
         else:
             input_dim = self.config.output_hidden_dim if last_size is None else last_size[1]
             output_dim = input_dim // 2 if reduce_dim else input_dim
@@ -294,21 +301,16 @@ class MetaModel(BaseModel):
         output_residual = self.config.output_residual
 
         num_layers = self.config.input_num_layers
-        is_first_layer = layer_num == 0
         is_last_layer = layer_num == num_layers - 1
 
-        # handle latent -> output 
-        last_size = self.last_layer_size()
-        # if is_first_layer: 
-        #     input_dim = last_size[1]
-        #     output_dim = self.options.input_hidden_dim 
-        # elif is_last_layer:
-        #     input_dim = last_size[1]
-        #     output_dim = self.options.output_data_shape 
-        # else:
+        # handle latent -> output
+        assert self.nn_input is not None
         cur_block = self.nn_input[((num_layers - 1) - layer_num)]
-        if isinstance(cur_block, ResNet): cur_block = cur_block.module  # Unwrap ResNet if it is a residual block
-        input_dim, output_dim = self.layer_size(cur_block.layer)
+        if isinstance(cur_block, ResNet):
+            cur_block = cur_block.module  # Unwrap ResNet if it is a residual block
+        size = self.layer_size(cur_block.layer)
+        assert size is not None
+        input_dim, output_dim = size
         input_dim, output_dim = output_dim, input_dim  # Reverse the dimensions for autoencoder
 
 
@@ -344,24 +346,29 @@ class MetaModel(BaseModel):
 
     def last_layer(self):
         out_layer = self.last_output_layer()
-        if out_layer is not None: return out_layer
+        if out_layer is not None:
+            return out_layer
         in_layer = self.last_input_layer()
         return in_layer
     
     def last_layer_size(self):
         out_size = self.last_output_layer_size()
-        if out_size is not None: return out_size
+        if out_size is not None:
+            return out_size
         in_size = self.last_input_layer_size()
         return in_size 
 
     
     def last_input_layer(self):
-        if self.nn_input is None: return None
+        if self.nn_input is None:
+            return None
         last_input = list(self.nn_input)
-        if len(last_input) == 0: return None
+        if len(last_input) == 0:
+            return None
         last_input = last_input[-1]
         
-        if last_input is None: return None
+        if last_input is None:
+            return None
         if isinstance(last_input, ResNet):
             last_input = last_input.module
         return last_input.layer
@@ -371,12 +378,15 @@ class MetaModel(BaseModel):
         return self.layer_size(li)
     
     def last_output_layer(self):
-        if self.nn_output is None: return None
+        if self.nn_output is None:
+            return None
         last_output = list(self.nn_output)
-        if len(last_output) == 0: return None
+        if len(last_output) == 0:
+            return None
         last_output = last_output[-1]
 
-        if last_output is None: return None
+        if last_output is None:
+            return None
         if isinstance(last_output, ResNet):
             last_output = last_output.module
         return last_output.layer
@@ -387,7 +397,8 @@ class MetaModel(BaseModel):
         
 
     def layer_size(self, layer):
-        if layer is None: return None
+        if layer is None:
+            return None
         if isinstance(layer, ResNet):
             layer = layer.module
         if isinstance(layer, nn.Linear):

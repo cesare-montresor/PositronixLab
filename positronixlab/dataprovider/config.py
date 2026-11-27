@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Literal
 
 from positronixlab.pipeline.config import BaseConfig
 
@@ -44,11 +44,11 @@ DatasetName = Literal[
 class DataConfig(BaseConfig):
     """Composable dataset config for ``DataProviderFactory``."""
 
-    dataset_name: Union[DatasetName, str] = "fashion_mnist"
+    dataset_name: DatasetName | str = "fashion_mnist"
     batch_size: int = 32
-    split: Optional[List[float]] = None
-    num_workers: Optional[int] = None
-    root: Optional[str] = None
+    split: list[float] | None = None
+    num_workers: int | None = None
+    root: str | None = None
     flatten: bool = False
     indexed_dataset: bool = False
     shuffle_train: bool = True
@@ -56,4 +56,4 @@ class DataConfig(BaseConfig):
     persistent_workers: bool = True
     pin_memory: bool = False
     seed: int = 42
-    dataset_kwargs: Dict[str, Any] = field(default_factory=dict)
+    dataset_kwargs: dict[str, Any] = field(default_factory=dict)

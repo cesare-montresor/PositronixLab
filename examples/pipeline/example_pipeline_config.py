@@ -9,10 +9,9 @@ Run:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
 import tempfile
-from typing import Optional
+from dataclasses import dataclass
 
 from positronixlab.pipeline import BaseConfig
 
@@ -32,8 +31,8 @@ class TrainConfig(BaseConfig):
 
 @dataclass
 class ExperimentConfig(TrainConfig, DataConfig):
-    seed: Optional[int] = None
-    device: Optional[str] = None
+    seed: int | None = None
+    device: str | None = None
 
 
 def main() -> None:

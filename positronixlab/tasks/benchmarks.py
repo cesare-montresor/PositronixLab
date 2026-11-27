@@ -9,10 +9,11 @@ Ax HPO.
 from __future__ import annotations
 
 import csv
-from dataclasses import asdict, dataclass, field
 import json
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -43,7 +44,7 @@ def default_eval_accuracy(model: nn.Module, dataloader: Iterable[Any]) -> float:
     return correct / max(1, total)
 
 
-def _mask_counts(mask: SubnetworkMask, model: nn.Module) -> Dict[str, Any]:
+def _mask_counts(mask: SubnetworkMask, model: nn.Module) -> dict[str, Any]:
     """Compute unit-level and weight-level active counts & sparsities."""
     unit_mask = mask.to_unit_mask()
     weight_mask = mask.to_weight_mask(model)
@@ -72,12 +73,12 @@ class SubnetworkEvalResult:
     mask_name: str
     granularity: str
     baseline_accuracy: float
-    retain_accuracy: Optional[float] = None
-    zero_ablate_accuracy: Optional[float] = None
-    random_ablate_accuracy: Optional[float] = None
-    randomly_sampled_accuracy: Optional[float] = None
-    complement_sampled_accuracy: Optional[float] = None
-    off_target_zero_ablate: Dict[str, float] = field(default_factory=dict)
+    retain_accuracy: float | None = None
+    zero_ablate_accuracy: float | None = None
+    random_ablate_accuracy: float | None = None
+    randomly_sampled_accuracy: float | None = None
+    complement_sampled_accuracy: float | None = None
+    off_target_zero_ablate: dict[str, float] = field(default_factory=dict)
     active_units: int = 0
     total_units: int = 0
     masked_units: int = 0
@@ -86,17 +87,17 @@ class SubnetworkEvalResult:
     total_weights: int = 0
     masked_weights: int = 0
     weight_sparsity: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
-    def selectivity(self) -> Optional[float]:
+    def selectivity(self) -> float | None:
         """Double-dissociation selectivity: off-target preservation minus target drop under zero_ablate."""
         if self.zero_ablate_accuracy is None or not self.off_target_zero_ablate:
             return None
         mean_off = sum(self.off_target_zero_ablate.values()) / len(self.off_target_zero_ablate)
         return mean_off - self.zero_ablate_accuracy
 
-    def to_flat_dict(self) -> Dict[str, Any]:
+    def to_flat_dict(self) -> dict[str, Any]:
         row = asdict(self)
         row["selectivity"] = self.selectivity
         row["off_target_zero_ablate"] = json.dumps(self.off_target_zero_ablate, sort_keys=True)
@@ -110,12 +111,12 @@ class BenchmarkReport:
 
     dataset_name: str
     model_arch: str
-    baselines: Dict[str, float]
-    results: List[SubnetworkEvalResult] = field(default_factory=list)
-    alignments: List[Dict[str, Any]] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    baselines: dict[str, float]
+    results: list[SubnetworkEvalResult] = field(default_factory=list)
+    alignments: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "dataset_name": self.dataset_name,
             "model_arch": self.model_arch,
@@ -125,13 +126,13 @@ class BenchmarkReport:
             "metadata": dict(self.metadata),
         }
 
-    def summary_metrics(self) -> Dict[str, float]:
+    def summary_metrics(self) -> dict[str, float]:
         """Aggregate scalar metrics per method (directly usable by Ax HPO)."""
-        by_method: Dict[str, List[SubnetworkEvalResult]] = {}
+        by_method: dict[str, list[SubnetworkEvalResult]] = {}
         for r in self.results:
             by_method.setdefault(r.method, []).append(r)
 
-        summary: Dict[str, float] = {}
+        summary: dict[str, float] = {}
         for method, rows in by_method.items():
             ret = [r.retain_accuracy for r in rows if r.retain_accuracy is not None]
             abl = [r.zero_ablate_accuracy for r in rows if r.zero_ablate_accuracy is not None]
@@ -190,8 +191,8 @@ class ModularityBenchmark:
         *,
         method: str,
         subtask: str,
-        baseline_accuracy: Optional[float] = None,
-        off_target_loaders: Optional[Dict[str, Iterable[Any]]] = None,
+        baseline_accuracy: float | None = None,
+        off_target_loaders: dict[str, Iterable[Any]] | None = None,
     ) -> SubnetworkEvalResult:
         """Evaluate a single ``SubnetworkMask`` on ``target_loader`` (and optional off-target splits)."""
         base_acc = (
@@ -201,14 +202,14 @@ class ModularityBenchmark:
         )
         counts = _mask_counts(mask, model)
 
-        mode_scores: Dict[str, Optional[float]] = {
+        mode_scores: dict[str, float | None] = {
             "retain": None,
             "zero_ablate": None,
             "random_ablate": None,
             "randomly_sampled": None,
             "complement_sampled": None,
         }
-        off_target_scores: Dict[str, float] = {}
+        off_target_scores: dict[str, float] = {}
 
         for mode in self.modes:
             with MaskApplier(model, mask, mode=mode, seed=self.seed):
@@ -238,13 +239,13 @@ class ModularityBenchmark:
     def compare_methods(
         self,
         model: nn.Module,
-        masks_by_method: Dict[str, Dict[str, SubnetworkMask | Sequence[SubnetworkMask]]],
-        subtask_loaders: Dict[str, Iterable[Any]],
+        masks_by_method: dict[str, dict[str, SubnetworkMask | Sequence[SubnetworkMask]]],
+        subtask_loaders: dict[str, Iterable[Any]],
         *,
         dataset_name: str = "unknown",
         model_arch: str = "unknown",
         reference_method: str = "atlas",
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> BenchmarkReport:
         """Compare multiple discovery methods (supporting single masks or sparsity-sweep sequences)."""
         baselines = {
@@ -252,15 +253,15 @@ class ModularityBenchmark:
             for subtask, loader in subtask_loaders.items()
         }
 
-        results: List[SubnetworkEvalResult] = []
-        primary_masks: Dict[str, Dict[str, SubnetworkMask]] = {}
+        results: list[SubnetworkEvalResult] = []
+        primary_masks: dict[str, dict[str, SubnetworkMask]] = {}
 
         for method, per_subtask in masks_by_method.items():
             primary_masks[method] = {}
             for subtask, mask_or_seq in per_subtask.items():
                 if subtask not in subtask_loaders:
                     continue
-                mask_list: List[SubnetworkMask] = (
+                mask_list: list[SubnetworkMask] = (
                     [mask_or_seq]
                     if isinstance(mask_or_seq, SubnetworkMask)
                     else list(mask_or_seq)
@@ -281,12 +282,12 @@ class ModularityBenchmark:
                     )
 
         # Cross-method alignment against reference_method (unit & weight IoU)
-        alignments: List[Dict[str, Any]] = []
+        alignments: list[dict[str, Any]] = []
         ref_map = primary_masks.get(reference_method, {})
-        for method, per_subtask in primary_masks.items():
+        for method, primary_per_subtask in primary_masks.items():
             if method == reference_method:
                 continue
-            for subtask, other_mask in per_subtask.items():
+            for subtask, other_mask in primary_per_subtask.items():
                 ref_mask = ref_map.get(subtask)
                 if ref_mask is None:
                     continue

@@ -18,8 +18,9 @@ Data loading priority:
 from __future__ import annotations
 
 import pickle
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union, Unpack
+from typing import Any, Literal
 
 import torch
 from torch import nn
@@ -27,7 +28,6 @@ from torch.utils.data import Dataset
 
 from positronixlab.dataprovider.dataprovider import (
     CompositionalDataProvider,
-    DataProviderOptions,
     SubtaskSplit,
     TransformLike,
     apply_transform,
@@ -37,7 +37,7 @@ from positronixlab.dataprovider.dataprovider import (
 SynEvalFamily = Literal["sv_singular", "sv_plural", "pro_ant_singular", "pro_ant_plural"]
 
 # Exact Lepori et al. SynEval compositional syntactic families (indices 0..19)
-SYNEVAL_FAMILIES: Dict[str, Dict[str, str]] = {
+SYNEVAL_FAMILIES: dict[str, dict[str, str]] = {
     "sv_singular": {
         "base": "sn_task_1_sv_singular",
         "s": "sn_task_1_s_singular",
@@ -79,11 +79,11 @@ class SynevalOddOneOutDataset(Dataset):
         n_samples: int = 64,
         max_length: int = 50,
         vocab_size: int = 1000,
-        root: Optional[Union[str, Path]] = None,
+        root: str | Path | None = None,
         tokenizer_name: str = "prajjwal1/bert-small",
-        tokenizer: Optional[Callable[..., Dict[str, Any]]] = None,
+        tokenizer: Callable[..., dict[str, Any]] | None = None,
         seed: int = 0,
-        transforms: Optional[TransformLike] = None,
+        transforms: TransformLike | None = None,
     ) -> None:
         super().__init__()
         self.task_name = task_name
@@ -92,7 +92,7 @@ class SynevalOddOneOutDataset(Dataset):
 
         if pkl_path is not None and pkl_path.exists():
             with open(pkl_path, "rb") as f:
-                problems: List[List[str]] = pickle.load(f)[:n_samples]
+                problems: list[list[str]] = pickle.load(f)[:n_samples]
             if tokenizer is not None:
                 tok = tokenizer
             else:
@@ -129,7 +129,7 @@ class SynevalOddOneOutDataset(Dataset):
     def __len__(self) -> int:
         return int(self.x.shape[0])
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.x[idx]
         if self.transforms is not None:
             x = apply_transform(self.transforms, x)
@@ -154,13 +154,13 @@ class SynevalOddOneOutDataProvider(
         max_length: int = 32,
         vocab_size: int = 1000,
         batch_size: int = 16,
-        root: Optional[Union[str, Path]] = None,
-        raw_data_path: Optional[Union[str, Path]] = None,
+        root: str | Path | None = None,
+        raw_data_path: str | Path | None = None,
         download: bool = False,
         tokenizer_name: str = "prajjwal1/bert-small",
-        tokenizer: Optional[Callable[..., Dict[str, Any]]] = None,
+        tokenizer: Callable[..., dict[str, Any]] | None = None,
         seed: int = 0,
-        **kwargs: Unpack[DataProviderOptions],
+        **kwargs: Any,
     ) -> None:
         if family not in SYNEVAL_FAMILIES:
             raise ValueError(
@@ -187,7 +187,7 @@ class SynevalOddOneOutDataProvider(
         spec = SYNEVAL_FAMILIES[family]
 
         # Resolve / generate real SynEval .pkl splits when raw data or download is requested
-        resolved_root: Optional[Path] = Path(root) if root is not None else None
+        resolved_root: Path | None = Path(root) if root is not None else None
         if resolved_root is not None or raw_data_path is not None or download:
             from positronixlab.baselines.lepori._syneval_gen import (
                 ensure_syneval_family_splits,
@@ -209,7 +209,7 @@ class SynevalOddOneOutDataProvider(
             if ensured is not None:
                 resolved_root = ensured
 
-        split_kw = dict(
+        split_kw: dict[str, Any] = dict(
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             drop_last=self.drop_last,

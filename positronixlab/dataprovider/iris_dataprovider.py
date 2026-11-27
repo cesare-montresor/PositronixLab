@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Unpack
+from typing import Any, Unpack
 
 import sklearn.datasets as sklearn_datasets
 import torch
@@ -23,9 +23,9 @@ class IrisDataset(BaseTensorDataset):
         self,
         *,
         indices=None,
-        transforms: Optional[TransformLike] = None,
+        transforms: TransformLike | None = None,
     ) -> None:
-        iris = sklearn_datasets.load_iris()
+        iris: Any = sklearn_datasets.load_iris()
         self.ds = iris
         x = torch.as_tensor(iris["data"], dtype=torch.float32)
         y = torch.as_tensor(iris["target"], dtype=torch.long)

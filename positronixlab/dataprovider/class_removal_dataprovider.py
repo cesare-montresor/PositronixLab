@@ -7,7 +7,7 @@ corresponding evaluation matrix specification.
 
 from __future__ import annotations
 
-from typing import List, Optional, Unpack
+from typing import Any
 
 import torch
 from torch import nn
@@ -16,19 +16,18 @@ from torch.utils.data import Dataset, Subset
 from positronixlab.dataprovider.dataprovider import (
     CompositionalDataProvider,
     DataProvider,
-    DataProviderOptions,
     SubtaskSplit,
 )
 
 
-def _extract_labels(ds: Dataset) -> List[int]:
+def _extract_labels(ds: Dataset) -> list[int]:
     if hasattr(ds, "targets"):
         t = ds.targets  # type: ignore[attr-defined]
         return [int(v) for v in (t.tolist() if isinstance(t, torch.Tensor) else t)]
     if hasattr(ds, "y"):
         y = ds.y  # type: ignore[attr-defined]
         return [int(v) for v in (y.tolist() if isinstance(y, torch.Tensor) else y)]
-    return [int(ds[i][1]) for i in range(len(ds))]
+    return [int(ds[i][1]) for i in range(len(ds))]  # type: ignore[arg-type]
 
 
 class ClassRemovalDataProvider(
@@ -43,19 +42,21 @@ class ClassRemovalDataProvider(
 
     def __init__(
         self,
-        dataset_train: Optional[Dataset] = None,
-        dataset_val: Optional[Dataset] = None,
-        dataset_test: Optional[Dataset] = None,
+        dataset_train: Dataset | None = None,
+        dataset_val: Dataset | None = None,
+        dataset_test: Dataset | None = None,
         *,
-        provider: Optional[DataProvider] = None,
-        base_dataset: Optional[str] = None,
-        num_classes: Optional[int] = None,
+        provider: DataProvider | None = None,
+        base_dataset: str | None = None,
+        num_classes: int | None = None,
         name: str = "csordas:class_removal",
         batch_size: int = 64,
-        **kwargs: Unpack[DataProviderOptions],
+        **kwargs: Any,
     ) -> None:
         if provider is None and base_dataset is not None:
-            from positronixlab.dataprovider.dataprovider_factory import DataProviderFactory
+            from positronixlab.dataprovider.dataprovider_factory import (
+                DataProviderFactory,
+            )
 
             provider = DataProviderFactory.create(base_dataset, batch_size=batch_size, **kwargs)
         if provider is not None:
@@ -86,7 +87,7 @@ class ClassRemovalDataProvider(
         self.y_shape = ()
         self.criterion = getattr(provider, "criterion", None) or nn.CrossEntropyLoss()
 
-        split_kw = dict(
+        split_kw: dict[str, Any] = dict(
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             drop_last=self.drop_last,
@@ -129,10 +130,10 @@ class ClassRemovalDataProvider(
         cls,
         provider: DataProvider,
         *,
-        name: Optional[str] = None,
-        batch_size: Optional[int] = None,
-        **kwargs: Unpack[DataProviderOptions],
-    ) -> "ClassRemovalDataProvider":
+        name: str | None = None,
+        batch_size: int | None = None,
+        **kwargs: Any,
+    ) -> ClassRemovalDataProvider:
         """Wrap an existing classification ``DataProvider`` (e.g. ``CIFAR10DataProvider``)."""
         return cls(
             provider=provider,

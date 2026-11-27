@@ -1,10 +1,10 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 import dash_bootstrap_components as dbc
 import dash_cytoscape as cyto
-from dash import Dash, Input, Output, State, dcc, html, ctx, no_update
+from dash import Dash, Input, Output, State, ctx, dcc, html, no_update
 
 if TYPE_CHECKING:
     from positronixlab.modularui.modularui import ModularUI
@@ -53,12 +53,12 @@ class ExpandableSection(Widget):
 
 
 class VarsDisplay(Widget):
-    def __init__(self, css_id: str = "positronixlab-vars", css_style: Optional[dict] = None):
+    def __init__(self, css_id: str = "positronixlab-vars", css_style: dict | None = None):
         self.css_id = css_id
         self.css_style = css_style or {"whiteSpace": "pre-wrap", "wordBreak": "break-all", "fontSize": "0.85em"}
         self._section = ExpandableSection()
 
-    def render(self, all_vars: Optional[Dict[str, Any]] = None):
+    def render(self, all_vars: dict[str, Any] | None = None):
         all_vars = all_vars or {}
         if not all_vars:
             return html.Div("no other vars", className=self.css_id, style=self.css_style)
@@ -112,7 +112,7 @@ class ConfigOverlay:
             id=self.overlay_id, is_open=False, size="lg", scrollable=True,
         )
 
-    def render_selected(self, config: Optional[Dict[str, Any]] = None, selected_keys: Optional[List[str]] = None):
+    def render_selected(self, config: dict[str, Any] | None = None, selected_keys: list[str] | None = None):
         config = config or {}
         selected_keys = selected_keys or []
         rows = [
@@ -180,7 +180,7 @@ class ModelDAGDisplay(Widget):
             
         return elements
 
-    def render(self, checked: Optional[List[str]] = None) -> html.Div:
+    def render(self, checked: list[str] | None = None) -> dbc.Card:
         return dbc.Card(
             dbc.CardBody([
                 html.Div("model DAG", style={"opacity": 0.7, "marginBottom": "8px", "fontSize": "0.85em"}),

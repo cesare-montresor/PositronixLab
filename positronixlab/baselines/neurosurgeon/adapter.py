@@ -16,7 +16,7 @@ import copy
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -49,7 +49,7 @@ def _import_neurosurgeon():
             sys.modules.pop(k, None)
 
         spec = importlib.util.find_spec("NeuroSurgeon")
-        ns_pkg_dir: Optional[Path] = None
+        ns_pkg_dir: Path | None = None
         if spec and spec.submodule_search_locations:
             ns_pkg_dir = Path(list(spec.submodule_search_locations)[0])
         if ns_pkg_dir is None or not ns_pkg_dir.is_dir():
@@ -110,14 +110,14 @@ class NeuroSurgeonWrappedModel(nn.Module):
     def __init__(
         self,
         circuit_model: nn.Module,
-        target_layers: List[str],
+        target_layers: list[str],
         mask_method: str,
         mask_unit: str,
         l0_lambda: float = 1e-8,
         shimmed: bool = True,
     ) -> None:
         super().__init__()
-        self.circuit_model = circuit_model
+        self.circuit_model: Any = circuit_model
         self.target_layers = list(target_layers)
         self.mask_method = mask_method
         self.mask_unit = mask_unit
@@ -143,7 +143,7 @@ class NeuroSurgeonWrappedModel(nn.Module):
             out = self.circuit_model(**kwargs)
         return out.logits if hasattr(out, "logits") else out
 
-    def mask_parameters(self) -> List[nn.Parameter]:
+    def mask_parameters(self) -> list[nn.Parameter]:
         """Return all learnable mask parameters."""
         return [
             p
@@ -160,14 +160,15 @@ class NeuroSurgeonWrappedModel(nn.Module):
         device = first_param.device if first_param is not None else torch.device("cpu")
         return torch.tensor(float(val), device=device)
 
-    def l0_statistics(self) -> Dict[str, Any]:
+    def l0_statistics(self) -> dict[str, Any]:
         """Return ``CircuitModel.compute_l0_statistics()``."""
         return self.circuit_model.compute_l0_statistics()
 
     def set_ablate_mode(self, ablation: str, force_resample: bool = False) -> None:
         self.circuit_model.set_ablate_mode(ablation, force_resample=force_resample)
 
-    def use_masks(self, value: bool, name_list: Optional[List[str]] = None) -> None:
+    def use_masks(self, value: bool, name_list: list[str] | None = None) -> None:
+        prefixed: list[str] | None
         if name_list is not None and self._shimmed:
             prefixed = [
                 n if n.startswith("model.") else f"model.{n}" for n in name_list
@@ -179,7 +180,7 @@ class NeuroSurgeonWrappedModel(nn.Module):
     def extract_mask_tensors(
         self,
         binarize: bool = True,
-    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         """Extract canonical dotted-name masks and raw mask scores from ``CircuitModel``.
 
         Returns:
@@ -188,8 +189,8 @@ class NeuroSurgeonWrappedModel(nn.Module):
         """
         from NeuroSurgeon.Masking.mask_layer import MaskLayer  # type: ignore
 
-        binary_masks: Dict[str, torch.Tensor] = {}
-        raw_scores: Dict[str, torch.Tensor] = {}
+        binary_masks: dict[str, torch.Tensor] = {}
+        raw_scores: dict[str, torch.Tensor] = {}
 
         was_training = self.circuit_model.training
         self.circuit_model.eval()
@@ -202,11 +203,12 @@ class NeuroSurgeonWrappedModel(nn.Module):
                     if (self._shimmed and name.startswith("model."))
                     else name
                 )
-                if hasattr(mod, "weight_mask_params"):
-                    raw = mod.weight_mask_params.detach().clone()
-                    raw_scores[canonical] = raw
+                raw_param = getattr(mod, "weight_mask_params", None)
+                if isinstance(raw_param, torch.Tensor):
+                    raw_scores[canonical] = raw_param.detach().clone()
                 with torch.no_grad():
-                    mask_t = mod._compute_mask("weight_mask_params").detach().clone()
+                    compute_mask: Any = mod._compute_mask
+                    mask_t = compute_mask("weight_mask_params").detach().clone()
                 if self.mask_unit == "neuron":
                     # Collapse repeated in_features / in_channels dim to 1D unit mask
                     if mask_t.ndim >= 2:
@@ -223,9 +225,9 @@ class NeuroSurgeonWrappedModel(nn.Module):
 
     def extract_subnetwork_mask(self, name: str = "neurosurgeon") -> Any:
         """Export discovered mask as a canonical :class:`SubnetworkMask`."""
-        from positronixlab.tasks.masks import SubnetworkMask
+        from positronixlab.tasks.masks import Granularity, SubnetworkMask
 
-        granularity = "unit" if self.mask_unit == "neuron" else "weight"
+        granularity: Granularity = "unit" if self.mask_unit == "neuron" else "weight"
         binary_masks, raw_scores = self.extract_mask_tensors(binarize=True)
         stats = self.l0_statistics()
         return SubnetworkMask(
@@ -242,7 +244,7 @@ class NeuroSurgeonWrappedModel(nn.Module):
         )
 
 
-def _default_mask_hparams(mask_method: str, mask_unit: str) -> Dict[str, Any]:
+def _default_mask_hparams(mask_method: str, mask_unit: str) -> dict[str, Any]:
     if mask_method == "continuous_sparsification":
         return {
             "ablation": "none",
@@ -268,10 +270,10 @@ def _default_mask_hparams(mask_method: str, mask_unit: str) -> Dict[str, Any]:
 
 def wrap_with_neurosurgeon(
     model: nn.Module,
-    target_layers: Optional[List[str]] = None,
+    target_layers: list[str] | None = None,
     mask_method: str = "continuous_sparsification",
     mask_unit: str = "weight",
-    mask_hparams: Optional[Dict[str, Any]] = None,
+    mask_hparams: dict[str, Any] | None = None,
     freeze_base: bool = True,
     l0_lambda: float = 1e-8,
     deepcopy_model: bool = True,
@@ -309,7 +311,7 @@ def wrap_with_neurosurgeon(
 
     # Harden base freezing: freeze ALL non-mask parameters (fixes NeuroSurgeon caveat #4)
     if freeze_base:
-        for mod_name, mod in circuit_model.wrapped_model.named_modules():
+        for _mod_name, mod in circuit_model.wrapped_model.named_modules():
             if isinstance(mod, MaskLayer):
                 for p_name, p in mod.named_parameters(recurse=False):
                     p.requires_grad = "mask_params" in p_name
@@ -328,11 +330,11 @@ def wrap_with_neurosurgeon(
 
 
 def strip_neurosurgeon_mask_keys(
-    state_dict: Dict[str, Any],
-) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+    state_dict: dict[str, Any],
+) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
     """Separate base weights from a saved ``CircuitModel`` ``state_dict``."""
-    clean_weights: Dict[str, torch.Tensor] = {}
-    mask_params: Dict[str, torch.Tensor] = {}
+    clean_weights: dict[str, torch.Tensor] = {}
+    mask_params: dict[str, torch.Tensor] = {}
 
     for key, val in state_dict.items():
         if not isinstance(val, torch.Tensor):

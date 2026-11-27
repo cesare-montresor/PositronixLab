@@ -1,7 +1,7 @@
 import copy
 
-import numpy as np
 import cv2
+import numpy as np
 
 gap_max = 0.006
 
@@ -10,7 +10,7 @@ nb_max_pixels = 50*50
 margin = 1
 
 
-class Shape(object):
+class Shape:
 
     def __init__(self, gap_max=0.007, radius = 0.5, hole_radius = 0.05, randomize=True, sym_flip=False, sym_rot=1):
         self.gap_max = gap_max

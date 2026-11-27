@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Dict, List
 
 import torch
 
-from .custertracker import ClusterEvent, ClusterState, ClusterTracker
 from positronixlab.pipeline import PipelineConfig
+
+from .custertracker import ClusterEvent, ClusterState, ClusterTracker
 
 
 class ModularOverSpace:
@@ -37,11 +37,11 @@ class ModularOverSpace:
         self.d_out = config.modular_overspace_size
         self.seed = seed
 
-        self.trackers: Dict[str, ClusterTracker] = {}
-        self.states: Dict[str, ClusterState] = {}
-        self.events: Dict[str, List[ClusterEvent]] = {}
-        self.positions: Dict[str, torch.Tensor] = {}
-        self.stats: Dict[str, Dict[str, int]] = {}
+        self.trackers: dict[str, ClusterTracker] = {}
+        self.states: dict[str, ClusterState] = {}
+        self.events: dict[str, list[ClusterEvent]] = {}
+        self.positions: dict[str, torch.Tensor] = {}
+        self.stats: dict[str, dict[str, int]] = {}
 
     def _tracker_for(self, layer_id: str) -> ClusterTracker:
         tracker = self.trackers.get(layer_id)
@@ -50,7 +50,7 @@ class ModularOverSpace:
             self.trackers[layer_id] = tracker
         return tracker
 
-    def update(self, layer_id: str, labels: torch.Tensor, centroids: torch.Tensor) -> tuple[ClusterState, List[ClusterEvent]]:
+    def update(self, layer_id: str, labels: torch.Tensor, centroids: torch.Tensor) -> tuple[ClusterState, list[ClusterEvent]]:
         labels = labels.to(self.device).long()
         centroids = centroids.to(self.device)
 
@@ -77,7 +77,7 @@ class ModularOverSpace:
         state = self.get_state(layer_id)
         return state.outer
 
-    def get_events(self, layer_id: str) -> List[ClusterEvent]:
+    def get_events(self, layer_id: str) -> list[ClusterEvent]:
         return self.events.get(layer_id, [])
 
 

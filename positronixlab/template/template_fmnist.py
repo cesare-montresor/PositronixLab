@@ -1,12 +1,12 @@
      
 
 
-from positronixlab.template.template_base import TemplateFC, TemplateCNN
+from positronixlab.template.template_base import TemplateCNN, TemplateFC
 
 
 class TemplateFMnistFC(TemplateFC):
 
-    def __init__(self, name: str=None):
+    def __init__(self, name: str | None = None):
         super().__init__(name)   
         
         self.add_fixed('nas_min_acc', 0.85, "float")
@@ -16,7 +16,7 @@ class TemplateFMnistFC(TemplateFC):
 
 class TemplateFMnistCNN(TemplateCNN):
 
-    def __init__(self, name: str=None):
+    def __init__(self, name: str | None = None):
         super().__init__(name)   
         
         self.add_fixed('input_data_shape', 28, "int")

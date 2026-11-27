@@ -1,17 +1,18 @@
-from abc import ABC, abstractmethod
 import logging
 import math
 import time
-from typing import Any, Dict
+from abc import ABC, abstractmethod
+from typing import Any
 
-from torch import Tensor, nn
 import torch
+from torch import Tensor, nn
 
 from positronixlab.dataprovider.dataprovider import DataProvider
 from positronixlab.deeplearning.deeplearning_base import DeeplearningBase
 from positronixlab.modularobserver.modularobserver import ModularObserver
-from positronixlab.spacemath.spacemath import SpaceMath
 from positronixlab.pipeline import PipelineConfig
+from positronixlab.spacemath.spacemath import SpaceMath
+
 # PREV: from torch.distributions.kl import kl_divergence  <- kl_divergence dispatches on torch.distributions.Distribution
 #       subclasses (e.g. Categorical), not on raw probability tensors, so calling it on prob_dist/target_dist
 #       tensors below raised NotImplementedError. Replaced with a manual epsilon-smoothed KL computation instead.
@@ -34,9 +35,9 @@ class DiscreteDistribution(Distribution):
     def __init__(self, num_classes: int):
         self.num_classes = num_classes
         self.counts = torch.zeros(num_classes, dtype=torch.float32)
-        self.total_count = 0
+        self.total_count: float = 0.0
 
-    def update(self, class_labels, counts: Tensor = None):
+    def update(self, class_labels: Any, counts: Tensor | int | float | None = None):
         if isinstance(class_labels, int) or (torch.is_tensor(class_labels) and class_labels.dim() == 0):
             label = int(class_labels)
             count = float(counts) if counts is not None else 1.0
@@ -44,16 +45,18 @@ class DiscreteDistribution(Distribution):
             self.total_count += count
             return
 
-        if counts is None:
-            counts = torch.ones_like(class_labels, dtype=torch.float32)
-        for label, count in zip(class_labels, counts):
+        if counts is None or isinstance(counts, (int, float)):
+            counts_t = torch.ones_like(class_labels, dtype=torch.float32)
+        else:
+            counts_t = counts
+        for label, count in zip(class_labels, counts_t, strict=False):
             self.counts[label] += count
-            self.total_count += count
+            self.total_count += float(count)
 
     def get_distribution(self) -> Tensor:
         return self.counts / self.total_count if self.total_count > 0 else self.counts
 
-    def add(self, other: 'DiscreteDistribution'):
+    def add(self, other: Distribution):
         if not isinstance(other, DiscreteDistribution):
             raise TypeError("Can only add another DiscreteDistribution.")
         if self.num_classes != other.num_classes:
@@ -76,7 +79,7 @@ class TensorDistribution(Distribution):
     def get_distribution(self) -> Tensor:
         return (self.counts / self.total_count) if self.total_count > 0 else self.counts
 
-    def add(self, other: 'TensorDistribution'):
+    def add(self, other: Distribution):
         if not isinstance(other, TensorDistribution):
             raise TypeError("Can only add another TensorDistribution.")
         if self.shape != other.shape:
@@ -89,7 +92,7 @@ class AtlasCheck:
                  config: PipelineConfig, 
                  model: nn.Module, 
                  dataprovider: DataProvider, 
-                 clusters: Dict[str, Tensor],
+                 clusters: dict[str, Tensor],
                  ):
 
         self.config = config
@@ -98,13 +101,14 @@ class AtlasCheck:
         self.clusters = clusters
         self.output_shape = None
         
-        self.cluster_class_stats: Dict[str, Dict[str, DiscreteDistribution]] = {}  # layer, cluster, class, count
+        self.cluster_class_stats: dict[str, dict[int, DiscreteDistribution]] = {}  # layer, cluster, class, count
     
         self.observer = ModularObserver(config=self.config, model=self.model ) 
         self.observer.map()  # Map the model layers for observation
         self.layer_names = list(self.observer.layer_names())
-        self.latest_scores = {}
-        self.y_distribution = DiscreteDistribution(num_classes=self.dataprovider.num_classes)
+        self.latest_scores: dict[str, Tensor | None] = {}
+        self._num_classes = int(self.dataprovider.num_classes or 0)
+        self.y_distribution = DiscreteDistribution(num_classes=self._num_classes)
  
         self.eval = DeeplearningBase(
             config=self.config,
@@ -117,7 +121,7 @@ class AtlasCheck:
         self.eval.on_batch_start(self._on_batch_start)
 
     def get_distribution(self) -> DiscreteDistribution:
-        return DiscreteDistribution(num_classes=self.dataprovider.num_classes)
+        return DiscreteDistribution(num_classes=self._num_classes)
    
     def run(self):
         # Implement the modularity score test logic here
@@ -147,10 +151,12 @@ class AtlasCheck:
         self.y_distribution.update(ys)
         
         for layer_name, scores in self.latest_scores.items():
+            if scores is None:
+                continue
             clusters = self.clusters[layer_name]
             if layer_name not in self.cluster_class_stats:
                 self.cluster_class_stats[layer_name] = {}
-            current_stats = self.cluster_class_stats.get(layer_name)
+            current_stats = self.cluster_class_stats[layer_name]
 
             partial_stats = self._cluster_class_attribution(scores, clusters, ys)
 
@@ -164,11 +170,14 @@ class AtlasCheck:
 
     def _process_activations(self, layer: nn.Module, x_in: Tensor, activations: Tensor):
         node = self.observer.by_layer(layer)
+        if node is None:
+            return
+        act_fn = node.activation_fn if isinstance(node.activation_fn, nn.Module) else None
         scores = SpaceMath.activations_to_scores(
             activations,
             x_quantile=self.config.modular_space_active_q,
             layer_type=node.layer_type,
-            activation_fn=node.activation_fn,
+            activation_fn=act_fn,
             cnn_locality_weight=0.5,
         )
         self.latest_scores[node.name] = scores
@@ -179,7 +188,8 @@ class AtlasCheck:
         bs, num_features = idxs_on.shape
 
         batch_clustering = clusters.unsqueeze(0).expand(bs, -1)      # [bs, num_features]
-        batch_ys = ys.unsqueeze(1).to(self.model.device).expand(-1, num_features)  # [bs, num_features]
+        model_dev: Any = getattr(self.model, "device", None) or next(self.model.parameters()).device
+        batch_ys = ys.unsqueeze(1).to(model_dev).expand(-1, num_features)  # [bs, num_features]
 
         clusters_on = batch_clustering[idxs_on].unsqueeze(1)  # [N, 1]
         ys_on = batch_ys[idxs_on].unsqueeze(1)                # [N, 1]
@@ -188,7 +198,7 @@ class AtlasCheck:
         unique, counts = torch.unique(cluster_class, return_counts=True, dim=0)
 
         cluster_stats = {}
-        for (cluster, y), count in zip(unique, counts):
+        for (cluster, y), count in zip(unique, counts, strict=False):
             cluster, y, count = int(cluster), int(y), int(count)
             if cluster not in cluster_stats:
                 cluster_stats[cluster] = self.get_distribution()
@@ -206,7 +216,7 @@ class AtlasCheck:
         bs = idxs_on.shape[0]
         batch_clustering = clusters.unsqueeze(0).expand(bs, -1) 
         
-        clusters_on = torch.cat([ cluster_labels[idx_on] for cluster_labels, idx_on in zip(batch_clustering, idxs_on)])
+        clusters_on = torch.cat([ cluster_labels[idx_on] for cluster_labels, idx_on in zip(batch_clustering, idxs_on, strict=False)])
         ys_on = torch.cat([ (y_hats * idx_on)[idx_on] for idx_on in idxs_on])
 
         
@@ -214,18 +224,18 @@ class AtlasCheck:
         unique, counts = torch.unique(cluster_class, return_counts=True, dim=0)
         
         cluster_stats = {}
-        for (cluster,y_hats),counts in zip(unique, counts):
-            cluster,y_hats,counts = int(cluster), int(y_hats), int(counts)
+        for (cluster, y_hat), count in zip(unique, counts, strict=False):
+            cluster_id, y_val, cnt = int(cluster), int(y_hat), int(count)
             
-            if cluster not in cluster_stats: 
-                cluster_stats[cluster] = self.get_distribution()
+            if cluster_id not in cluster_stats: 
+                cluster_stats[cluster_id] = self.get_distribution()
             
-            cluster_stats[cluster].update(y_hats, counts)
+            cluster_stats[cluster_id].update(y_val, cnt)
 
         return cluster_stats
         
     def extract_weightmasks(self, threshold: float = 0.0):
-        num_masks = self.dataprovider.num_classes
+        num_masks = self._num_classes
         masks = {}
         for curr_class in range(num_masks):
             class_masks = {}
@@ -247,7 +257,7 @@ class AtlasCheck:
         if kld_target == 'y':
             target_dist = self.y_distribution.get_distribution()
         elif kld_target == 'uniform':
-            target_dist = torch.ones(self.dataprovider.num_classes) / self.dataprovider.num_classes
+            target_dist = torch.ones(self._num_classes) / self._num_classes
         else:
             raise ValueError(f"Unknown kld_target: {kld_target}. Use 'y' or 'uniform'.")
 
@@ -263,7 +273,7 @@ class AtlasCheck:
             
             for cluster, distribution_obj in layer_clusters.items():
                 prob_dist = distribution_obj.get_distribution()
-                cluster_size = torch.sum(layers_labels == cluster).item()
+                cluster_size = int(torch.sum(layers_labels == cluster).item())
                 
                 if cluster_size == 0:
                     continue

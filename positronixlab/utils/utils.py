@@ -1,27 +1,28 @@
 
 import contextlib
 import dataclasses
+import hashlib
+import json
 import logging
-from pathlib import Path
+import multiprocessing as mp
+import os
 import pickle
+import re
 import sys
 import threading
 import time
-from typing import Any, Optional, Union
 import warnings
+from pathlib import Path
+from typing import Any
+
 import numpy as np
-import re
 import torch
-import os
-import json
 import yaml
-import multiprocessing as mp
-import hashlib
 
 debug = False
 
 last_session_path = None
-_session_paths: dict[tuple[str, str, Optional[str]], str] = {}
+_session_paths: dict[tuple[str, str, str | None], str] = {}
 
 _SUPPRESS_LOCK = threading.RLock()
 _SUPPRESS_STATE: dict[int, tuple[int, int, int]] = {}  # fd -> (depth, saved_fd, devnull_fd)
@@ -33,7 +34,10 @@ logger = logging.getLogger(__name__)
 def process_start_spawn(force=False):
     current = mp.get_start_method(allow_none=True)
     if current not in ('spawn', None):
-        warnings.warn(f"Expected spawn start method, got '{current}'. CUDA may be unreliable.")
+        warnings.warn(
+            f"Expected spawn start method, got '{current}'. CUDA may be unreliable.",
+            stacklevel=2,
+        )
     elif current is None:
         mp.set_start_method('spawn', force=force)
 
@@ -81,10 +85,10 @@ def suppress_output(stderr: bool = True):
 
 def session_path(
     name: str,
-    uid: Optional[Any] = None,
+    uid: Any | None = None,
     createDirectory: bool = True,
     force: bool = False,
-    basedir: Optional[Union[str, os.PathLike[str]]] = None,
+    basedir: str | os.PathLike[str] | None = None,
 ) -> str:
     """Return (and optionally create) a session output directory cached per ``(basedir, name, uid)``.
 
@@ -137,7 +141,8 @@ def get_thread_name():
 
     thread_name = thread.name.lower()
     target_name = re.compile(r'\((.+)\)').search(thread_name)
-    if target_name is not None: thread_name = target_name.group(1)
+    if target_name is not None:
+        thread_name = target_name.group(1)
     
     thread_name = thread_name.replace('(', '').replace(')', '').replace(' ', '_').replace('-', '_')
 
@@ -150,16 +155,23 @@ def assert_tensor(tensor:torch.Tensor, name="tensor"):
         raise ValueError(f"Invalid tensor: {name}, reason: {valid}", tensor, traceback.format_stack())
 
 def is_valid_tensor(tensor:torch.Tensor):
-    if tensor is None: return "none"
-    if not isinstance(tensor, torch.Tensor): return "not_tensor"
-    if tensor.numel() == 0: return "empty"
-    if torch.isnan(tensor).any().item(): return "nan"
-    if torch.isinf(tensor).any().item(): return "inf"
+    if tensor is None:
+        return "none"
+    if not isinstance(tensor, torch.Tensor):
+        return "not_tensor"
+    if tensor.numel() == 0:
+        return "empty"
+    if torch.isnan(tensor).any().item():
+        return "nan"
+    if torch.isinf(tensor).any().item():
+        return "inf"
     return True
 
 
 def seed_everything(seed: int):
-    import random, os
+    import os
+    import random
+
     import numpy as np
     import torch
     
@@ -173,25 +185,30 @@ def seed_everything(seed: int):
     
 
 def check_tensor(tensor, name="tensor", debug = debug):
-    if not debug: return
+    if not debug:
+        return
     if torch.isnan(tensor).any() or torch.isinf(tensor).any():
         print(f"NaN detected in {name}")
         info_tensor(tensor, name)
         raise Exception("NaN detected")
     
 def info_tensor(tensor, name="tensor", threshold=1e-10, debug = debug):
-    if not debug: return
-    print(f"-----")
+    if not debug:
+        return
+    print("-----")
     print(f"Tensor: {name}")
     print(f"Shape: {tensor.shape}")
     print(f"Min: {tensor.min()}")
     print(f"Max: {tensor.max()}")
     print(f"Mean: {tensor.mean()}")
-    if torch.isnan(tensor).any().item(): print("NaNs!")
-    if torch.isinf(tensor).any().item(): print("Infs!")
+    if torch.isnan(tensor).any().item():
+        print("NaNs!")
+    if torch.isinf(tensor).any().item():
+        print("Infs!")
     near_zero_count = (torch.abs(tensor) < threshold).sum()
-    if near_zero_count>0: print(f"Zeros: {near_zero_count}")
-    print(f"=====")
+    if near_zero_count > 0:
+        print(f"Zeros: {near_zero_count}")
+    print("=====")
 
 def module_name(module):
     return module.__class__.__module__
@@ -212,7 +229,7 @@ def truth_table_from_cm(confusion_matrix:np.ndarray):
 
 def f1s_from_truth_table(tt:np.ndarray):
     f1s = []
-    for tp, fp, fn, tn in tt:
+    for tp, fp, fn, _tn in tt:
         f1 = (2 * tp) / ((2 * tp) + fp + fn) if ((2 * tp) + fp + fn) > 0 else 0
         f1s.append(f1)
     return np.array(f1s)
@@ -325,10 +342,10 @@ def load_data(path: str, *, default: Any = _UNSET, **kwargs: Any) -> Any:
     ext = os.path.splitext(path)[1].strip().lower()
 
     if ext == '.json':
-        with open(path, 'r') as f:
+        with open(path) as f:
             return json.load(f, **kwargs)
     elif ext in ('.yaml', '.yml'):
-        with open(path, 'r') as f:
+        with open(path) as f:
             if 'Loader' in kwargs:
                 return yaml.load(f, **kwargs)
             if kwargs:

@@ -1,25 +1,23 @@
 
-import time
-from typing import List
+
+import logging
 
 import torch
 
-
-from positronixlab.tasks.compositionality.compositionality import CompositionalityCheck, CompositionalityPipeline
-from positronixlab.utils import utils 
 from positronixlab.dataprovider.dataprovider_factory import DataProviderFactory
-from positronixlab.tasks.compositionality.atlas_check import AtlasCheck
-from positronixlab.tasks.compositionality.weightmask_check import WeightmaskCheck
 from positronixlab.metamodel.metamodel import MetaModel
 from positronixlab.pipeline import PipelineConfig
+from positronixlab.tasks.compositionality.compositionality import (
+    CompositionalityPipeline,
+)
+from positronixlab.utils import utils
 
-import logging
 logger = logging.getLogger(__name__)
 
-class AtlasCompositionalityExample():
+class AtlasCompositionalityExample:
 
-    def __init__(self, model_path: str = None, vars_path: str = None, methods: List[str] = None):
-        self.methods: List[str] = ["atlas", "weightmask"] if methods is None else methods
+    def __init__(self, model_path: str = None, vars_path: str = None, methods: list[str] = None):
+        self.methods: list[str] = ["atlas", "weightmask"] if methods is None else methods
         self.cluster_stats = {}
 
         self.dataprovider  = None

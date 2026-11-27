@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import logging
 import sys
 import types
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
 
 import pytest
 
@@ -20,8 +21,8 @@ def _ensure_parallelazy_stub() -> bool:
 
     @dataclass
     class _StubManagerOptions:
-        work_dir: Optional[str] = None
-        log_dir: Optional[str] = None
+        work_dir: str | None = None
+        log_dir: str | None = None
         display_logs: bool = True
         write_logs: bool = True
 
@@ -44,7 +45,6 @@ import positronixlab.pipeline.pipeline as pipeline_mod
 from positronixlab.pipeline.pipeline import Pipeline
 from positronixlab.pipeline.pipeline_config import PipelineConfig, PipelineOptions
 
-
 # ---------------------------------------------------------------------------
 # Lightweight fake PluginManager & worker status objects
 # ---------------------------------------------------------------------------
@@ -52,13 +52,13 @@ from positronixlab.pipeline.pipeline_config import PipelineConfig, PipelineOptio
 @dataclass
 class _FakeWorkerStatus:
     state: str = "running"
-    errors: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
 
 @dataclass
 class _FakePluginStatus:
     process_alive: bool = True
-    worker_status: Optional[_FakeWorkerStatus] = field(default_factory=_FakeWorkerStatus)
+    worker_status: _FakeWorkerStatus | None = field(default_factory=_FakeWorkerStatus)
 
 
 class _FakePluginManager:
@@ -69,13 +69,13 @@ class _FakePluginManager:
         self.log_dir: str = kwargs.get("log_dir") or "/tmp/work/logs"
         self.run_log_dir: str = "/tmp/work/logs/run_001"
 
-        self.env: Dict[str, Any] = {}
-        self.statuses: Dict[str, _FakePluginStatus] = {}
-        self.rpc_errors: Dict[str, List[str]] = {}
+        self.env: dict[str, Any] = {}
+        self.statuses: dict[str, _FakePluginStatus] = {}
+        self.rpc_errors: dict[str, list[str]] = {}
 
         self.monitoring_enabled: bool = False
-        self.report_hotkeys: List[str] = []
-        self.started_parallel: Optional[bool] = None
+        self.report_hotkeys: list[str] = []
+        self.started_parallel: bool | None = None
         self.stop_calls: int = 0
         self.close_calls: int = 0
         self.raise_on_stop: bool = False
@@ -83,7 +83,7 @@ class _FakePluginManager:
     def env_set(self, key: str, value: Any) -> None:
         self.env[key] = value
 
-    def env_get(self, key: Optional[str] = None) -> Any:
+    def env_get(self, key: str | None = None) -> Any:
         if key is None:
             return dict(self.env)
         return self.env.get(key)
@@ -97,10 +97,10 @@ class _FakePluginManager:
     def start_all_plugins(self, parallel: bool = True) -> None:
         self.started_parallel = parallel
 
-    def plugin_status_all(self) -> Dict[str, _FakePluginStatus]:
+    def plugin_status_all(self) -> dict[str, _FakePluginStatus]:
         return self.statuses
 
-    def plugin_errors(self, plugin_id: str) -> List[str]:
+    def plugin_errors(self, plugin_id: str) -> list[str]:
         return list(self.rpc_errors.get(plugin_id, []))
 
     def stop_all_plugins(self) -> None:
@@ -116,8 +116,8 @@ class _DummyPipeline(Pipeline):
     def __init__(
         self,
         config: PipelineConfig,
-        options: Optional[PipelineOptions] = None,
-        complete_fn: Optional[Callable[[_DummyPipeline], bool]] = None,
+        options: PipelineOptions | None = None,
+        complete_fn: Callable[[_DummyPipeline], bool] | None = None,
     ):
         super().__init__(config=config, options=options)
         self._complete_fn = complete_fn or (lambda p: bool(p.get_env("done")))
@@ -128,7 +128,7 @@ class _DummyPipeline(Pipeline):
 
 @pytest.fixture
 def fake_manager(monkeypatch):
-    created: List[_FakePluginManager] = []
+    created: list[_FakePluginManager] = []
 
     def _factory(**kwargs: Any) -> _FakePluginManager:
         mgr = _FakePluginManager(**kwargs)

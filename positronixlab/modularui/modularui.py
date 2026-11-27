@@ -3,7 +3,7 @@ import logging
 import threading
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import torch
@@ -11,9 +11,13 @@ from dash import Dash
 from flask.helpers import get_root_path
 from werkzeug.serving import make_server
 
-
 from positronixlab.modularui.layouts import HomeLayout
-from positronixlab.modularui.settings import BOOTSTRAP_THEME, DBC_HELPER_CSS, GLOBAL_TRACE_NAME, SPACELOSS_FAMILY
+from positronixlab.modularui.settings import (
+    BOOTSTRAP_THEME,
+    DBC_HELPER_CSS,
+    GLOBAL_TRACE_NAME,
+    SPACELOSS_FAMILY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,14 +84,14 @@ class ModularUI:
 
         # Protected by locks.vars: generic store for env vars discovered by
         # UIPlugin (e.g. "epoch"), with a per-key version counter.
-        self.dynamic_vars: Dict[str, Any] = {}
-        self.dynamic_vars_version: Dict[str, int] = {}
+        self.dynamic_vars: dict[str, Any] = {}
+        self.dynamic_vars_version: dict[str, int] = {}
 
         # Protected by locks.config
-        self.trial_config: Dict[str, Any] = {}
+        self.trial_config: dict[str, Any] = {}
 
         # Protected by locks.model_graph. {"nodes": {id: node_dict}, "edges": [...]}
-        self.model_graph: Dict[str, Any] = {"nodes": {}, "edges": []}
+        self.model_graph: dict[str, Any] = {"nodes": {}, "edges": []}
         self.model_graph_version: int = 0
 
         # Protected by locks.stats
@@ -99,7 +103,7 @@ class ModularUI:
         # Protected by locks.metrics. ONE store for every scalar metric:
         #   family ("train", "val", "spaceloss", ...) -> layer_id ("global" or a layer) -> label -> values
         # Families, layers and labels are all discovered from the incoming messages.
-        self.series: Dict[str, Dict[str, Dict[str, Deque[float]]]] = {}
+        self.series: dict[str, dict[str, dict[str, deque[float]]]] = {}
 
         # Protected by locks.positions.
         # positions_plot holds only the last `positions_maxlen` steps per layer;
@@ -107,10 +111,10 @@ class ModularUI:
         # the newest retained step, so absolute = relative + offset where
         # offset = last_index - len(window) + 1. Cluster snapshots are tagged with
         # absolute indices and converted in get_cluster_for_index.
-        self.positions_plot: Dict[str, Deque[np.ndarray]] = {}
-        self._position_last_index: Dict[str, int] = {}
-        self.position_progress: Dict[str, Any] = {"required": 0, "layers": {}}
-        self.cluster_history: Dict[str, Deque[Dict[str, Any]]] = {}
+        self.positions_plot: dict[str, deque[np.ndarray]] = {}
+        self._position_last_index: dict[str, int] = {}
+        self.position_progress: dict[str, Any] = {"required": 0, "layers": {}}
+        self.cluster_history: dict[str, deque[dict[str, Any]]] = {}
 
         self.poll_interval_ms = poll_interval_ms
 
@@ -206,7 +210,7 @@ class ModularUI:
         with self.locks.vars:
             return self.dynamic_vars_version.get(name, 0)
 
-    def get_all_vars_snapshot(self) -> Dict[str, Any]:
+    def get_all_vars_snapshot(self) -> dict[str, Any]:
         with self.locks.vars:
             return dict(self.dynamic_vars)
 
@@ -220,16 +224,16 @@ class ModularUI:
         with self.locks.config:
             self.trial_config = config or {}
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         with self.locks.config:
             return dict(self.trial_config) if self.trial_config else {}
 
-    def set_model_graph(self, graph: Dict[str, Any]) -> None:
+    def set_model_graph(self, graph: dict[str, Any]) -> None:
         with self.locks.model_graph:
             self.model_graph = graph or {"nodes": {}, "edges": []}
             self.model_graph_version += 1
 
-    def get_model_graph(self) -> Dict[str, Any]:
+    def get_model_graph(self) -> dict[str, Any]:
         with self.locks.model_graph:
             return self.model_graph
 
@@ -245,7 +249,7 @@ class ModularUI:
         with self.locks.observed_layers:
             self.observed_layers = observed_layers
 
-    def set_position_progress(self, progress: Optional[Dict[str, Any]]) -> None:
+    def set_position_progress(self, progress: dict[str, Any] | None) -> None:
         """{"required": n, "layers": {layer_id: collected}} published by StatsPlugin."""
         with self.locks.positions:
             self.position_progress = progress or {"required": 0, "layers": {}}
@@ -265,7 +269,7 @@ class ModularUI:
                 label, deque(maxlen=self.metrics_maxlen))
             dq.append(v)
 
-    def ingest_stat(self, family: str, msg: Dict[str, Any]) -> None:
+    def ingest_stat(self, family: str, msg: dict[str, Any]) -> None:
         """Entry point for a `stats_<family>` message published by UIMetricsPlugin:
         {"layer_id", "label", "value", "seq", "t"}. Call this from the stats subscriber."""
         self.add_point(family, str(msg.get("layer_id", "global")), str(msg["label"]), msg["value"])
@@ -278,13 +282,13 @@ class ModularUI:
     def add_spaceloss_point(self, layer_id: str, names: Any, values: Any) -> None:
         if isinstance(values, dict):
             names, values = list(values.keys()), list(values.values())
-        for n, v in zip(names, _to_numpy(values).reshape(-1)):
+        for n, v in zip(names, _to_numpy(values).reshape(-1), strict=False):
             self.add_point(SPACELOSS_FAMILY, layer_id, n, v)
 
     def add_overall_spaceloss_point(self, names: Any, values: Any) -> None:
         self.add_spaceloss_point("global", names, values)
 
-    def add_position_step(self, layer_id: str, points: Any, index: Optional[int] = None) -> None:
+    def add_position_step(self, layer_id: str, points: Any, index: int | None = None) -> None:
         """One already-PCA-projected step (n, 2) with its absolute timeline index."""
         pts = _to_numpy(points)
         with self.locks.positions:
@@ -320,21 +324,21 @@ class ModularUI:
     # Accessors used by the widgets (components.py / plots.py / layouts.py)
     # ---------------------------------------------------------
 
-    def get_series(self, family: str, layer_id: str = "global") -> Dict[str, List[float]]:
+    def get_series(self, family: str, layer_id: str = "global") -> dict[str, list[float]]:
         with self.locks.metrics:
             return {k: list(v) for k, v in self.series.get(family, {}).get(layer_id, {}).items()}
 
-    def get_labels(self, family: str) -> List[str]:
+    def get_labels(self, family: str) -> list[str]:
         """Labels seen for a family, in first-seen order (so "loss" stays first)."""
         with self.locks.metrics:
-            labels: Dict[str, None] = {}
+            labels: dict[str, None] = {}
             for per_label in self.series.get(family, {}).values():
                 for label in per_label:
                     labels.setdefault(label, None)
             return list(labels)
 
     @staticmethod
-    def _history_scalar(entry: Any) -> Optional[float]:
+    def _history_scalar(entry: Any) -> float | None:
         """metrics_history entries look like [timestamp, value] (or [value] / value)."""
         try:
             arr = np.asarray(entry, dtype=float).reshape(-1)
@@ -346,12 +350,12 @@ class ModularUI:
             return float(arr[1])
         return None
 
-    def _training_history_groups(self) -> Dict[str, Dict[str, List[float]]]:
+    def _training_history_groups(self) -> dict[str, dict[str, list[float]]]:
         """Epoch-level train/val/... curves from the `metrics_history` env var that the trainer
         already publishes ({family: {label: [[t, value], ...]}}). Works even when no stats
         message reaches add_point(). Per-layer space loss is skipped (handled by the series store)."""
         history = self.get_var("metrics_history")
-        groups: Dict[str, Dict[str, List[float]]] = {}
+        groups: dict[str, dict[str, list[float]]] = {}
         if not isinstance(history, dict):
             return groups
         for family, labels in history.items():
@@ -365,7 +369,7 @@ class ModularUI:
                     groups.setdefault(str(label), {})[str(family)] = values
         return groups
 
-    def get_training_groups(self) -> Dict[str, Dict[str, List[float]]]:
+    def get_training_groups(self) -> dict[str, dict[str, list[float]]]:
         """{label: {family: values}} for every global-only family except space loss
         (so train.loss and val.loss land on the same chart). Live series win over the
         metrics_history fallback."""
@@ -380,18 +384,18 @@ class ModularUI:
                         groups[label][family] = list(values)
         return groups
 
-    def debug_state(self) -> Dict[str, Any]:
+    def debug_state(self) -> dict[str, Any]:
         """Quick look at what actually reached the UI (handy from the debugger)."""
         with self.locks.metrics:
-            series = {f: {layer: {l: len(v) for l, v in labels.items()} for layer, labels in layers.items()}
+            series = {f: {layer: {lbl: len(v) for lbl, v in labels.items()} for layer, labels in layers.items()}
                       for f, layers in self.series.items()}
         return {"series": series, "vars": list(self.get_all_vars_snapshot()),
                 "layers": self.get_known_layer_ids(), "graph_nodes": len(self.get_model_graph().get("nodes", {}))}
 
-    def get_family_groups(self, family: str) -> Dict[str, Dict[str, List[float]]]:
+    def get_family_groups(self, family: str) -> dict[str, dict[str, list[float]]]:
         """{label: {layer_id: values}} for a per-layer family. The "global" series (mean over
         layers, computed by UIMetricsPlugin) is exposed under GLOBAL_TRACE_NAME."""
-        groups: Dict[str, Dict[str, List[float]]] = {}
+        groups: dict[str, dict[str, list[float]]] = {}
         with self.locks.metrics:
             for layer_id, per_label in self.series.get(family, {}).items():
                 trace = GLOBAL_TRACE_NAME if layer_id == "global" else layer_id
@@ -400,17 +404,17 @@ class ModularUI:
         return groups
 
     @property
-    def overall_spaceloss(self) -> Dict[str, List[float]]:
+    def overall_spaceloss(self) -> dict[str, list[float]]:
         return self.get_series(SPACELOSS_FAMILY, "global")
 
-    def get_layer_spaceloss(self, layer_id: str) -> Dict[str, List[float]]:
+    def get_layer_spaceloss(self, layer_id: str) -> dict[str, list[float]]:
         return self.get_series(SPACELOSS_FAMILY, layer_id)
 
-    def get_training_metrics(self) -> Dict[str, List[float]]:
+    def get_training_metrics(self) -> dict[str, list[float]]:
         """Flat "family.label" view, kept for old callers."""
         return {f"{fam}.{label}": v for label, fams in self.get_training_groups().items() for fam, v in fams.items()}
 
-    def get_observed_layer_ids(self) -> List[str]:
+    def get_observed_layer_ids(self) -> list[str]:
         with self.locks.observed_layers:
             data = self.observed_layers
         if isinstance(data, dict):
@@ -419,7 +423,7 @@ class ModularUI:
             return list(data)
         return []
 
-    def get_observed_layer_info(self, layer_id: str) -> Dict[str, Any]:
+    def get_observed_layer_info(self, layer_id: str) -> dict[str, Any]:
         with self.locks.observed_layers:
             data = self.observed_layers
         if isinstance(data, dict):
@@ -427,7 +431,7 @@ class ModularUI:
             return info if isinstance(info, dict) else {"value": info}
         return {}
 
-    def get_known_layer_ids(self) -> List[str]:
+    def get_known_layer_ids(self) -> list[str]:
         """Observed layers plus layers that already have positions or are collecting PCA samples."""
         observed = set(self.get_observed_layer_ids())
         with self.locks.positions:
@@ -449,7 +453,7 @@ class ModularUI:
         with self.locks.positions:
             return self._position_offset_locked(layer_id)
 
-    def get_position_at(self, layer_id: str, index: int) -> Optional[np.ndarray]:
+    def get_position_at(self, layer_id: str, index: int) -> np.ndarray | None:
         """`index` is relative to the retained window."""
         with self.locks.positions:
             steps = self.positions_plot.get(layer_id)
@@ -457,13 +461,13 @@ class ModularUI:
                 return None
             return steps[index]
 
-    def get_layer_stats(self, layer_id: str) -> Optional[Any]:
+    def get_layer_stats(self, layer_id: str) -> Any | None:
         with self.locks.stats:
             if isinstance(self.stats, dict):
                 return self.stats.get(layer_id)
             return None
 
-    def get_pca_progress(self, layer_id: str) -> Optional[Dict[str, int]]:
+    def get_pca_progress(self, layer_id: str) -> dict[str, int] | None:
         """None once the layer has position steps, otherwise {"collected", "required"}."""
         with self.locks.positions:
             if self.positions_plot.get(layer_id):
@@ -473,7 +477,7 @@ class ModularUI:
                 "required": self.position_progress.get("required", 0),
             }
 
-    def get_cluster_for_index(self, layer_id: str, position_index: int) -> Optional[Dict[str, Any]]:
+    def get_cluster_for_index(self, layer_id: str, position_index: int) -> dict[str, Any] | None:
         """Most recent cluster snapshot valid as of the given *relative* position index
         (cluster_history is ordered by absolute index, so a binary search suffices)."""
         with self.locks.positions:

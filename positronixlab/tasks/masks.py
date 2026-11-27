@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import math
 import zlib
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, Literal, Optional, Set, Tuple
+from typing import Any, Literal
 
 import torch
 import torch.nn as nn
@@ -62,9 +63,9 @@ class SubnetworkMask:
 
     name: str
     granularity: Granularity
-    masks: Dict[str, torch.Tensor]
-    scores: Optional[Dict[str, torch.Tensor]] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    masks: dict[str, torch.Tensor]
+    scores: dict[str, torch.Tensor] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.granularity not in ("unit", "weight"):
@@ -78,12 +79,12 @@ class SubnetworkMask:
     # ------------------------------------------------------------------
     # Granularity Projection
     # ------------------------------------------------------------------
-    def to_weight_mask(self, model: nn.Module) -> "SubnetworkMask":
+    def to_weight_mask(self, model: nn.Module) -> SubnetworkMask:
         """Return a weight-level ``SubnetworkMask`` matching ``model`` parameter shapes."""
         if self.granularity == "weight":
             return self
         modules = dict(model.named_modules())
-        weight_masks: Dict[str, torch.Tensor] = {}
+        weight_masks: dict[str, torch.Tensor] = {}
         for layer_name, unit_m in self.masks.items():
             if layer_name not in modules:
                 raise KeyError(
@@ -104,11 +105,11 @@ class SubnetworkMask:
             metadata={**self.metadata, "projected_from": "unit"},
         )
 
-    def to_unit_mask(self, min_active_fraction: float = 0.0) -> "SubnetworkMask":
+    def to_unit_mask(self, min_active_fraction: float = 0.0) -> SubnetworkMask:
         """Project a weight-level mask to 1D unit-level ``(out_units,)``."""
         if self.granularity == "unit":
             return self
-        unit_masks: Dict[str, torch.Tensor] = {}
+        unit_masks: dict[str, torch.Tensor] = {}
         for layer_name, w_mask in self.masks.items():
             if w_mask.ndim == 1:
                 unit_masks[layer_name] = w_mask.bool()
@@ -129,7 +130,7 @@ class SubnetworkMask:
     # ------------------------------------------------------------------
     # Set Algebra
     # ------------------------------------------------------------------
-    def _check_compatible(self, other: "SubnetworkMask") -> Set[str]:
+    def _check_compatible(self, other: SubnetworkMask) -> set[str]:
         if self.granularity != other.granularity:
             raise ValueError(
                 f"Cannot combine masks of different granularities "
@@ -141,22 +142,22 @@ class SubnetworkMask:
             raise ValueError("SubnetworkMasks share no common layer keys.")
         return common
 
-    def __and__(self, other: "SubnetworkMask") -> "SubnetworkMask":
+    def __and__(self, other: SubnetworkMask) -> SubnetworkMask:
         common = self._check_compatible(other)
         out = {k: self.masks[k] & other.masks[k].to(self.masks[k].device) for k in sorted(common)}
         return SubnetworkMask(name=f"({self.name}&{other.name})", granularity=self.granularity, masks=out)
 
-    def __or__(self, other: "SubnetworkMask") -> "SubnetworkMask":
+    def __or__(self, other: SubnetworkMask) -> SubnetworkMask:
         common = self._check_compatible(other)
         out = {k: self.masks[k] | other.masks[k].to(self.masks[k].device) for k in sorted(common)}
         return SubnetworkMask(name=f"({self.name}|{other.name})", granularity=self.granularity, masks=out)
 
-    def __sub__(self, other: "SubnetworkMask") -> "SubnetworkMask":
+    def __sub__(self, other: SubnetworkMask) -> SubnetworkMask:
         common = self._check_compatible(other)
         out = {k: self.masks[k] & ~other.masks[k].to(self.masks[k].device) for k in sorted(common)}
         return SubnetworkMask(name=f"({self.name}-{other.name})", granularity=self.granularity, masks=out)
 
-    def invert(self) -> "SubnetworkMask":
+    def invert(self) -> SubnetworkMask:
         out = {k: ~v for k, v in self.masks.items()}
         return SubnetworkMask(
             name=f"~{self.name}",
@@ -186,7 +187,7 @@ class SubnetworkMask:
             return 0.0
         return self.l0() / total
 
-    def iou(self, other: "SubnetworkMask") -> float:
+    def iou(self, other: SubnetworkMask) -> float:
         common = self._check_compatible(other)
         inter = 0
         union = 0
@@ -197,9 +198,9 @@ class SubnetworkMask:
             union += int((a | b).sum().item())
         return (inter / union) if union > 0 else 0.0
 
-    def per_layer_iou(self, other: "SubnetworkMask") -> Dict[str, float]:
+    def per_layer_iou(self, other: SubnetworkMask) -> dict[str, float]:
         common = self._check_compatible(other)
-        result: Dict[str, float] = {}
+        result: dict[str, float] = {}
         for k in sorted(common):
             a = self.masks[k]
             b = other.masks[k].to(a.device)
@@ -208,7 +209,7 @@ class SubnetworkMask:
             result[k] = (inter / union) if union > 0 else 0.0
         return result
 
-    def iomin(self, other: "SubnetworkMask") -> float:
+    def iomin(self, other: SubnetworkMask) -> float:
         """Return Intersection-over-Minimum (Csordas et al. subsetness metric): ``|A & B| / min(|A|, |B|)``."""
         common = self._check_compatible(other)
         inter = 0
@@ -223,10 +224,10 @@ class SubnetworkMask:
         denom = min(count_a, count_b)
         return (inter / denom) if denom > 0 else 0.0
 
-    def per_layer_iomin(self, other: "SubnetworkMask") -> Dict[str, float]:
+    def per_layer_iomin(self, other: SubnetworkMask) -> dict[str, float]:
         """Return per-layer Intersection-over-Minimum (subsetness)."""
         common = self._check_compatible(other)
-        result: Dict[str, float] = {}
+        result: dict[str, float] = {}
         for k in sorted(common):
             a = self.masks[k]
             b = other.masks[k].to(a.device)
@@ -235,7 +236,7 @@ class SubnetworkMask:
             result[k] = (inter / denom) if denom > 0 else 0.0
         return result
 
-    def overlap_fraction(self, other: "SubnetworkMask") -> float:
+    def overlap_fraction(self, other: SubnetworkMask) -> float:
         """Return ``|self & other| / |self|`` (Csordas mask sharing / remaining fraction)."""
         common = self._check_compatible(other)
         inter = 0
@@ -267,7 +268,7 @@ class SubnetworkMask:
         return str(resolved)
 
     @classmethod
-    def load(cls, path: str | Path, **kwargs: Any) -> "SubnetworkMask":
+    def load(cls, path: str | Path, **kwargs: Any) -> SubnetworkMask:
         kwargs.setdefault("map_location", "cpu")
         kwargs.setdefault("weights_only", False)
         payload = load_data(str(path), **kwargs)
@@ -283,11 +284,11 @@ class SubnetworkMask:
 
 
 def _sample_random_binary_mask(
-    shape: Tuple[int, ...],
+    shape: tuple[int, ...],
     n_true: int,
     device: torch.device,
-    generator: Optional[torch.Generator] = None,
-    eligible_mask: Optional[torch.Tensor] = None,
+    generator: torch.Generator | None = None,
+    eligible_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Sample a random bool tensor of *shape* with exactly *n_true* True entries."""
     out = torch.zeros(shape, dtype=torch.bool, device=device)
@@ -337,7 +338,7 @@ class MaskApplier:
         mask: SubnetworkMask,
         mode: AblationMode = "retain",
         exclude_layers: Iterable[str] = (),
-        seed: Optional[int] = None,
+        seed: int | None = None,
         bias_mode: BiasMode = "keep",
     ) -> None:
         if mode not in (
@@ -356,8 +357,8 @@ class MaskApplier:
         self.exclude_layers = set(exclude_layers)
         self.seed = seed
         self.bias_mode = bias_mode
-        self._backups: Dict[str, torch.Tensor] = {}
-        self._bias_backups: Dict[str, torch.Tensor] = {}
+        self._backups: dict[str, torch.Tensor] = {}
+        self._bias_backups: dict[str, torch.Tensor] = {}
 
     def __enter__(self) -> nn.Module:
         try:
@@ -370,8 +371,8 @@ class MaskApplier:
     def _apply(self) -> None:
         weight_mask = self.mask.to_weight_mask(self.model)
         modules = dict(self.model.named_modules())
-        seen_ptrs: Set[int] = set()
-        seen_bias_ptrs: Set[int] = set()
+        seen_ptrs: set[int] = set()
+        seen_bias_ptrs: set[int] = set()
 
         with torch.no_grad():
             for layer_name, m_bool in weight_mask.masks.items():
@@ -398,8 +399,8 @@ class MaskApplier:
                     ) & 0x7FFFFFFF
                     gen.manual_seed(layer_seed)
 
-                rand_ablate: Optional[torch.Tensor] = None
-                comp_ablate: Optional[torch.Tensor] = None
+                rand_ablate: torch.Tensor | None = None
+                comp_ablate: torch.Tensor | None = None
 
                 if self.mode == "retain":
                     weight.data.masked_fill_(~m, 0)
@@ -478,12 +479,14 @@ class MaskApplier:
         with torch.no_grad():
             for layer_name, orig_w in reversed(list(self._backups.items())):
                 mod = modules.get(layer_name)
-                if mod is not None and hasattr(mod, "weight") and mod.weight is not None:
-                    mod.weight.data.copy_(orig_w)
+                weight = getattr(mod, "weight", None) if mod is not None else None
+                if isinstance(weight, torch.Tensor):
+                    weight.data.copy_(orig_w)
             for layer_name, orig_b in reversed(list(self._bias_backups.items())):
                 mod = modules.get(layer_name)
-                if mod is not None and hasattr(mod, "bias") and mod.bias is not None:
-                    mod.bias.data.copy_(orig_b)
+                bias = getattr(mod, "bias", None) if mod is not None else None
+                if isinstance(bias, torch.Tensor):
+                    bias.data.copy_(orig_b)
         self._backups.clear()
         self._bias_backups.clear()
 

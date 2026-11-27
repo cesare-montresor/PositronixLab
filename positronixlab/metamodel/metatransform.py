@@ -14,7 +14,7 @@ def _to_long(x):
     return x.long()
 
 
-class MetaTransform():
+class MetaTransform:
     """
     A class to hold options for the MetaTransform.
     This class can be extended to include various configuration parameters.
@@ -54,6 +54,7 @@ class MetaTransform():
         self.transforms = transforms.Compose(ts)
 
     def apply(self, x):
+        assert self.transforms is not None
         return self.transforms(x)
 
     def __call__(self, x):

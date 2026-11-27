@@ -2,7 +2,7 @@
 TemplateVariant: Classes for managing variant definitions and fixed parameter sets.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class TemplateVariant:
@@ -15,11 +15,11 @@ class TemplateVariant:
     def __init__(
         self,
         name: str,
-        fixed_features: Optional[Dict[str, Any]] = None,
+        fixed_features: dict[str, Any] | None = None,
         description: str = "",
     ):
         self.name = name
-        self.fixed_features: Dict[str, Any] = fixed_features or {}
+        self.fixed_features: dict[str, Any] = fixed_features or {}
         self.description = description
 
     def validate(self, template: Any) -> None:
@@ -33,11 +33,11 @@ class TemplateVariant:
                         f"Fixed feature '{key}' is not defined in template '{template.name}'."
                     )
 
-    def get_fixed_features(self) -> Dict[str, Any]:
+    def get_fixed_features(self) -> dict[str, Any]:
         """Returns the dictionary for Ax FixedFeatures."""
         return dict(self.fixed_features)
 
-    def matches_trial_parameters(self, parameters: Dict[str, Any]) -> bool:
+    def matches_trial_parameters(self, parameters: dict[str, Any]) -> bool:
         """
         Checks if a given set of evaluated parameters matches this variant's fixed features.
         Used to identify common phase prior trials that can bootstrap this variant.
@@ -47,7 +47,7 @@ class TemplateVariant:
                 return False
         return True
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "fixed_features": self.fixed_features,
@@ -55,7 +55,7 @@ class TemplateVariant:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "TemplateVariant":
+    def from_dict(cls, data: dict[str, Any]) -> "TemplateVariant":
         return cls(
             name=data["name"],
             fixed_features=data.get("fixed_features", {}),
@@ -70,7 +70,7 @@ class TemplateVariantList:
     """Manages a registry of TemplateVariant instances for an experiment."""
 
     def __init__(self):
-        self.variants: Dict[str, TemplateVariant] = {}
+        self.variants: dict[str, TemplateVariant] = {}
 
     def add_variant(self, variant: TemplateVariant) -> None:
         """Adds a variant to the list."""
@@ -84,7 +84,7 @@ class TemplateVariantList:
             raise KeyError(f"Variant '{name}' does not exist.")
         return self.variants[name]
 
-    def list_variants(self) -> List[str]:
+    def list_variants(self) -> list[str]:
         """Lists all registered variant names."""
         return list(self.variants.keys())
 
@@ -105,11 +105,11 @@ class TemplateVariantList:
         for variant in self.variants.values():
             variant.validate(template)
 
-    def to_dict(self) -> Dict[str, Dict[str, Any]]:
+    def to_dict(self) -> dict[str, dict[str, Any]]:
         return {name: v.to_dict() for name, v in self.variants.items()}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "TemplateVariantList":
+    def from_dict(cls, data: dict[str, Any]) -> "TemplateVariantList":
         vl = cls()
         for _, item in data.items():
             vl.add_variant(TemplateVariant.from_dict(item))

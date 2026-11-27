@@ -5,8 +5,9 @@ Tests the core clustering algorithm with adaptive K selection,
 supporting both Euclidean and cosine (spherical) distance metrics.
 """
 import time
-import torch
+
 import pytest
+import torch
 
 from positronixlab.modularcluster.modularcluster_kmeans import ModularClusterKmeans
 

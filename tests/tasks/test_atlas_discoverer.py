@@ -77,6 +77,7 @@ def test_atlas_discoverer_supports_conv2d_models():
 
 def test_reduce_activation_to_2d_conv1d_and_conv3d():
     import torch.nn as nn
+
     from positronixlab.tasks.atlas_discoverer import _reduce_activation_to_2d
 
     conv1d = nn.Conv1d(3, 5, 3)

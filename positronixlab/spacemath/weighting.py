@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from typing import Callable, Dict, Optional, Tuple
+from collections.abc import Callable
+
 import torch
-from torch import Tensor
 import torch.nn.functional as F
+from torch import Tensor
 
 
-def split_active_group(scores: Tensor, threshold: float = 0.0) -> Tuple[Tensor, Tensor]:
+def split_active_group(scores: Tensor, threshold: float = 0.0) -> tuple[Tensor, Tensor]:
     """Split unit scores (bs, U) into boolean (idxs_on, idxs_off) masks."""
     idxs_on = scores >= threshold
     idxs_off = ~idxs_on
@@ -40,7 +41,7 @@ def mask_global_scope(
     num_units: int,
     device: torch.device,
     dtype: torch.dtype,
-    unit_mask: Optional[Tensor] = None,
+    unit_mask: Tensor | None = None,
 ) -> Tensor:
     """
     Build the global (1, U) scope mask.
@@ -53,13 +54,13 @@ def mask_global_scope(
 
 
 def mask_cluster_membership(
-    labels: Optional[Tensor],
-    num_units: Optional[int] = None,
+    labels: Tensor | None,
+    num_units: int | None = None,
     *,
     device: torch.device,
     dtype: torch.dtype,
-    unit_mask: Optional[Tensor] = None,
-) -> Optional[Tensor]:
+    unit_mask: Tensor | None = None,
+) -> Tensor | None:
     """
     Build a (K, U) one-hot cluster membership mask from integer labels (U,).
     Negative labels (e.g. -1 noise) are excluded. Returns None if K < 2.
@@ -86,7 +87,7 @@ def weight_raw(
     *,
     threshold: float = 0.0,
     **kwargs,
-) -> Tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor]:
     """Use raw score magnitudes for active/inactive weights (bs, U)."""
     if threshold == 0.0:
         w_on = scores.clamp_min(0.0)
@@ -101,13 +102,13 @@ def weight_raw(
 def weight_inv_freq(
     scores: Tensor,
     *,
-    stats: Optional[Tensor] = None,
-    freq: Optional[Tensor] = None,
+    stats: Tensor | None = None,
+    freq: Tensor | None = None,
     freq_alpha: float = 0.5,
     threshold: float = 0.0,
     min_freq: float = 1e-3,
     **kwargs,
-) -> Tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor]:
     """IDF-like inverse-frequency weighting on active units so hubs don't dominate centers."""
     w_on, w_off = weight_raw(scores, threshold=threshold)
     if freq is None and stats is not None:
@@ -123,20 +124,20 @@ def weight_uniform(
     *,
     threshold: float = 0.0,
     **kwargs,
-) -> Tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor]:
     """Binary uniform weights (1.0 for active/inactive units, ignoring magnitude)."""
     idxs_on, idxs_off = split_active_group(scores, threshold=threshold)
     return idxs_on.to(scores.dtype), idxs_off.to(scores.dtype)
 
 
-WEIGHTERS: Dict[str, Callable[..., Tuple[Tensor, Tensor]]] = {
+WEIGHTERS: dict[str, Callable[..., tuple[Tensor, Tensor]]] = {
     "raw": weight_raw,
     "inv_freq": weight_inv_freq,
     "uniform": weight_uniform,
 }
 
 
-def get_weighter(name: str) -> Callable[..., Tuple[Tensor, Tensor]]:
+def get_weighter(name: str) -> Callable[..., tuple[Tensor, Tensor]]:
     """Look up a weighting function by name from `WEIGHTERS`."""
     key = str(name).strip().lower()
     if key not in WEIGHTERS:

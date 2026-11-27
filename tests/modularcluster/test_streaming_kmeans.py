@@ -8,8 +8,12 @@ import pytest
 import torch
 
 from positronixlab.modularcluster.modularcluster_kmeans import ModularClusterKmeans
-from positronixlab.modularcluster.modularcluster_kmeans_stream import ModularClusterKmeansStream
-from positronixlab.modularcluster.streaming_cluster_tracker import StreamingClusterTracker
+from positronixlab.modularcluster.modularcluster_kmeans_stream import (
+    ModularClusterKmeansStream,
+)
+from positronixlab.modularcluster.streaming_cluster_tracker import (
+    StreamingClusterTracker,
+)
 
 
 def _make_clustered_data(n_per_cluster: int = 30, dim: int = 8, seed: int = 0) -> torch.Tensor:

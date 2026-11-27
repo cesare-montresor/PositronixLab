@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -52,8 +51,8 @@ class ClusterEvent:
     """Human-readable record of one identity transition."""
 
     kind: str
-    new_ids: Tuple[int, ...] = ()
-    old_ids: Tuple[int, ...] = ()
+    new_ids: tuple[int, ...] = ()
+    old_ids: tuple[int, ...] = ()
     detail: str = ""
 
     def __repr__(self) -> str:
@@ -111,7 +110,7 @@ class ClusterTracker:
         switch_threshold: float = 0.05,
         gap_scale: float = 0.5,
         init_bounds: float = 1.0,
-        device: Optional[torch.device] = None,
+        device: torch.device | None = None,
         seed: int = 0,
     ):
         self.d_out = d_out
@@ -123,10 +122,10 @@ class ClusterTracker:
         self._generator = torch.Generator(device=self.device)
         self._generator.manual_seed(seed)
 
-        self.state: Optional[ClusterState] = None
-        self.history: List[List[ClusterEvent]] = []
+        self.state: ClusterState | None = None
+        self.history: list[list[ClusterEvent]] = []
 
-    def step(self, assignment: Tensor, centroids: Tensor) -> Tuple[ClusterState, List[ClusterEvent]]:
+    def step(self, assignment: Tensor, centroids: Tensor) -> tuple[ClusterState, list[ClusterEvent]]:
         """Advance the tracker by one timestep.
 
         The `assignment` tensor is expected to use contiguous cluster ids
@@ -147,7 +146,7 @@ class ClusterTracker:
         self.history.append(events)
         return state, events
 
-    def _init(self, assignment: Tensor, centroids: Tensor, sizes: Tensor) -> Tuple[ClusterState, List[ClusterEvent]]:
+    def _init(self, assignment: Tensor, centroids: Tensor, sizes: Tensor) -> tuple[ClusterState, list[ClusterEvent]]:
         k = int(centroids.shape[0])
         outer = _random_outer(k, self.d_out, self.init_bounds, self.device, self._generator)
         state = ClusterState(assignment=assignment, centroids=centroids, sizes=sizes, outer=outer)
@@ -156,7 +155,7 @@ class ClusterTracker:
         self.history.append(events)
         return state, events
 
-    def _match_and_project(self, assignment: Tensor, centroids: Tensor, sizes_new: Tensor) -> Tuple[List[ClusterEvent], Tensor]:
+    def _match_and_project(self, assignment: Tensor, centroids: Tensor, sizes_new: Tensor) -> tuple[list[ClusterEvent], Tensor]:
         old = self.state
         if old is None:
             raise RuntimeError("ClusterTracker._match_and_project called before initial state was set.")
@@ -165,10 +164,10 @@ class ClusterTracker:
         overlap = overlap_matrix(old.assignment, k_old, assignment, k_new)
         frac = overlap / sizes_new.clamp_min(1).unsqueeze(1).float()
 
-        primary: Dict[int, int] = {}
-        secondary: Dict[int, List[Tuple[int, float]]] = {j: [] for j in range(k_new)}
-        merge_candidates: Dict[int, List[Tuple[int, float]]] = {}
-        no_lineage: List[int] = []
+        primary: dict[int, int] = {}
+        secondary: dict[int, list[tuple[int, float]]] = {j: [] for j in range(k_new)}
+        merge_candidates: dict[int, list[tuple[int, float]]] = {}
+        no_lineage: list[int] = []
 
         order = torch.argsort(sizes_new, descending=True).tolist()
         for j in order:
@@ -194,11 +193,11 @@ class ClusterTracker:
             else:
                 no_lineage.append(j)
 
-        children_of: Dict[int, List[int]] = {}
+        children_of: dict[int, list[int]] = {}
         for j, i in primary.items():
             children_of.setdefault(i, []).append(j)
 
-        events: List[ClusterEvent] = []
+        events: list[ClusterEvent] = []
         outer_new = torch.zeros(k_new, self.d_out, device=self.device)
 
         for old_id, children in children_of.items():
@@ -208,7 +207,7 @@ class ClusterTracker:
                 events.append(ClusterEvent(kind="match", new_ids=(child,), old_ids=(old_id,)))
             else:
                 child_positions = self._split_positions(old.outer[old_id], centroids[children], seed=old_id)
-                for child_id, position in zip(children, child_positions):
+                for child_id, position in zip(children, child_positions, strict=False):
                     outer_new[child_id] = position
                 events.append(
                     ClusterEvent(
@@ -234,7 +233,7 @@ class ClusterTracker:
             base_weight = max(base_weight, 1.0)
             acc_pos = base_pos * base_weight
             acc_weight = base_weight
-            switch_old_ids: List[int] = []
+            switch_old_ids: list[int] = []
 
             for old_id, _ in contribs:
                 split_pos = self._split_positions(old.outer[old_id], centroids[[child_id]], seed=old_id * 1_000_003 + child_id)[0]

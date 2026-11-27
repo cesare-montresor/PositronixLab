@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import copy
-from enum import Enum
 import os
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 import warnings
+from collections.abc import Mapping, Sequence
+from enum import Enum
+from typing import Any
+
 import yaml
 
 with warnings.catch_warnings():
@@ -24,11 +26,11 @@ class ParameterType(str, Enum):
     BOOL = "bool"
 
 
-ParameterConfig = Union[
-    RangeParameterConfig,
-    ChoiceParameterConfig,
-    DerivedParameterConfig,
-]
+ParameterConfig = (
+    RangeParameterConfig
+    | ChoiceParameterConfig
+    | DerivedParameterConfig
+)
 
 
 class TemplateBase:
@@ -42,11 +44,11 @@ class TemplateBase:
 
     CONFIG_PATH = "configs/"
 
-    def __init__(self, name: Optional[str] = None):
+    def __init__(self, name: str | None = None):
         self.name: str = name if name is not None else self.__class__.__name__.lower()
-        self.params: Dict[str, Dict[str, Any]] = {}
-        self.fixed: Dict[str, Any] = {}
-        self.constraints: List[str] = []
+        self.params: dict[str, dict[str, Any]] = {}
+        self.fixed: dict[str, Any] = {}
+        self.constraints: list[str] = []
 
     # -------------------------------------------------------------------------
     # Search Space Building Methods (Tunable & Derived Parameters)
@@ -54,15 +56,15 @@ class TemplateBase:
     def add_range(
         self,
         name: str,
-        bounds: Sequence[Union[int, float]],
-        parameter_type: Union[ParameterType, str] = ParameterType.FLOAT,
-        scaling: Optional[str] = None,
-        step_size: Optional[Union[int, float]] = None,
+        bounds: Sequence[int | float],
+        parameter_type: ParameterType | str = ParameterType.FLOAT,
+        scaling: str | None = None,
+        step_size: int | float | None = None,
         log_scale: bool = False,
-    ) -> "TemplateBase":
+    ) -> TemplateBase:
         p_type = parameter_type.value if isinstance(parameter_type, ParameterType) else str(parameter_type)
         resolved_scaling = scaling if scaling is not None else ("log" if log_scale else "linear")
-        spec: Dict[str, Any] = {
+        spec: dict[str, Any] = {
             "name": name,
             "type": "range",
             "bounds": list(bounds),
@@ -79,16 +81,16 @@ class TemplateBase:
         self,
         name: str,
         values: Sequence[Any],
-        parameter_type: Union[ParameterType, str] = ParameterType.STRING,
-        is_ordered: Optional[bool] = None,
-        dependent_parameters: Optional[Mapping[Any, Sequence[str]]] = None,
-        log_scale: Optional[bool] = None,
-    ) -> "TemplateBase":
+        parameter_type: ParameterType | str = ParameterType.STRING,
+        is_ordered: bool | None = None,
+        dependent_parameters: Mapping[Any, Sequence[str]] | None = None,
+        log_scale: bool | None = None,
+    ) -> TemplateBase:
         p_type = parameter_type.value if isinstance(parameter_type, ParameterType) else str(parameter_type)
         if is_ordered is None:
             # Explicit default avoids AxParameterWarning (2-value choices are always ordered in Ax)
             is_ordered = len(values) <= 2 or p_type in ("int", "float")
-        spec: Dict[str, Any] = {
+        spec: dict[str, Any] = {
             "name": name,
             "type": "choice",
             "values": list(values),
@@ -107,8 +109,8 @@ class TemplateBase:
         self,
         name: str,
         expression_str: str,
-        parameter_type: Union[ParameterType, str] = ParameterType.FLOAT,
-    ) -> "TemplateBase":
+        parameter_type: ParameterType | str = ParameterType.FLOAT,
+    ) -> TemplateBase:
         """Register an Ax 1.3 `DerivedParameterConfig` (linear SymPy expression)."""
         p_type = parameter_type.value if isinstance(parameter_type, ParameterType) else str(parameter_type)
         self.fixed.pop(name, None)
@@ -120,7 +122,7 @@ class TemplateBase:
         }
         return self
 
-    def add_constraint(self, constraint: str) -> "TemplateBase":
+    def add_constraint(self, constraint: str) -> TemplateBase:
         """Add a linear inequality parameter constraint (e.g. `'x1 <= x2'`)."""
         if constraint not in self.constraints:
             self.constraints.append(constraint)
@@ -133,25 +135,25 @@ class TemplateBase:
         self,
         name: str,
         value: Any,
-        parameter_type: Optional[Union[ParameterType, str]] = None,
-    ) -> "TemplateBase":
+        parameter_type: ParameterType | str | None = None,
+    ) -> TemplateBase:
         """Store a fixed non-searchable parameter (removes any tunable param of the same name)."""
         self.params.pop(name, None)
         self.fixed[name] = value
         return self
 
-    def get_fixed(self, keys: Optional[Sequence[str]] = None) -> Dict[str, Any]:
+    def get_fixed(self, keys: Sequence[str] | None = None) -> dict[str, Any]:
         if keys is not None:
             return {k: self.fixed[k] for k in keys if k in self.fixed}
         return dict(self.fixed)
 
-    def remove(self, name: str) -> "TemplateBase":
+    def remove(self, name: str) -> TemplateBase:
         """Remove a parameter from both tunable and fixed dictionaries."""
         self.params.pop(name, None)
         self.fixed.pop(name, None)
         return self
 
-    def merge(self, other: "TemplateBase", overwrite: bool = True) -> "TemplateBase":
+    def merge(self, other: TemplateBase, overwrite: bool = True) -> TemplateBase:
         """Merge another template's tunable params, fixed constants, and constraints into this one."""
         for k, spec in other.params.items():
             if overwrite or (k not in self.params and k not in self.fixed):
@@ -168,9 +170,9 @@ class TemplateBase:
     # -------------------------------------------------------------------------
     # Ax 1.3 Conversion
     # -------------------------------------------------------------------------
-    def to_parameter_configs(self) -> List[ParameterConfig]:
+    def to_parameter_configs(self) -> list[ParameterConfig]:
         """Convert tunable/derived parameters into Ax 1.3 `*ParameterConfig` objects."""
-        configs: List[ParameterConfig] = []
+        configs: list[ParameterConfig] = []
 
         for name, spec in self.params.items():
             p_kind = spec.get("type")
@@ -180,7 +182,7 @@ class TemplateBase:
                 scaling = spec.get("scaling")
                 if scaling is None:
                     scaling = "log" if spec.get("log_scale", False) else "linear"
-                kwargs: Dict[str, Any] = {
+                kwargs: dict[str, Any] = {
                     "name": name,
                     "bounds": tuple(spec["bounds"]),
                     "parameter_type": p_type,
@@ -215,13 +217,13 @@ class TemplateBase:
 
         return configs
 
-    def get_constraints(self) -> List[str]:
+    def get_constraints(self) -> list[str]:
         return list(self.constraints)
 
     # -------------------------------------------------------------------------
     # Serialization
     # -------------------------------------------------------------------------
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "params": copy.deepcopy(self.params),
@@ -230,14 +232,14 @@ class TemplateBase:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "TemplateBase":
+    def from_dict(cls, data: dict[str, Any]) -> TemplateBase:
         tpl = cls(name=data.get("name", "template"))
         tpl.params = copy.deepcopy(data.get("params", {}))
         tpl.fixed = copy.deepcopy(data.get("fixed", {}))
         tpl.constraints = list(data.get("constraints", []))
         return tpl
 
-    def save(self, filepath: Optional[str] = None) -> str:
+    def save(self, filepath: str | None = None) -> str:
         if filepath is None:
             filepath = os.path.join(self.CONFIG_PATH, f"template_{self.name}.yaml")
         os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
@@ -246,14 +248,14 @@ class TemplateBase:
         return filepath
 
     @classmethod
-    def load(cls, filepath: str) -> "TemplateBase":
-        with open(filepath, "r", encoding="utf-8") as f:
+    def load(cls, filepath: str) -> TemplateBase:
+        with open(filepath, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         return cls.from_dict(data)
 
 
 class TemplateDL(TemplateBase):
-    def __init__(self, name: Optional[str] = None):
+    def __init__(self, name: str | None = None):
         super().__init__(name)
 
         self.add_fixed("nas_min_acc", 0.95, "float")
@@ -288,7 +290,7 @@ class TemplateDL(TemplateBase):
 
 
 class TemplateAtlas(TemplateDL):
-    def __init__(self, name: Optional[str] = None):
+    def __init__(self, name: str | None = None):
         super().__init__(name)
 
         self.add_choice("exp_metric_modularity", [True, False], "bool")
@@ -309,7 +311,7 @@ class TemplateAtlas(TemplateDL):
 
 
 class TemplateCNN(TemplateAtlas):
-    def __init__(self, name: Optional[str] = None):
+    def __init__(self, name: str | None = None):
         super().__init__(name)
 
         self.add_fixed("model_type", "cnn", "str")
@@ -318,7 +320,7 @@ class TemplateCNN(TemplateAtlas):
 
 
 class TemplateFC(TemplateAtlas):
-    def __init__(self, name: Optional[str] = None):
+    def __init__(self, name: str | None = None):
         super().__init__(name)
 
         self.add_fixed("model_type", "fc", "str")

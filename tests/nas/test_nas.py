@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
-import os
 import threading
-from typing import Any, Dict
+from dataclasses import dataclass
+from typing import Any
 
 import pytest
 from ax.core.trial_status import TrialStatus
@@ -20,7 +19,7 @@ from positronixlab.nas import (
     TrialResult,
     is_oom_error,
 )
-from positronixlab.pipeline import BaseConfig, PipelineConfig, PipelineOptions
+from positronixlab.pipeline import PipelineOptions
 from positronixlab.template import TemplateBase
 
 
@@ -187,7 +186,7 @@ def test_experiment_moo_parallel_and_warm_start(tmp_path):
     tpl.add_range("modular_space_lr", [1e-4, 1e-1], "float", scaling="log")
     tpl.add_range("modular_space_size", [3, 12], "int")
 
-    def eval_fn(cfg: ComposedTrialConfig) -> Dict[str, float]:
+    def eval_fn(cfg: ComposedTrialConfig) -> dict[str, float]:
         acc = 0.6 + 0.03 * cfg.modular_space_size
         size = float(cfg.modular_space_size)
         return {"val_acc": acc, "model_size": size}
@@ -233,10 +232,10 @@ def test_experiment_oom_parallel_retry_and_abandon(tmp_path):
     tpl = TemplateBase("oom_test")
     tpl.add_range("modular_space_size", [4, 16], "int")
 
-    attempts: Dict[int, int] = {}
+    attempts: dict[int, int] = {}
     lock = threading.Lock()
 
-    def eval_fn(cfg: ComposedTrialConfig) -> Dict[str, float]:
+    def eval_fn(cfg: ComposedTrialConfig) -> dict[str, float]:
         assert cfg.trial_index is not None
         with lock:
             attempts[cfg.trial_index] = attempts.get(cfg.trial_index, 0) + 1
@@ -284,10 +283,10 @@ class _MockTrialPipeline(TrialPipeline):
     def is_complete(self) -> bool:
         return True
 
-    def extract_metrics(self, env: Dict[str, Any]) -> Dict[str, float]:
+    def extract_metrics(self, env: dict[str, Any]) -> dict[str, float]:
         return {"val_acc": float(env["val_acc"])}
 
-    def extract_effective_overrides(self, env: Dict[str, Any]) -> Dict[str, Any]:
+    def extract_effective_overrides(self, env: dict[str, Any]) -> dict[str, Any]:
         return {"train_epochs": int(env["best_epoch"])}
 
 

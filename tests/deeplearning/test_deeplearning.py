@@ -1,9 +1,8 @@
-from dataclasses import dataclass
 import inspect
 import sys
 import types
+from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Optional
 
 import numpy as np
 import pytest
@@ -23,8 +22,8 @@ def _ensure_parallelazy_stub() -> None:
 
     @dataclass
     class _StubManagerOptions:
-        work_dir: Optional[str] = None
-        log_dir: Optional[str] = None
+        work_dir: str | None = None
+        log_dir: str | None = None
         display_logs: bool = True
         write_logs: bool = True
 
@@ -47,7 +46,6 @@ from positronixlab.deeplearning import (
     EarlyStopping,
     TrainConfig,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

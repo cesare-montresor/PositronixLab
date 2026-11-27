@@ -1,14 +1,11 @@
 import logging
-from typing import Callable
+from collections.abc import Callable
 
-from torch.utils.data import DataLoader
 from torch import nn
-
+from torch.utils.data import DataLoader
 
 from positronixlab.deeplearning.deeplearning_base import DeeplearningBase
-
 from positronixlab.pipeline import PipelineConfig
-
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +23,7 @@ class DeeplearningEval:
 
         self.evaluator = DeeplearningBase(self.config, self.model, self.dl, draft=self.draft)
 
-        self.history = []
+        self.history: list[dict[str, float]] = []
     
 
     def add_metric(self, name: str,  criterion=None, minimize: bool = True):
@@ -55,8 +52,9 @@ class DeeplearningEval:
             raise ValueError("No metrics found. Please add at least one metric to perform evaluation.")
 
         
-    def evaluate(self, epoch_total: int) -> dict:
-        if self.draft: epoch_total = 1
+    def evaluate(self, epoch_total: int) -> list[dict[str, float]]:
+        if self.draft:
+            epoch_total = 1
         self.sanity_check()
         
         for epoch in range(epoch_total):

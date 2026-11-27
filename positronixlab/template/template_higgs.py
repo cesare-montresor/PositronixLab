@@ -4,7 +4,7 @@ from positronixlab.template.template_base import TemplateFC
 
 class TemplateHiggs(TemplateFC):
 
-    def __init__(self, name:str = None):
+    def __init__(self, name: str | None = None):
         super().__init__(name)   
 
 

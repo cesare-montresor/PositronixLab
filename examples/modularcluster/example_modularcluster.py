@@ -11,8 +11,12 @@ import numpy as np
 import torch
 
 from positronixlab.modularcluster.modularcluster_kmeans import ModularClusterKmeans
-from positronixlab.modularcluster.modularcluster_kmeans_stream import ModularClusterKmeansStream
-from positronixlab.modularcluster.streaming_cluster_tracker import StreamingClusterTracker
+from positronixlab.modularcluster.modularcluster_kmeans_stream import (
+    ModularClusterKmeansStream,
+)
+from positronixlab.modularcluster.streaming_cluster_tracker import (
+    StreamingClusterTracker,
+)
 
 
 def make_synthetic_embeddings(n_per_cluster: int = 40, dim: int = 8, seed: int = 42) -> torch.Tensor:

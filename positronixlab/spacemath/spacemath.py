@@ -1,14 +1,10 @@
 import logging
+
 import torch
-from torch import  nn
-from torch import Tensor
 import torch.nn.functional as F
-
-
+from torch import Tensor, nn
 
 from positronixlab.spacemath.common import is_conv, is_linear, zclamp
-
-
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +63,7 @@ class ActivationType:
 
 
 
-class SpaceMath():
+class SpaceMath:
     eps = 1e-8
     inf = 1e8
 
@@ -104,7 +100,7 @@ class SpaceMath():
        
 
     @classmethod
-    def activations_to_scores(cls, xd: Tensor, layer_type: str, activation_fn: nn.Module = None, x_quantile=0.9, cnn_locality_weight=0.5) -> Tensor:
+    def activations_to_scores(cls, xd: Tensor, layer_type: str, activation_fn: nn.Module | None = None, x_quantile=0.9, cnn_locality_weight=0.5) -> Tensor:
         q = None
         act = activation_fn
         
@@ -139,7 +135,7 @@ class SpaceMath():
         return scores
 
     @classmethod
-    def split_active_group(cls, x:Tensor, threshold=0.0) -> tuple[Tensor, Tensor]:
+    def split_active_group(cls, x: Tensor, threshold: float | Tensor = 0.0) -> tuple[Tensor, Tensor]:
         idxs_on  = (x >= threshold)
         idxs_off = (~idxs_on)
         return idxs_on, idxs_off
@@ -220,7 +216,7 @@ class SpaceMath():
                                 feature_maps: torch.Tensor,
                                 quantile: float,
                                 locality_weight: float = 0.5,
-                                spatial_radius: int = 3) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                                spatial_radius: int = 3) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Returns kernels above the quantile threshold for each sample.
         
@@ -247,7 +243,7 @@ class SpaceMath():
         
         # Create mask for selected kernels and apply to sorted indices and scores
         selected_mask = scores >= thresholds.unsqueeze(1)
-        k = selected_mask.sum(dim=1).max().item()  # Get max number of selected kernels
+        k = int(selected_mask.sum(dim=1).max().item())  # Get max number of selected kernels
         
         # Get top-k indices and scores using the mask
         top_k_indices = torch.zeros((feature_maps.shape[0], k), 

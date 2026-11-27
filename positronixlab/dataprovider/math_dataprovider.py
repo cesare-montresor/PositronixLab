@@ -15,32 +15,32 @@ automatically when present and ``tasks`` is not explicitly specified.
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
-from typing import Dict, List, Literal, Optional, Sequence, Set, Tuple, Union, Unpack
 import warnings
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any, Literal
 
 import numpy as np
 import requests
 import torch
-from torch import nn
 import torch.nn.functional as F
+from torch import nn
 from tqdm import tqdm
 
 from positronixlab.dataprovider.dataprovider import (
     BaseTensorDataset,
     CompositionalDataProvider,
-    DataProviderOptions,
     SubtaskSplit,
     TransformLike,
     resolve_data_root,
 )
 
 HF_DM_MATH_REPO: str = "cesare-montresor/DeepMind-Mathematics-Dataset"
-DEFAULT_DM_MATH_TASKS: Tuple[str, ...] = ("arithmetic__add_or_sub",)
-DM_MATH_DIFFICULTIES: Tuple[str, ...] = ("easy", "medium", "hard")
+DEFAULT_DM_MATH_TASKS: tuple[str, ...] = ("arithmetic__add_or_sub",)
+DM_MATH_DIFFICULTIES: tuple[str, ...] = ("easy", "medium", "hard")
 
 # The 5 DeepMind Mathematics modules evaluated in Csordas et al. (ICLR 2021).
-CSORDAS_DM_MATH_PAPER_TASKS: Tuple[str, ...] = (
+CSORDAS_DM_MATH_PAPER_TASKS: tuple[str, ...] = (
     "arithmetic__add_or_sub",
     "algebra__linear_1d",
     "calculus__differentiate",
@@ -49,7 +49,7 @@ CSORDAS_DM_MATH_PAPER_TASKS: Tuple[str, ...] = (
 )
 
 # All 56 DeepMind Mathematics v1.0 modules (train-{easy,medium,hard} & interpolate).
-DM_MATH_TASKS: Tuple[str, ...] = (
+DM_MATH_TASKS: tuple[str, ...] = (
     "algebra__linear_1d",
     "algebra__linear_1d_composed",
     "algebra__linear_2d",
@@ -109,7 +109,7 @@ DM_MATH_TASKS: Tuple[str, ...] = (
 )
 
 # Mapping from base module name -> extrapolate filename stem (15 official modules).
-DM_MATH_EXTRAPOLATE_MAP: Dict[str, str] = {
+DM_MATH_EXTRAPOLATE_MAP: dict[str, str] = {
     "algebra__polynomial_roots": "algebra__polynomial_roots_big",
     "arithmetic__add_or_sub": "arithmetic__add_or_sub_big",
     "arithmetic__add_sub_multiple": "arithmetic__add_sub_multiple_longer",
@@ -143,12 +143,12 @@ class MathVocab:
     SOS_IDX: int = 1
     EOS_IDX: int = 2
     UNK_IDX: int = 3
-    SPECIAL_TOKENS: Tuple[str, ...] = ("<pad>", "<sos>", "<eos>", "<unk>")
+    SPECIAL_TOKENS: tuple[str, ...] = ("<pad>", "<sos>", "<eos>", "<unk>")
 
     def __init__(self) -> None:
         ascii_chars = tuple(chr(c) for c in range(32, 127))
-        self.itos: Tuple[str, ...] = self.SPECIAL_TOKENS + ascii_chars
-        self.stoi: Dict[str, int] = {tok: idx for idx, tok in enumerate(self.itos)}
+        self.itos: tuple[str, ...] = self.SPECIAL_TOKENS + ascii_chars
+        self.stoi: dict[str, int] = {tok: idx for idx, tok in enumerate(self.itos)}
         self._byte_lut = np.full(256, self.UNK_IDX, dtype=np.int64)
         for c in range(32, 127):
             self._byte_lut[c] = len(self.SPECIAL_TOKENS) + (c - 32)
@@ -186,7 +186,7 @@ class MathVocab:
 
     def decode(
         self,
-        tokens: Union[torch.Tensor, np.ndarray, Sequence[int]],
+        tokens: torch.Tensor | np.ndarray | Sequence[int],
         *,
         skip_special: bool = True,
     ) -> str:
@@ -198,7 +198,7 @@ class MathVocab:
         else:
             seq = list(tokens)
 
-        chars: List[str] = []
+        chars: list[str] = []
         for idx in seq:
             i = int(idx)
             if skip_special:
@@ -268,7 +268,7 @@ def math_exact_accuracy(
     return float(seq_match.float().mean().item()) if seq_match.numel() > 0 else 0.0
 
 
-def _normalize_tasks(tasks: Optional[Union[str, Sequence[str]]]) -> Tuple[str, ...]:
+def _normalize_tasks(tasks: str | Sequence[str] | None) -> tuple[str, ...]:
     if tasks is None:
         return DEFAULT_DM_MATH_TASKS
     if isinstance(tasks, str):
@@ -283,7 +283,7 @@ def _normalize_tasks(tasks: Optional[Union[str, Sequence[str]]]) -> Tuple[str, .
     return resolved
 
 
-def _normalize_difficulties(difficulties: Sequence[str]) -> Tuple[str, ...]:
+def _normalize_difficulties(difficulties: Sequence[str]) -> tuple[str, ...]:
     out = tuple(d[len("train-") :] if d.startswith("train-") else d for d in difficulties)
     if not out:
         raise ValueError("difficulties must be non-empty (e.g. ('easy', 'medium', 'hard')).")
@@ -295,9 +295,9 @@ def _resolve_split_files(
     splits: Sequence[str],
     *,
     warn_missing_extrapolate: bool = True,
-) -> List[Tuple[str, str]]:
+) -> list[tuple[str, str]]:
     """Return ``(split, filename_stem)`` pairs for the requested *tasks* and *splits*."""
-    pairs: List[Tuple[str, str]] = []
+    pairs: list[tuple[str, str]] = []
     for split in splits:
         for task in tasks:
             if split == "extrapolate":
@@ -320,7 +320,7 @@ def _resolve_split_files(
 
 
 def download_dm_math_file(
-    root: Union[str, Path],
+    root: str | Path,
     split: str,
     task_stem: str,
     *,
@@ -371,8 +371,8 @@ def download_dm_math_file(
 
 
 def download_dm_math(
-    root: Union[str, Path],
-    tasks: Union[str, Sequence[str]] = DEFAULT_DM_MATH_TASKS,
+    root: str | Path,
+    tasks: str | Sequence[str] = DEFAULT_DM_MATH_TASKS,
     splits: Sequence[str] = ("train-easy", "train-medium", "train-hard", "interpolate"),
     *,
     repo_id: str = HF_DM_MATH_REPO,
@@ -380,7 +380,7 @@ def download_dm_math(
     timeout: int = 60,
     force: bool = False,
     show_progress: bool = True,
-) -> List[Path]:
+) -> list[Path]:
     """Download all requested DeepMind Mathematics ``.txt`` files from Hugging Face."""
     task_list = _normalize_tasks(tasks)
     pairs = _resolve_split_files(task_list, splits)
@@ -402,13 +402,13 @@ def download_dm_math(
 def _parse_qa_file(
     path: Path,
     *,
-    max_samples: Optional[int] = None,
-    seen_questions: Optional[Set[str]] = None,
-) -> Tuple[List[str], List[str]]:
+    max_samples: int | None = None,
+    seen_questions: set[str] | None = None,
+) -> tuple[list[str], list[str]]:
     """Read alternating ``question`` / ``answer`` lines with optional cross-split deduplication."""
-    questions: List[str] = []
-    answers: List[str] = []
-    with open(path, "r", encoding="utf-8") as f:
+    questions: list[str] = []
+    answers: list[str] = []
+    with open(path, encoding="utf-8") as f:
         while True:
             q_line = f.readline()
             if not q_line:
@@ -436,12 +436,12 @@ def _tokenize_pairs(
     *,
     max_question_len: int = 160,
     max_answer_len: int = 32,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Convert question/answer strings to padded ``LongTensor`` arrays."""
     n = len(questions)
     x_np = np.full((n, max_question_len), vocab.PAD_IDX, dtype=np.int64)
     y_np = np.full((n, max_answer_len), vocab.PAD_IDX, dtype=np.int64)
-    for i, (q, a) in enumerate(zip(questions, answers)):
+    for i, (q, a) in enumerate(zip(questions, answers, strict=False)):
         x_np[i] = vocab.encode(q, max_len=max_question_len, add_sos=False, add_eos=True)
         y_np[i] = vocab.encode(a, max_len=max_answer_len, add_sos=True, add_eos=True)
     return torch.from_numpy(x_np), torch.from_numpy(y_np)
@@ -453,7 +453,7 @@ def _carve_iid_test(
     *,
     test_size: int = 10_000,
     seed: int = 1234,
-) -> Tuple[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]]:
+) -> tuple[tuple[torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]]:
     """Deterministically carve an IID held-out test set from a difficulty split (Csordas seed=1234)."""
     n = int(len(x))
     if n <= 1:
@@ -470,10 +470,10 @@ def _carve_iid_test(
 
 def _cache_file_path(
     root: Path,
-    pairs: Sequence[Tuple[str, str]],
+    pairs: Sequence[tuple[str, str]],
     max_question_len: int,
     max_answer_len: int,
-    max_samples_per_file: Optional[int],
+    max_samples_per_file: int | None,
     deduplicate: bool = True,
 ) -> Path:
     sig_parts = [
@@ -490,15 +490,15 @@ def _cache_file_path(
 
 def _ensure_raw_files(
     root: Path,
-    pairs: Sequence[Tuple[str, str]],
+    pairs: Sequence[tuple[str, str]],
     *,
     download: bool,
     repo_id: str,
     revision: str,
     show_progress: bool,
-) -> Tuple[List[Path], List[Tuple[str, str]]]:
+) -> tuple[list[Path], list[tuple[str, str]]]:
     """Return ``(raw_paths, missing_pairs)`` after optional Hugging Face auto-download."""
-    missing: List[Tuple[str, str]] = []
+    missing: list[tuple[str, str]] = []
     for split, stem in pairs:
         p = root / "math" / "raw" / split / f"{stem}.txt"
         if not p.exists():
@@ -522,19 +522,19 @@ def _ensure_raw_files(
 
 def _load_or_build_tensors(
     root: Path,
-    pairs: Sequence[Tuple[str, str]],
+    pairs: Sequence[tuple[str, str]],
     vocab: MathVocab,
     *,
     max_question_len: int,
     max_answer_len: int,
-    max_samples_per_file: Optional[int],
+    max_samples_per_file: int | None,
     deduplicate: bool,
     download: bool,
     repo_id: str,
     revision: str,
     show_progress: bool,
-    seen_questions: Optional[Set[str]] = None,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    seen_questions: set[str] | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Load cached tokenized tensors or parse + tokenize raw ``.txt`` files."""
     use_cache = seen_questions is None
     cache_path = _cache_file_path(
@@ -560,8 +560,8 @@ def _load_or_build_tensors(
         )
 
     seen = seen_questions if seen_questions is not None else (set() if deduplicate else None)
-    all_q: List[str] = []
-    all_a: List[str] = []
+    all_q: list[str] = []
+    all_a: list[str] = []
     for p in raw_paths:
         q, a = _parse_qa_file(p, max_samples=max_samples_per_file, seen_questions=seen)
         all_q.extend(q)
@@ -600,15 +600,15 @@ class MathDataset(BaseTensorDataset):
         self,
         train: bool = True,
         indices=None,
-        transforms: Optional[TransformLike] = None,
-        root: Optional[Union[str, Path]] = None,
+        transforms: TransformLike | None = None,
+        root: str | Path | None = None,
         *,
-        tasks: Optional[Union[str, Sequence[str]]] = None,
+        tasks: str | Sequence[str] | None = None,
         difficulties: Sequence[str] = DM_MATH_DIFFICULTIES,
         eval_split: Literal["interpolate", "extrapolate"] = "interpolate",
         max_question_len: int = 160,
         max_answer_len: int = 32,
-        max_samples_per_file: Optional[int] = None,
+        max_samples_per_file: int | None = None,
         deduplicate: bool = True,
         download: bool = True,
         repo_id: str = HF_DM_MATH_REPO,
@@ -627,8 +627,8 @@ class MathDataset(BaseTensorDataset):
             data = torch.load(legacy_pt, weights_only=True)
             x = data["inputs"]
             y = data["targets"]
-            self.tasks: Tuple[str, ...] = ()
-            self.splits: Tuple[str, ...] = ()
+            self.tasks: tuple[str, ...] = ()
+            self.splits: tuple[str, ...] = ()
             super().__init__(x, y, indices=indices, transforms=transforms)
             return
 
@@ -661,7 +661,7 @@ class MathDataset(BaseTensorDataset):
         super().__init__(x, y, indices=indices, transforms=transforms)
 
 
-def _concat_tensors(chunks: Sequence[Tuple[torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor]:
+def _concat_tensors(chunks: Sequence[tuple[torch.Tensor, torch.Tensor]]) -> tuple[torch.Tensor, torch.Tensor]:
     xs = [c[0] for c in chunks if len(c[0]) > 0]
     ys = [c[1] for c in chunks if len(c[1]) > 0]
     if not xs:
@@ -694,7 +694,7 @@ class MathDataProvider(
     def __init__(
         self,
         *,
-        tasks: Optional[Union[str, Sequence[str]]] = None,
+        tasks: str | Sequence[str] | None = None,
         difficulties: Sequence[str] = DM_MATH_DIFFICULTIES,
         eval_split: Literal["interpolate", "extrapolate"] = "interpolate",
         include_extrapolate: bool = False,
@@ -702,14 +702,14 @@ class MathDataProvider(
         test_seed: int = 1234,
         max_question_len: int = 160,
         max_answer_len: int = 32,
-        max_samples_per_file: Optional[int] = None,
+        max_samples_per_file: int | None = None,
         deduplicate: bool = True,
         download: bool = True,
         repo_id: str = HF_DM_MATH_REPO,
         revision: str = "main",
         show_progress: bool = True,
         batch_size: int = 128,
-        **kwargs: Unpack[DataProviderOptions],
+        **kwargs: Any,
     ) -> None:
         super().__init__(name="deepmind_math", batch_size=batch_size, **kwargs)
         self.tasks_arg = tasks
@@ -737,7 +737,7 @@ class MathDataProvider(
 
         self._init_compositional(show_progress=show_progress)
 
-    def _split_kwargs(self) -> Dict[str, object]:
+    def _split_kwargs(self) -> dict[str, Any]:
         return dict(
             batch_size=self.batch_size,
             num_workers=self.num_workers,
@@ -749,7 +749,7 @@ class MathDataProvider(
 
     def _init_legacy_pt(self) -> None:
         """Backward-compatible path for legacy preprocessed ``train.pt``/``test.pt``."""
-        self.tasks: Tuple[str, ...] = ()
+        self.tasks: tuple[str, ...] = ()
         self.dataset = MathDataset(
             train=True,
             transforms=self.transforms,
@@ -803,6 +803,11 @@ class MathDataProvider(
         cache_digest = hashlib.sha256(cache_sig.encode("utf-8")).hexdigest()[:16]
         comp_cache = self.root / "math" / "cache" / f"dm_math_comp_{cache_digest}.pt"
 
+        task_diff_train: dict[str, dict[str, tuple[torch.Tensor, torch.Tensor]]]
+        task_diff_test: dict[str, dict[str, tuple[torch.Tensor, torch.Tensor]]]
+        task_interp: dict[str, tuple[torch.Tensor, torch.Tensor]]
+        task_extrap: dict[str, tuple[torch.Tensor, torch.Tensor]]
+
         if comp_cache.exists():
             payload = torch.load(comp_cache, weights_only=True)
             task_diff_train = payload["task_diff_train"]
@@ -810,13 +815,13 @@ class MathDataProvider(
             task_interp = payload["task_interp"]
             task_extrap = payload["task_extrap"]
         else:
-            task_diff_train: Dict[str, Dict[str, Tuple[torch.Tensor, torch.Tensor]]] = {}
-            task_diff_test: Dict[str, Dict[str, Tuple[torch.Tensor, torch.Tensor]]] = {}
-            task_interp: Dict[str, Tuple[torch.Tensor, torch.Tensor]] = {}
-            task_extrap: Dict[str, Tuple[torch.Tensor, torch.Tensor]] = {}
+            task_diff_train = {}
+            task_diff_test = {}
+            task_interp = {}
+            task_extrap = {}
 
             for task in resolved_tasks:
-                seen: Optional[Set[str]] = set() if self.deduplicate else None
+                seen: set[str] | None = set() if self.deduplicate else None
                 task_diff_train[task] = {}
                 task_diff_test[task] = {}
 
@@ -895,7 +900,7 @@ class MathDataProvider(
             )
             tmp_cache.rename(comp_cache)
 
-        def _make_ds(xy: Tuple[torch.Tensor, torch.Tensor]) -> BaseTensorDataset:
+        def _make_ds(xy: tuple[torch.Tensor, torch.Tensor]) -> BaseTensorDataset:
             return BaseTensorDataset(xy[0], xy[1], transforms=self.transforms)
 
         # Combine across all requested tasks & difficulties
@@ -957,7 +962,7 @@ class MathDataProvider(
             self._sync_base_split()
 
         # Evaluation subtasks
-        eval_targets: List[str] = []
+        eval_targets: list[str] = []
         if len(full_iid_ds) > 0:
             self.subtasks["iid"] = SubtaskSplit(
                 name="iid",

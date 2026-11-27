@@ -1,5 +1,6 @@
+
 import torch
-from typing import Dict
+
 
 class DisplacementFilter:
     """
@@ -9,7 +10,7 @@ class DisplacementFilter:
     def __init__(self, threshold: float = 0.5, method: str = 'max') -> None:
         self.threshold = threshold
         self.method = method
-        self._keyframe: Dict[str, torch.Tensor] = {}
+        self._keyframe: dict[str, torch.Tensor] = {}
 
     def check_and_update(self, key: str, value: torch.Tensor) -> bool:
         kf = self._keyframe.get(key)

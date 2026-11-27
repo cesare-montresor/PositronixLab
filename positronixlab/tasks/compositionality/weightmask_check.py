@@ -1,10 +1,10 @@
+import logging
+
+import torch
+import torch.nn as nn
 from tqdm import tqdm
 
 from positronixlab.dataprovider.dataprovider_factory import DataProvider
-import logging
-import torch
-import torch.nn as nn
-from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -13,12 +13,12 @@ class WeightmaskCheck:
         self.model = model
         self.dataprovider = dataprovider
 
-    def run(self, target_layers: Dict[str, nn.Module], num_epochs: int = 5, lr: float = 1e-2) -> Dict[int, Dict[str, torch.Tensor]]:
+    def run(self, target_layers: dict[str, nn.Module], num_epochs: int = 5, lr: float = 1e-2) -> dict[int, dict[str, torch.Tensor]]:
         """
         Optimizes and exports differentiable Gumbel-Sigmoid weight masks per class.
         Uses gradient accumulation over class subsets to process the dataset in a single pass.
         """
-        num_classes = self.dataprovider.num_classes
+        num_classes = int(self.dataprovider.num_classes or 0)
         criterion = WeightMaskCriterion()
         
         # Single manager and optimizer. The num_classes dimension inside MultiClassWeightmaskManager 
@@ -56,7 +56,7 @@ class WeightmaskCheck:
         logger.info("Completed optimization for all classes. Extracting binary masks...")
         
         mask_mgr.eval()
-        class_masks = {}
+        class_masks: dict[int, dict[str, torch.Tensor]] = {}
         with torch.no_grad():
             for c in range(num_classes):
                 class_masks[c] = {}
@@ -68,7 +68,7 @@ class WeightmaskCheck:
         return class_masks
 
 class MultiClassWeightmaskManager(nn.Module):
-    def __init__(self, model: nn.Module, target_layers: Dict[str, nn.Module], num_classes: int, temp: float = 1.0):
+    def __init__(self, model: nn.Module, target_layers: dict[str, nn.Module], num_classes: int, temp: float = 1.0):
         super().__init__()
         self.model = model
         self.target_layers = target_layers 
@@ -78,15 +78,16 @@ class MultiClassWeightmaskManager(nn.Module):
         
         self.masks = nn.ParameterDict()
         for name, module in target_layers.items():
-            if hasattr(module, 'weight'):
+            weight = getattr(module, 'weight', None)
+            if isinstance(weight, torch.Tensor):
                 safe_name = name.replace('.', '_')
                 # Grab the device directly from the original weight tensor
                 self.masks[safe_name] = nn.Parameter(
-                    torch.zeros((num_classes, *module.weight.shape), device=module.weight.device)
+                    torch.zeros((num_classes, *weight.shape), device=weight.device)
                 )
 
-        self.active_layer_masks: List[torch.Tensor] = []
-        self._hook_handles = []
+        self.active_layer_masks: list[torch.Tensor] = []
+        self._hook_handles: list[torch.utils.hooks.RemovableHandle] = []
         self._setup_hooks_and_freezing()
 
     def _setup_hooks_and_freezing(self):
@@ -133,7 +134,7 @@ class MultiClassWeightmaskManager(nn.Module):
             return torch.tensor(0.0, device=next(self.parameters()).device)
         
         layer_losses = [torch.norm(torch.sigmoid(m), p=1) for m in self.active_layer_masks]
-        return sum(layer_losses) / len(layer_losses)
+        return torch.stack(layer_losses).mean()
 
     def forward(self, *args, **kwargs):
         self.clear_active_masks()
@@ -146,7 +147,7 @@ class MultiClassWeightmaskManager(nn.Module):
         self._hook_handles.clear()
         
         # 2. Safely restore the original parameters to the model
-        for name, module in self.target_layers.items():
+        for _name, module in self.target_layers.items():
             if hasattr(module, '_original_weight_param'):
                 # Delete the dynamically assigned tensor if it exists
                 if hasattr(module, 'weight'):
@@ -161,15 +162,15 @@ class WeightMaskCriterion(nn.Module):
         self.lambda_l1 = lambda_l1
         self.task_loss_fn = nn.CrossEntropyLoss()
 
-    def _compute_overall_weightmaskloss(self, layer_masks: List[torch.Tensor]) -> torch.Tensor:
+    def _compute_overall_weightmaskloss(self, layer_masks: list[torch.Tensor]) -> torch.Tensor:
         if not layer_masks:
             return torch.tensor(0.0, requires_grad=True, device=layer_masks[0].device if layer_masks else 'cpu')
         
         layer_losses = [torch.norm(torch.sigmoid(m), p=1) for m in layer_masks]
-        overall_weightmaskloss = sum(layer_losses) / len(layer_losses)
+        overall_weightmaskloss = torch.stack(layer_losses).mean()
         return overall_weightmaskloss
 
-    def forward(self, logits: torch.Tensor, targets: torch.Tensor, layer_masks: List[torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor, layer_masks: list[torch.Tensor]) -> dict[str, torch.Tensor]:
         task_loss = self.task_loss_fn(logits, targets)
         overall_weightmaskloss = self._compute_overall_weightmaskloss(layer_masks)
         total_loss = task_loss + (self.lambda_l1 * overall_weightmaskloss)
@@ -203,7 +204,7 @@ class WeightMasksMetrics:
         return (active_params / total_params).item() if total_params > 0 else 0.0
         
     @staticmethod
-    def evaluate_network_modularity(masks_a: Dict[str, torch.Tensor], masks_b: Dict[str, torch.Tensor]) -> Dict[str, float]:
+    def evaluate_network_modularity(masks_a: dict[str, torch.Tensor], masks_b: dict[str, torch.Tensor]) -> dict[str, float]:
         total_iou, total_iomin = 0.0, 0.0
         layers = list(masks_a.keys())
         

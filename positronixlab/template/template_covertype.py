@@ -5,7 +5,7 @@ from positronixlab.template.template_base import TemplateFC
 
 class TemplateCovertype(TemplateFC):
 
-    def __init__(self, name: str=None):
+    def __init__(self, name: str | None = None):
         super().__init__(name)   
         
 

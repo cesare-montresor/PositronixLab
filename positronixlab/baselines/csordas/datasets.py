@@ -16,11 +16,16 @@ original paper defaults, alongside :data:`PAPER_CONFIGS`:
 
 from __future__ import annotations
 
-from typing import Dict, Literal, Optional, Sequence, Union, Unpack
+from collections.abc import Sequence
+from typing import Any, Literal
 
 from positronixlab.dataprovider.addmul_dataprovider import (
     AddMulDataProvider as _BaseAddMulDataProvider,
+)
+from positronixlab.dataprovider.addmul_dataprovider import (
     AddMulDataset as _BaseAddMulDataset,
+)
+from positronixlab.dataprovider.addmul_dataprovider import (
     AddMulLoss,
     TargetMode,
     addmul_exact_accuracy,
@@ -30,7 +35,6 @@ from positronixlab.dataprovider.class_removal_dataprovider import (
     ClassRemovalDataProvider,
 )
 from positronixlab.dataprovider.config import DataConfig
-from positronixlab.dataprovider.dataprovider import DataProviderOptions
 from positronixlab.dataprovider.math_dataprovider import (
     CSORDAS_DM_MATH_PAPER_TASKS,
     DEFAULT_DM_MATH_TASKS,
@@ -52,11 +56,14 @@ from positronixlab.dataprovider.scan_dataprovider import (
 )
 from positronixlab.dataprovider.tuple_arithmetic_dataprovider import (
     TupleArithmeticDataProvider as _BaseTupleArithmeticDataProvider,
+)
+from positronixlab.dataprovider.tuple_arithmetic_dataprovider import (
     TupleArithmeticDataset as _BaseTupleArithmeticDataset,
+)
+from positronixlab.dataprovider.tuple_arithmetic_dataprovider import (
     TupleArithmeticLoss,
     tuple_arithmetic_accuracy,
 )
-
 
 # ---------------------------------------------------------------------------
 # Paper-calibrated builders (original Csordas et al. ICLR 2021 settings)
@@ -71,7 +78,7 @@ def addmul(
     n_test: int = 10_000,
     target_mode: TargetMode = "digits",
     batch_size: int = 128,
-    **kwargs: Unpack[DataProviderOptions],
+    **kwargs: Any,
 ) -> _BaseAddMulDataProvider:
     """Csordas et al. Add/Mul task (``n_digits=2``, 100k/10k/10k, per-digit CE)."""
     return _BaseAddMulDataProvider(
@@ -95,7 +102,7 @@ def tuple_arithmetic(
     op: Literal["add", "mul"] = "add",
     target_mode: TargetMode = "digits",
     batch_size: int = 128,
-    **kwargs: Unpack[DataProviderOptions],
+    **kwargs: Any,
 ) -> _BaseTupleArithmeticDataProvider:
     """Csordas et al. Double-Addition / TupleArithmetic task (``n_digits=2``, ``n_tuples=2``)."""
     return _BaseTupleArithmeticDataProvider(
@@ -114,7 +121,7 @@ def tuple_arithmetic(
 def cifar10_class_removal(
     *,
     batch_size: int = 128,
-    **kwargs: Unpack[DataProviderOptions],
+    **kwargs: Any,
 ) -> ClassRemovalDataProvider:
     """Csordas et al. CIFAR-10 leave-one-class-out benchmark (``all`` + ``without_0..9``)."""
     cifar = CIFAR10DataProvider(batch_size=batch_size, **kwargs)
@@ -131,7 +138,7 @@ def permuted_mnist(
     flatten: bool = True,
     normalize: bool = True,
     batch_size: int = 128,
-    **kwargs: Unpack[DataProviderOptions],
+    **kwargs: Any,
 ) -> PermutedMnistDataProvider:
     """Csordas et al. Permuted MNIST transfer/reuse benchmark (permutations ``0..10``)."""
     return PermutedMnistDataProvider(
@@ -150,7 +157,7 @@ def scan(
     max_output_len: int = 64,
     download: bool = True,
     batch_size: int = 128,
-    **kwargs: Unpack[DataProviderOptions],
+    **kwargs: Any,
 ) -> SCANDataProvider:
     """Csordas et al. SCAN compositional generalization dataset (GitHub auto-download)."""
     return SCANDataProvider(
@@ -165,7 +172,7 @@ def scan(
 
 def deepmind_math(
     *,
-    tasks: Optional[Union[str, Sequence[str]]] = DEFAULT_DM_MATH_TASKS,
+    tasks: str | Sequence[str] | None = DEFAULT_DM_MATH_TASKS,
     difficulties: Sequence[str] = DM_MATH_DIFFICULTIES,
     eval_split: Literal["interpolate", "extrapolate"] = "interpolate",
     include_extrapolate: bool = False,
@@ -173,13 +180,13 @@ def deepmind_math(
     test_seed: int = 1234,
     max_question_len: int = 160,
     max_answer_len: int = 32,
-    max_samples_per_file: Optional[int] = None,
+    max_samples_per_file: int | None = None,
     deduplicate: bool = True,
     download: bool = True,
     repo_id: str = HF_DM_MATH_REPO,
     show_progress: bool = True,
     batch_size: int = 128,
-    **kwargs: Unpack[DataProviderOptions],
+    **kwargs: Any,
 ) -> MathDataProvider:
     """Csordas et al. DeepMind Mathematics compositional benchmark (HF auto-download)."""
     return MathDataProvider(
@@ -201,7 +208,7 @@ def deepmind_math(
     )
 
 
-PAPER_CONFIGS: Dict[str, DataConfig] = {
+PAPER_CONFIGS: dict[str, DataConfig] = {
     "addmul": DataConfig(
         name="csordas_addmul",
         dataset_name="addmul",
@@ -274,7 +281,7 @@ class TupleArithmeticDataset(_BaseTupleArithmeticDataset):
         n_tuples: int = 2,
         n_digits: int = 1,
         op: Literal["add", "mul"] = "add",
-        restrict_tuple: Optional[int] = None,
+        restrict_tuple: int | None = None,
         seed: int = 0x12345678,
     ) -> None:
         super().__init__(
@@ -302,7 +309,7 @@ class TupleArithmeticDataProvider(_BaseTupleArithmeticDataProvider, register=Fal
         op: Literal["add", "mul"] = "add",
         batch_size: int = 64,
         seed: int = 0x12345678,
-        **kwargs: Unpack[DataProviderOptions],
+        **kwargs: Any,
     ) -> None:
         super().__init__(
             n_digits=n_digits,
@@ -326,7 +333,7 @@ class AddMulDataset(_BaseAddMulDataset):
         self,
         n_samples: int = 4096,
         n_digits: int = 1,
-        restrict_op: Optional[str] = None,
+        restrict_op: str | None = None,
         seed: int = 0x12345678,
     ) -> None:
         super().__init__(
@@ -350,7 +357,7 @@ class AddMulDataProvider(_BaseAddMulDataProvider, register=False):
         n_digits: int = 1,
         batch_size: int = 64,
         seed: int = 0x12345678,
-        **kwargs: Unpack[DataProviderOptions],
+        **kwargs: Any,
     ) -> None:
         super().__init__(
             n_digits=n_digits,

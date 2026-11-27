@@ -7,20 +7,31 @@ environments.
 
 from __future__ import annotations
 
-from positronixlab.utils.utils import load_data, save_data
 import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Type
+from typing import Any
 
 import torch
 import torch.nn as nn
 
+from positronixlab.dataprovider.dataprovider import (
+    CompositionalDataProvider as CompositionalDataProvider,
+)
+from positronixlab.dataprovider.dataprovider import (
+    DataProvider,
+)
+from positronixlab.dataprovider.dataprovider import (
+    SubtaskSplit as SubtaskSplit,
+)
+from positronixlab.utils.utils import load_data, save_data
+
 # Layer types supported by both Atlas observation and weight/neuron masking
-MASKABLE_LAYER_TYPES: Tuple[Type[nn.Module], ...] = (nn.Linear, nn.Conv2d, nn.Conv1d)
+MASKABLE_LAYER_TYPES: tuple[type[nn.Module], ...] = (nn.Linear, nn.Conv2d, nn.Conv1d)
 
 
-def _get_maskable_types() -> Tuple[Type[nn.Module], ...]:
+def _get_maskable_types() -> tuple[type[nn.Module], ...]:
     """Return tuple of maskable PyTorch layer classes (including HF Conv1D if available)."""
     try:
         from transformers.pytorch_utils import Conv1D  # type: ignore
@@ -32,13 +43,13 @@ def _get_maskable_types() -> Tuple[Type[nn.Module], ...]:
 
 def get_maskable_layer_names(
     model: nn.Module,
-    include_types: Optional[Tuple[Type[nn.Module], ...]] = None,
+    include_types: tuple[type[nn.Module], ...] | None = None,
     exclude_patterns: Iterable[str] = (),
-) -> List[str]:
+) -> list[str]:
     """Return canonical dotted names of maskable layers in *model*."""
     types = include_types if include_types is not None else _get_maskable_types()
     patterns = tuple(exclude_patterns)
-    names: List[str] = []
+    names: list[str] = []
     for name, module in model.named_modules():
         if not name:
             continue
@@ -56,9 +67,9 @@ class SOTAModelSpec:
     arch: str
     source: str  # "csordas" | "lepori" | "neurosurgeon" | ...
     task_type: str  # "classification" | "odd_one_out" | "seq2seq" | "sequence"
-    builder: Callable[..., "SOTAModel"]
+    builder: Callable[..., SOTAModel]
     description: str = ""
-    default_exclude_patterns: Tuple[str, ...] = field(default_factory=tuple)
+    default_exclude_patterns: tuple[str, ...] = field(default_factory=tuple)
 
 
 class SOTAModel(nn.Module):
@@ -72,18 +83,18 @@ class SOTAModel(nn.Module):
     source: str = "custom"
     arch: str = "custom"
     task_type: str = "classification"
-    default_exclude_patterns: Tuple[str, ...] = ()
+    default_exclude_patterns: tuple[str, ...] = ()
 
     def __init__(
         self,
-        name: Optional[str] = None,
-        device: Optional[torch.device | str] = None,
-        criterion: Optional[nn.Module] = None,
+        name: str | None = None,
+        device: torch.device | str | None = None,
+        criterion: nn.Module | None = None,
     ) -> None:
         super().__init__()
         self.name = name or self.__class__.__name__
         self.timestamp = time.time()
-        self.basepath: Optional[str] = None
+        self.basepath: str | None = None
         self.criterion: nn.Module = criterion if criterion is not None else nn.CrossEntropyLoss()
         self._device = torch.device(device) if device is not None else torch.device("cpu")
 
@@ -99,7 +110,7 @@ class SOTAModel(nn.Module):
     def device(self, value: torch.device | str) -> None:
         self._device = torch.device(value)
 
-    def to(self, *args: Any, **kwargs: Any) -> "SOTAModel":
+    def to(self, *args: Any, **kwargs: Any) -> SOTAModel:
         result = super().to(*args, **kwargs)
         for p in result.parameters():
             result._device = p.device
@@ -112,8 +123,8 @@ class SOTAModel(nn.Module):
 
     def maskable_layers(
         self,
-        exclude_patterns: Optional[Iterable[str]] = None,
-    ) -> List[str]:
+        exclude_patterns: Iterable[str] | None = None,
+    ) -> list[str]:
         """Return canonical dotted names of maskable/observable layers."""
         patterns = (
             self.default_exclude_patterns
@@ -124,10 +135,10 @@ class SOTAModel(nn.Module):
 
     def to_neurosurgeon(
         self,
-        target_layers: Optional[List[str]] = None,
+        target_layers: list[str] | None = None,
         mask_method: str = "continuous_sparsification",
         mask_unit: str = "weight",
-        mask_hparams: Optional[Dict[str, Any]] = None,
+        mask_hparams: dict[str, Any] | None = None,
         freeze_base: bool = True,
         l0_lambda: float = 1e-8,
         deepcopy_model: bool = True,
@@ -147,27 +158,28 @@ class SOTAModel(nn.Module):
             deepcopy_model=deepcopy_model,
         )
 
-    def model_path(self, path: Optional[str | Path] = None) -> str:
+    def model_path(self, path: str | Path | None = None) -> str:
         if path is None and self.basepath is None:
             resolved = Path("./checkpoint") / f"{self.name}.pth"
-        elif path is None:
+        elif path is None and self.basepath is not None:
             resolved = Path(self.basepath) / f"{self.name}.pth"
         else:
+            assert path is not None
             resolved = Path(path)
         return str(resolved.resolve())
 
-    def save(self, path: Optional[str | Path] = None, **kwargs: Any) -> str:
+    def save(self, path: str | Path | None = None, **kwargs: Any) -> str:
         resolved = self.model_path(path)
         save_data(resolved, self.state_dict(), **kwargs)
         return resolved
 
     def load(
         self,
-        path: Optional[str | Path] = None,
+        path: str | Path | None = None,
         strict: bool = True,
-        map_location: Optional[torch.device | str] = None,
+        map_location: torch.device | str | None = None,
         **kwargs: Any,
-    ) -> Optional[str]:
+    ) -> str | None:
         resolved = self.model_path(path)
         loc = map_location if map_location is not None else self.device
         state = load_data(resolved, map_location=loc, default=None, **kwargs)
@@ -177,12 +189,6 @@ class SOTAModel(nn.Module):
         return resolved
 
 
-from positronixlab.dataprovider.dataprovider import (
-    CompositionalDataProvider,
-    SubtaskSplit,
-)
-
-
 @dataclass(frozen=True)
 class SOTADatasetSpec:
     """Registry metadata for a baseline benchmark dataset."""
@@ -190,6 +196,6 @@ class SOTADatasetSpec:
     name: str
     source: str  # "csordas" | "lepori" | ...
     task_type: str  # "classification" | "odd_one_out" | "arithmetic"
-    builder: Callable[..., CompositionalDataProvider]
+    builder: Callable[..., DataProvider]
     description: str = ""
 

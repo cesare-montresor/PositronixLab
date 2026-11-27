@@ -1,4 +1,3 @@
-import math
 import pytest
 import torch
 from torch import nn
@@ -8,14 +7,12 @@ from positronixlab.spacemath import (
     LayerType,
     SpaceMath,
     SpaceType,
-    activations_to_scores,
     contrast_distance_linear,
     contrast_distance_log,
     contrast_softmax_ce,
     distance_elementwise,
     distance_pairwise,
     loss_batch_repulsion,
-    loss_centers_repulsion,
     loss_layer_alignment,
     loss_sigreg,
     loss_sigreg_centers,
@@ -26,7 +23,6 @@ from positronixlab.spacemath import (
     reduce_conv_max,
     reduce_conv_mean_abs,
     reduce_linear,
-    score_normalize_by_threshold,
     score_quantile,
     score_sign_preserving_batch,
     score_sign_preserving_row,
@@ -38,7 +34,6 @@ from positronixlab.spacemath import (
     space_is_cosine,
     space_normalize,
     space_sigreg_prepare,
-    split_active_group,
     stats_activation_frequency,
     stats_update_,
     weight_inv_freq,
@@ -58,7 +53,6 @@ from positronixlab.spacemath.common import (
     zclamp,
     zclamp_,
 )
-
 
 # ---------------------------------------------------------------------------
 # common.py
@@ -122,6 +116,7 @@ def test_compile_method_decorators():
 
 def test_clear_cache_docstring_safety_and_compile_env_switch(monkeypatch):
     from pathlib import Path
+
     from positronixlab.spacemath.common import (
         _is_safe_cache_dir,
         clear_torch_compile_cache,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Callable, Dict, Optional
+from collections.abc import Callable
+
 import torch
 from torch import Tensor, nn
 
@@ -92,7 +93,7 @@ def score_softmax(values: Tensor, **kwargs) -> Tensor:
     return torch.where(values >= q, torch.ones_like(values), -torch.ones_like(values))
 
 
-SCORERS: Dict[str, Callable[..., Tensor]] = {
+SCORERS: dict[str, Callable[..., Tensor]] = {
     "quantile": score_quantile,
     "top_k": score_top_k,
     "sign_preserving_row": score_sign_preserving_row,
@@ -114,8 +115,8 @@ def activations_to_scores(
     *,
     layer_type: str = "linear",
     score_method: str = "quantile",
-    reducer: Optional[str] = None,
-    activation_fn: Optional[nn.Module] = None,
+    reducer: str | None = None,
+    activation_fn: nn.Module | None = None,
     apply_activation: bool = False,
     active_q: float = 0.8,
     cnn_locality_weight: float = 0.5,

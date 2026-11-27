@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from abc import abstractmethod
-from dataclasses import asdict, dataclass, field
 import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from abc import abstractmethod
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 from positronixlab.nas.trial_config import TrialConfig
 from positronixlab.pipeline.pipeline import Pipeline
@@ -14,7 +14,7 @@ from positronixlab.pipeline.pipeline_config import PipelineOptions
 
 logger = logging.getLogger(__name__)
 
-MetricValue = Union[float, Tuple[float, float]]
+MetricValue = float | tuple[float, float]
 
 _OOM_MARKERS = (
     "out of memory",
@@ -44,12 +44,12 @@ class TrialResult:
     """
 
     status: str = "completed"
-    metrics: Dict[str, MetricValue] = field(default_factory=dict)
+    metrics: dict[str, MetricValue] = field(default_factory=dict)
     duration_sec: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    effective_overrides: Dict[str, Any] = field(default_factory=dict)
-    errors: Dict[str, List[str]] = field(default_factory=dict)
-    reason: Optional[str] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    effective_overrides: dict[str, Any] = field(default_factory=dict)
+    errors: dict[str, list[str]] = field(default_factory=dict)
+    reason: str | None = None
 
     @property
     def is_completed(self) -> bool:
@@ -59,7 +59,7 @@ class TrialResult:
     def is_oom(self) -> bool:
         return self.status == "oom"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def save(self, filepath: str) -> None:
@@ -86,7 +86,7 @@ class TrialPipeline(Pipeline):
     def __init__(
         self,
         config: TrialConfig,
-        options: Optional[PipelineOptions] = None,
+        options: PipelineOptions | None = None,
     ):
         resolved_options = options or PipelineOptions()
         if config.trial_dir and resolved_options.work_dir is None:
@@ -99,7 +99,7 @@ class TrialPipeline(Pipeline):
         """Load plugins and initialize shared environment before `run()`."""
         pass
 
-    def extract_metrics(self, env: Dict[str, Any]) -> Dict[str, MetricValue]:
+    def extract_metrics(self, env: dict[str, Any]) -> dict[str, MetricValue]:
         """
         Extract Ax objective/constraint/tracking metrics from the shared plugin
         environment. By default reads `env[self.METRICS_ENV_KEY]`; override for
@@ -108,7 +108,7 @@ class TrialPipeline(Pipeline):
         raw = env.get(self.METRICS_ENV_KEY, {})
         if not isinstance(raw, dict):
             return {}
-        out: Dict[str, MetricValue] = {}
+        out: dict[str, MetricValue] = {}
         for k, v in raw.items():
             if isinstance(v, (tuple, list)) and len(v) == 2:
                 out[str(k)] = (float(v[0]), float(v[1]))
@@ -116,11 +116,11 @@ class TrialPipeline(Pipeline):
                 out[str(k)] = float(v)
         return out
 
-    def extract_metadata(self, env: Dict[str, Any]) -> Dict[str, Any]:
+    def extract_metadata(self, env: dict[str, Any]) -> dict[str, Any]:
         """Optional hook to record non-Ax trial metadata in `result.json`."""
         return {}
 
-    def extract_effective_overrides(self, env: Dict[str, Any]) -> Dict[str, Any]:
+    def extract_effective_overrides(self, env: dict[str, Any]) -> dict[str, Any]:
         """
         Optional hook returning post-trial config overrides (e.g. actual
         `train_epochs` after early stopping) saved to `effective_config.yaml`
@@ -130,10 +130,10 @@ class TrialPipeline(Pipeline):
 
     def execute(
         self,
-        timeout_sec: Optional[float] = None,
-        poll_interval: Optional[float] = None,
-        parallel_plugins: Optional[bool] = None,
-        terminate_on_error: Optional[bool] = None,
+        timeout_sec: float | None = None,
+        poll_interval: float | None = None,
+        parallel_plugins: bool | None = None,
+        terminate_on_error: bool | None = None,
     ) -> TrialResult:
         """
         Run the full trial lifecycle: `setup()` -> `run()` -> `wait()` ->

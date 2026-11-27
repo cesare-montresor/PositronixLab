@@ -72,8 +72,9 @@ dev = [
     "pytest",
     "pytest-cov",
     "pytest-xdist",
-    "build",
-    "twine",
+    "ruff",
+    "mypy",
+    "pyright",
 ]
 all = [
     "positronixlab[ui,nas,umap,baselines]",
@@ -95,3 +96,50 @@ positronixlab = [
     "**/*.css",
     "**/*.md",
 ]
+
+
+
+[tool.ruff]
+target-version = "py312"
+include = ["positronixlab/**/*.py"]
+exclude = ["positronixlab/baselines/lepori/_cvr_gen"]
+
+[tool.ruff.lint]
+select = [
+    "F",    # Pyflakes (logic errors)
+    "E4",   # pycodestyle imports
+    "E7",   # pycodestyle statements
+    "E9",   # pycodestyle runtime/syntax
+    "I",    # isort (deterministic import sorting)
+    "UP",   # pyupgrade (enforces Python 3.11+ syntax)
+    "B",    # flake8-bugbear (catches common bugs and anti-patterns)
+]
+ignore = [
+    "UP038", # isinstance with tuple is faster than union syntax
+]
+
+[tool.ruff.lint.per-file-ignores]
+"positronixlab/dataprovider/__init__.py" = ["F401"]
+"positronixlab/nas/__init__.py" = ["F401"]
+"positronixlab/baselines/lepori/_cvr_gen/**" = ["F403", "F405"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+files = ["positronixlab"]
+exclude = ["positronixlab/baselines/lepori/_cvr_gen/"]
+ignore_missing_imports = true
+show_error_codes = true
+
+[tool.pyright]
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"
+include = ["positronixlab"]
+exclude = ["positronixlab/baselines/lepori/_cvr_gen"]
+typeCheckingMode = "basic"
+reportMissingImports = "warning"
+

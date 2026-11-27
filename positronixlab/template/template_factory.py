@@ -1,16 +1,16 @@
 
 
 from positronixlab.template.template_base import TemplateBase
-from positronixlab.template.template_fmnist import TemplateFMnistCNN, TemplateFMnistFC
-from positronixlab.template.template_mnist import TemplateMnistCNN, TemplateMnistFC
 from positronixlab.template.template_covertype import TemplateCovertype
+from positronixlab.template.template_fmnist import TemplateFMnistCNN, TemplateFMnistFC
 from positronixlab.template.template_higgs import TemplateHiggs
+from positronixlab.template.template_mnist import TemplateMnistCNN, TemplateMnistFC
 from positronixlab.template.template_variant import TemplateVariant, TemplateVariantList
 
 
 class TemplateFactory:
     
-    EXPERIMENTS = {
+    EXPERIMENTS: dict[str, type[TemplateBase]] = {
         'covertype': TemplateCovertype,
         'higgs': TemplateHiggs,
         'mnist_fc': TemplateMnistFC,
@@ -20,12 +20,12 @@ class TemplateFactory:
     }
 
     @classmethod
-    def AddTemplate(cls, experiment:str, template_cls: TemplateBase):
+    def AddTemplate(cls, experiment: str, template_cls: type[TemplateBase]):
         TemplateFactory.EXPERIMENTS[experiment] = template_cls
     
 
     @classmethod
-    def FromName(cls, experiment:str, name:str=None) -> TemplateBase:
+    def FromName(cls, experiment: str, name: str | None = None) -> TemplateBase:
         template_class = TemplateFactory.EXPERIMENTS.get(experiment, None)
         
         if template_class is None:

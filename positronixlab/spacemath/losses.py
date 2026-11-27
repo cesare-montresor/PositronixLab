@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Callable, Dict, Optional, Sequence, Union
+from collections.abc import Callable, Sequence
+
 import torch
 from torch import Tensor
 
@@ -16,7 +17,7 @@ from positronixlab.spacemath.space_type import (
 def loss_centers_repulsion(
     centers_on: Tensor,
     centers_off: Tensor,
-    mixed: Optional[Tensor] = None,
+    mixed: Tensor | None = None,
     *,
     space_type: str = SpaceType.COSINE,
     eps: float = 1e-8,
@@ -33,7 +34,7 @@ def loss_centers_repulsion(
 
 def loss_batch_repulsion(
     centers_on: Tensor,
-    mixed: Optional[Tensor] = None,
+    mixed: Tensor | None = None,
     *,
     space_type: str = SpaceType.COSINE,
     eps: float = 1e-8,
@@ -104,7 +105,7 @@ def loss_sigreg_centers(
 
 
 def loss_layer_alignment(
-    centers_per_layer: Union[Sequence[Tensor], Tensor],
+    centers_per_layer: Sequence[Tensor] | Tensor,
     *,
     space_type: str = SpaceType.COSINE,
     eps: float = 1e-8,
@@ -126,7 +127,7 @@ def loss_layer_alignment(
     return dist.mean()
 
 
-LOSSES: Dict[str, Callable[..., Tensor]] = {
+LOSSES: dict[str, Callable[..., Tensor]] = {
     "centers": loss_centers_repulsion,
     "batch": loss_batch_repulsion,
     "sigreg": loss_sigreg,

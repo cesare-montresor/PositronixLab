@@ -11,11 +11,10 @@ Run:
     .venv/bin/python positronixlab/deeplearning/examples/example_deeplearning_train.py
 """
 
-from dataclasses import dataclass
 import sys
 import types
+from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Optional
 
 import torch
 from torch import nn
@@ -33,8 +32,8 @@ def _ensure_parallelazy_if_missing() -> None:
 
     @dataclass
     class _StubManagerOptions:
-        work_dir: Optional[str] = None
-        log_dir: Optional[str] = None
+        work_dir: str | None = None
+        log_dir: str | None = None
         display_logs: bool = True
         write_logs: bool = True
 

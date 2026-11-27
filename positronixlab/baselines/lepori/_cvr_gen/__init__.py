@@ -31,7 +31,7 @@ def is_cvr_renderer_available() -> bool:
 def render_cvr_quartet(
     task_fn_name: str,
     image_size: int = 128,
-    seed: Optional[int] = None,
+    seed: int | None = None,
 ) -> np.ndarray:
     """Render a 4-image CVR Odd-One-Out quartet of shape ``(4, H, W, 3)`` uint8.
 

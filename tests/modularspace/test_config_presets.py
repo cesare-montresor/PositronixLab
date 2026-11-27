@@ -1,8 +1,14 @@
 import types
+
 import pytest
 
 from positronixlab.modularspace.config import LayerSpaceConfig
-from positronixlab.modularspace.presets import PRESETS, get_preset, get_preset_spec, list_presets
+from positronixlab.modularspace.presets import (
+    PRESETS,
+    get_preset,
+    get_preset_spec,
+    list_presets,
+)
 from positronixlab.modularspace.space_step import SpaceStepSpec
 
 

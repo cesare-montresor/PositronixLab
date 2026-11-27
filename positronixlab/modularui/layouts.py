@@ -1,10 +1,18 @@
 import logging
 from typing import TYPE_CHECKING
+
 import dash
 import dash_bootstrap_components as dbc
-from dash import Dash, Input, Output, State, dcc, html, ALL, ctx
+from dash import ALL, Dash, Input, Output, State, ctx, dcc, html
 
-from positronixlab.modularui.components import ConfigOverlay, Container, ModelDAGDisplay, Title, VarsDisplay, Widget
+from positronixlab.modularui.components import (
+    ConfigOverlay,
+    Container,
+    ModelDAGDisplay,
+    Title,
+    VarsDisplay,
+    Widget,
+)
 from positronixlab.modularui.docks import DashboardLayout, Panel
 from positronixlab.modularui.plots import GroupedChartsDisplay, LayerBoardDisplay
 from positronixlab.modularui.settings import GLOBAL_TRACE_NAME, SPACELOSS_FAMILY
@@ -119,7 +127,7 @@ class HomeLayout:
 
             if isinstance(trigger, dict):
                 pid = trigger.get("index")
-                if pid in current_state:
+                if isinstance(pid, str) and pid in current_state:
                     action = trigger.get("type")
                     if action == "btn-collapse":
                         current_state[pid]["collapsed"] = True

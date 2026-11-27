@@ -1,18 +1,16 @@
 
+from typing import Literal
+
+#from fast_pytorch_kmeans import KMeans, MultiKMeans
+import faiss
 import numpy as np
 import torch
 import torch.nn.functional as F
-from typing import Literal, Optional, Tuple
-
-from sklearn.metrics import silhouette_score
-#from fast_pytorch_kmeans import KMeans, MultiKMeans
-
-import faiss
 from faiss import Kmeans as FAISS_KMeans
+from sklearn.metrics import silhouette_score
+
 #from faiss import SuperKMeans as FAISS_KMeans
-
 from positronixlab.utils.utils import suppress_output
-
 
 
 class ModularClusterKmeans:
@@ -25,12 +23,12 @@ class ModularClusterKmeans:
     def __init__(
         self,
         metric: Literal['euclidean', 'cosine'] = 'cosine',
-        k_min: Optional[int] = None,
-        k_max: Optional[int] = None,
+        k_min: int | None = None,
+        k_max: int | None = None,
         max_iter: int = 100,
         tol: float = 1e-5,
         n_init: int = 1,
-        device: Optional[torch.device] = None,
+        device: torch.device | None = None,
         verbose: bool = False,
         precompute_distances: bool = True
     ):
@@ -57,17 +55,17 @@ class ModularClusterKmeans:
         self.precompute_distances = precompute_distances
         
         
-        self.centroids = None
-        self.labels = None
-        self.best_score = None
-        self.best_k = None
-        self.silhouette_scores = {}
-        self.distance_cache = None
+        self.centroids: torch.Tensor | None = None
+        self.labels: torch.Tensor | None = None
+        self.best_score: float | None = None
+        self.best_k: int | None = None
+        self.silhouette_scores: dict[int, float] = {}
+        self.distance_cache: np.ndarray | None = None
 
 
 
     
-    def _compute_k_range(self, n: int) -> Tuple[int, int]:
+    def _compute_k_range(self, n: int) -> tuple[int, int]:
         """Compute heuristic K range based on dataset size."""
         k_min = self.k_min or max(2, int(n ** 0.5 / 2))
         k_max = self.k_max or min(int((2 * n) ** 0.5), n // 2)
@@ -104,7 +102,7 @@ class ModularClusterKmeans:
         
         return score
     
-    def _kmeans(self, x: torch.Tensor, k: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _kmeans(self, x: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
         """Run KMeans clustering for a single K value."""
         spherical = (self.metric == 'cosine')
 
@@ -126,8 +124,8 @@ class ModularClusterKmeans:
             
             kmeans.train(x_np)
 
-        _, labels = kmeans.assign(x_np)
-        labels = torch.as_tensor(labels, dtype=torch.long, device=self.device)
+        _, labels_arr = kmeans.assign(x_np)
+        labels = torch.as_tensor(labels_arr, dtype=torch.long, device=self.device)
         centroids = torch.from_numpy(kmeans.centroids).to(self.device)
         return centroids, labels
     
@@ -238,7 +236,7 @@ class ModularClusterKmeans:
         self._adaptive_search(x, k_min, k_max)
         
         if self.verbose:
-            best_score = self.silhouette_scores[self.best_k]
+            best_score = self.silhouette_scores[self.best_k] if self.best_k is not None else -1.0
             print(f"\nBest K: {self.best_k} (silhouette={best_score:.4f})")
             print(f"Evaluated {len(self.silhouette_scores)}/{k_max - k_min + 1} K values")
         
@@ -256,11 +254,13 @@ class ModularClusterKmeans:
     def fit_predict(self, x: torch.Tensor) -> torch.Tensor:
         """Fit and return cluster labels."""
         self.fit(x)
+        if self.labels is None:
+            raise RuntimeError("Clustering fit() did not produce labels.")
         return self.labels
     
     def print_stats(self):
         """Print clustering statistics."""
-        if self.centroids is None or self.labels is None:
+        if self.centroids is None or self.labels is None or self.best_k is None:
             print("Model not fitted yet.")
             return
         

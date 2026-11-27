@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, fields, replace
-from typing import Any, Dict, Optional
+from typing import Any
 
 from parallelazy.plugin_data import ManagerOptions
 
@@ -16,18 +16,18 @@ class PipelineOptions(ManagerOptions):
     """
 
     terminate_on_error: bool = True
-    timeout_sec: Optional[float] = None
+    timeout_sec: float | None = None
     poll_interval: float = 0.25
-    status_log_interval: Optional[float] = None
+    status_log_interval: float | None = None
     verbose: bool = False
     parallel_plugins: bool = True
 
-    def to_manager_kwargs(self) -> Dict[str, Any]:
+    def to_manager_kwargs(self) -> dict[str, Any]:
         """Return only the fields accepted by `parallelazy.PluginManager(...)`."""
         manager_field_names = {f.name for f in fields(ManagerOptions)}
         return {name: getattr(self, name) for name in manager_field_names}
 
-    def with_updates(self, **overrides: Any) -> "PipelineOptions":
+    def with_updates(self, **overrides: Any) -> PipelineOptions:
         valid = {f.name for f in fields(self)}
         filtered = {k: v for k, v in overrides.items() if k in valid}
         return replace(self, **filtered)
@@ -41,5 +41,5 @@ class PipelineConfig(BaseConfig):
     Extend this (or compose with domain config mixins) for concrete pipelines.
     """
 
-    seed: Optional[int] = None
-    device: Optional[str] = None
+    seed: int | None = None
+    device: str | None = None

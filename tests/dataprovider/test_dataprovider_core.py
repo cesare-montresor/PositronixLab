@@ -14,11 +14,10 @@ Covers:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
 import sys
 import types
-from typing import Optional
+from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -42,8 +41,8 @@ def _ensure_parallelazy_stub() -> bool:
 
     @dataclass
     class _StubManagerOptions:
-        work_dir: Optional[str] = None
-        log_dir: Optional[str] = None
+        work_dir: str | None = None
+        log_dir: str | None = None
         display_logs: bool = True
         write_logs: bool = True
 
@@ -71,12 +70,18 @@ from positronixlab.dataprovider import (  # noqa: E402
     IndexedDataset,
     IrisDataProvider,
 )
-from positronixlab.dataprovider.cvr_oddoneout_dataprovider import CVROddOneOutDataProvider  # noqa: E402
-from positronixlab.dataprovider.higgs_dataprovider import HIGGSDataset, _load_or_build_npy  # noqa: E402
+from positronixlab.dataprovider.cvr_oddoneout_dataprovider import (
+    CVROddOneOutDataProvider,  # noqa: E402
+)
+from positronixlab.dataprovider.higgs_dataprovider import (  # noqa: E402
+    HIGGSDataset,
+    _load_or_build_npy,
+)
 from positronixlab.dataprovider.math_dataprovider import MathDataProvider  # noqa: E402
 from positronixlab.dataprovider.scan_dataprovider import SCANDataProvider  # noqa: E402
-from positronixlab.dataprovider.syneval_oddoneout_dataprovider import SynevalOddOneOutDataProvider  # noqa: E402
-
+from positronixlab.dataprovider.syneval_oddoneout_dataprovider import (
+    SynevalOddOneOutDataProvider,  # noqa: E402
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -367,11 +372,11 @@ class TestOfflineConcreteProviders:
         from positronixlab.dataprovider import scan_dataprovider as sp
 
         sample_scan = (
-            "IN: jump twice OUT: I_JUMP I_JUMP\n"
-            "IN: walk left OUT: I_TURN_LEFT I_WALK\n"
-            "IN: run right OUT: I_TURN_RIGHT I_RUN\n"
-            "IN: look around left OUT: I_TURN_LEFT I_LOOK I_TURN_LEFT I_LOOK I_TURN_LEFT I_LOOK I_TURN_LEFT I_LOOK\n"
-        ).encode("utf-8")
+            b"IN: jump twice OUT: I_JUMP I_JUMP\n"
+            b"IN: walk left OUT: I_TURN_LEFT I_WALK\n"
+            b"IN: run right OUT: I_TURN_RIGHT I_RUN\n"
+            b"IN: look around left OUT: I_TURN_LEFT I_LOOK I_TURN_LEFT I_LOOK I_TURN_LEFT I_LOOK I_TURN_LEFT I_LOOK\n"
+        )
         urls: list[str] = []
 
         class _FakeResp:
@@ -653,7 +658,10 @@ class TestFixedBugsAndNewFeatures:
 
 class TestUnifiedCompositionalProviders:
     def test_class_removal_from_provider_and_factory(self):
-        from positronixlab.dataprovider import ClassRemovalDataProvider, CompositionalDataProvider
+        from positronixlab.dataprovider import (
+            ClassRemovalDataProvider,
+            CompositionalDataProvider,
+        )
 
         iris = IrisDataProvider(batch_size=8, num_workers=0)
         cr = ClassRemovalDataProvider.from_provider(iris)
@@ -668,7 +676,9 @@ class TestUnifiedCompositionalProviders:
         assert bx.shape == (8, 4)
 
     def test_addmul_and_tuple_arithmetic_subtasks_and_modes(self):
-        from positronixlab.dataprovider import AddMulDataProvider, TupleArithmeticDataProvider
+        from positronixlab.dataprovider import (
+            AddMulDataProvider,
+        )
 
         # Original per-digit mode
         am_digits = AddMulDataProvider(
@@ -778,20 +788,20 @@ class TestMathDataProviderAutoDownload:
         from positronixlab.dataprovider import math_dataprovider as mp
 
         easy_txt = (
-            "What is 1 + 1?\n2\n"
-            "What is 2 + 3?\n5\n"
-            "What is 10 - 4?\n6\n"
-            "What is 7 + 8?\n15\n"
-            "What is 9 - 2?\n7\n"
-            "What is 3 + 4?\n7\n"
-        ).encode("utf-8")
+            b"What is 1 + 1?\n2\n"
+            b"What is 2 + 3?\n5\n"
+            b"What is 10 - 4?\n6\n"
+            b"What is 7 + 8?\n15\n"
+            b"What is 9 - 2?\n7\n"
+            b"What is 3 + 4?\n7\n"
+        )
         # Include one duplicate question from easy_txt to verify cross-split deduplication
         extrap_txt = (
-            "What is 1 + 1?\n2\n"
-            "What is 1000 + 2000?\n3000\n"
-            "What is 5000 - 1234?\n3766\n"
-            "What is 9999 + 1?\n10000\n"
-        ).encode("utf-8")
+            b"What is 1 + 1?\n2\n"
+            b"What is 1000 + 2000?\n3000\n"
+            b"What is 5000 - 1234?\n3766\n"
+            b"What is 9999 + 1?\n10000\n"
+        )
 
         requested_urls: list[str] = []
 

@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 import types
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 import pytest
@@ -26,7 +26,6 @@ from positronixlab.stats.reducer import (
     WindowReducer,
 )
 
-
 # ---------------------------------------------------------------------------
 # Lightweight CPU stub for UMAP so processor.py & stream.py can be imported
 # and tested even on CPU-only hosts where cuML/libcuml.so is unavailable.
@@ -36,7 +35,7 @@ from positronixlab.stats.reducer import (
 class _FakeUMAP:
     """Deterministic lightweight UMAP stand-in recording constructor/call args."""
 
-    instances: List["_FakeUMAP"] = []
+    instances: list["_FakeUMAP"] = []
 
     def __init__(
         self,
@@ -51,9 +50,9 @@ class _FakeUMAP:
         self.min_dist = min_dist
         self.random_state = random_state
         self.init = init
-        self.fit_shapes: List[tuple] = []
-        self.transform_shapes: List[tuple] = []
-        self.fit_transform_shapes: List[tuple] = []
+        self.fit_shapes: list[tuple] = []
+        self.transform_shapes: list[tuple] = []
+        self.fit_transform_shapes: list[tuple] = []
         _FakeUMAP.instances.append(self)
 
     def _project(self, x: np.ndarray) -> np.ndarray:
@@ -294,7 +293,7 @@ class TestReducers:
         assert torch.allclose(r.drain()["v"], torch.tensor([3.0, 4.0, 5.0]))
 
         # Concurrent update + drain should not raise
-        errors: List[Exception] = []
+        errors: list[Exception] = []
 
         def writer():
             try:
@@ -607,7 +606,7 @@ class TestStream:
 
     def test_merge_streams_rules(self, fake_umap_env):
         _, stream_mod = fake_umap_env
-        base: Dict[str, Dict[str, Any]] = {
+        base: dict[str, dict[str, Any]] = {
             "pos": {
                 "topic": "positions",
                 "reducer": "ema",

@@ -69,7 +69,7 @@ def main() -> None:
     torch.manual_seed(0)
     has_real_umap = _ensure_umap_backend()
 
-    from positronixlab.stats.processor import OverallProcessor, UmapProcessor
+    from positronixlab.stats.processor import UmapProcessor
     from positronixlab.stats.stream import Stream
 
     print(f"=== positronixlab.stats CPU example (real cuML/UMAP: {has_real_umap}) ===\n")

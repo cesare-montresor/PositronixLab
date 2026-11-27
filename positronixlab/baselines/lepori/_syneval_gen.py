@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import pickle
 import zipfile
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -26,7 +26,7 @@ SYNEVAL_RAWDATA_URL: str = (
     "main/Language/LM_syneval/RawData.zip"
 )
 
-SYNEVAL_PAPER_SIZES: Dict[str, Dict[str, int]] = {
+SYNEVAL_PAPER_SIZES: dict[str, dict[str, int]] = {
     "sv_singular": {
         "train": 9_500,
         "val": 500,
@@ -58,7 +58,7 @@ SYNEVAL_PAPER_SIZES: Dict[str, Dict[str, int]] = {
 }
 
 # Exact Marvin & Linzen template files used by Lepori et al. (create_datasets.py)
-_SV_RAW_FILES: Tuple[str, ...] = (
+_SV_RAW_FILES: tuple[str, ...] = (
     "obj_rel_across_anim.pickle",
     "obj_rel_across_inanim.pickle",
     "obj_rel_no_comp_across_anim.pickle",
@@ -69,14 +69,14 @@ _SV_RAW_FILES: Tuple[str, ...] = (
     "subj_rel.pickle",
 )
 
-_ANAPHORA_RAW_FILES: Tuple[str, ...] = (
+_ANAPHORA_RAW_FILES: tuple[str, ...] = (
     "reflexives_across.pickle",
     "simple_reflexives.pickle",
 )
 
 # Ordered 5-tuples matching create_datasets(ab, a_flip_b, a_b_flip, ..., dataset_names):
 #   [0] base, [1] property_a, [2] property_b, [3] partition_a (ablate_b), [4] partition_b (ablate_a)
-_FAMILY_TASK_ORDER: Dict[str, Tuple[str, str, str, str, str]] = {
+_FAMILY_TASK_ORDER: dict[str, tuple[str, str, str, str, str]] = {
     "sv_singular": (
         "sn_task_1_sv_singular",
         "sn_task_1_s_singular",
@@ -109,7 +109,7 @@ _FAMILY_TASK_ORDER: Dict[str, Tuple[str, str, str, str, str]] = {
 
 
 def download_syneval_rawdata(
-    dest_dir: Union[str, Path],
+    dest_dir: str | Path,
     *,
     url: str = SYNEVAL_RAWDATA_URL,
     timeout: int = 60,
@@ -134,7 +134,7 @@ def download_syneval_rawdata(
     return zip_path
 
 
-def _load_raw_pickle(raw_source: Path, filename: str) -> Dict[str, List[Tuple[str, str]]]:
+def _load_raw_pickle(raw_source: Path, filename: str) -> dict[str, list[tuple[str, str]]]:
     if raw_source.is_file():
         with zipfile.ZipFile(raw_source, "r") as zf:
             names = set(zf.namelist())
@@ -145,9 +145,9 @@ def _load_raw_pickle(raw_source: Path, filename: str) -> Dict[str, List[Tuple[st
                 f"Expected {filename!r} inside {raw_source}, found {len(names)} entries."
             )
 
-    for candidate in (raw_source / filename, raw_source / "RawData" / filename):
-        if candidate.exists():
-            with open(candidate, "rb") as f:
+    for candidate_path in (raw_source / filename, raw_source / "RawData" / filename):
+        if candidate_path.exists():
+            with open(candidate_path, "rb") as f:
                 return pickle.load(f)
     raise FileNotFoundError(f"Could not find {filename!r} under {raw_source}")
 
@@ -160,7 +160,7 @@ def _create_train_val_test(
     val_size: int,
     test_size: int,
     rng: np.random.Generator,
-) -> Tuple[List[List[str]], List[List[str]], List[List[str]]]:
+) -> tuple[list[list[str]], list[list[str]], list[list[str]]]:
     pos = positive.copy()
     neg = negative.copy()
     rng.shuffle(pos)
@@ -177,7 +177,7 @@ def _create_train_val_test(
     val_neg = neg[train_size : train_size + val_size]
     test_neg = neg[train_size + val_size : train_size + val_size + test_size]
 
-    def _pack(p_arr: np.ndarray, n_arr: np.ndarray) -> List[List[str]]:
+    def _pack(p_arr: np.ndarray, n_arr: np.ndarray) -> list[list[str]]:
         return [
             [str(p_arr[3 * i]), str(p_arr[3 * i + 1]), str(p_arr[3 * i + 2]), str(n_arr[i])]
             for i in range(len(n_arr))
@@ -186,14 +186,14 @@ def _create_train_val_test(
     return _pack(train_pos, train_neg), _pack(val_pos, val_neg), _pack(test_pos, test_neg)
 
 
-def _dump_split(base_dir: Path, task_name: str, split: str, data: List[List[str]]) -> None:
+def _dump_split(base_dir: Path, task_name: str, split: str, data: list[list[str]]) -> None:
     task_dir = base_dir / task_name
     task_dir.mkdir(parents=True, exist_ok=True)
     with open(task_dir / f"{split}.pkl", "wb") as f:
         pickle.dump(data, f)
 
 
-def is_syneval_family_cached(family: str, cache_dir: Union[str, Path]) -> bool:
+def is_syneval_family_cached(family: str, cache_dir: str | Path) -> bool:
     """Return ``True`` if all expected ``.pkl`` splits for *family* exist in *cache_dir*."""
     if family not in _FAMILY_TASK_ORDER:
         raise ValueError(
@@ -211,15 +211,15 @@ def is_syneval_family_cached(family: str, cache_dir: Union[str, Path]) -> bool:
 
 def generate_syneval_family_splits(
     family: str,
-    raw_source: Union[str, Path],
-    cache_dir: Union[str, Path],
+    raw_source: str | Path,
+    cache_dir: str | Path,
     *,
     seed: int = 0,
-    train_size: Optional[int] = None,
-    val_size: Optional[int] = None,
-    test_size: Optional[int] = None,
-    part_val_size: Optional[int] = None,
-    part_test_size: Optional[int] = None,
+    train_size: int | None = None,
+    val_size: int | None = None,
+    test_size: int | None = None,
+    part_val_size: int | None = None,
+    part_test_size: int | None = None,
     overwrite: bool = False,
 ) -> Path:
     """Generate the 5 compositional SynEval subtask folders for *family* from *raw_source*."""
@@ -246,9 +246,9 @@ def generate_syneval_family_splits(
     base_prefix = "singular_" if is_singular else "plural_"
     flip_prefix = "plural_" if is_singular else "singular_"
 
-    ab_list: List[str] = []
-    a_b_flip_list: List[str] = []
-    a_flip_b_list: List[str] = []
+    ab_list: list[str] = []
+    a_b_flip_list: list[str] = []
+    a_flip_b_list: list[str] = []
 
     for datafile in raw_files:
         base_dict = _load_raw_pickle(raw_path, base_prefix + datafile)
@@ -355,13 +355,13 @@ def generate_syneval_family_splits(
 
 def ensure_syneval_family_splits(
     family: str,
-    cache_dir: Union[str, Path],
+    cache_dir: str | Path,
     *,
-    raw_data_path: Optional[Union[str, Path]] = None,
+    raw_data_path: str | Path | None = None,
     download: bool = False,
     url: str = SYNEVAL_RAWDATA_URL,
     seed: int = 0,
-) -> Optional[Path]:
+) -> Path | None:
     """Ensure ``.pkl`` splits for *family* exist in *cache_dir*, generating from ``RawData.zip`` if available.
 
     Returns *cache_dir* if real splits are ready, or ``None`` if neither pre-generated
@@ -371,12 +371,12 @@ def ensure_syneval_family_splits(
     if is_syneval_family_cached(family, out_path):
         return out_path
 
-    candidates: List[Path] = []
+    candidates: list[Path] = []
     if raw_data_path is not None:
         candidates.append(Path(raw_data_path))
     candidates.extend([out_path / "RawData.zip", out_path / "RawData"])
 
-    raw_source: Optional[Path] = next((p for p in candidates if p.exists()), None)
+    raw_source: Path | None = next((p for p in candidates if p.exists()), None)
     if raw_source is None and download:
         raw_source = download_syneval_rawdata(out_path, url=url)
 

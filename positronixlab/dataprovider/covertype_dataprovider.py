@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Union, Unpack
+from typing import Any, Unpack
 
 import numpy as np
 import torch
@@ -23,16 +23,16 @@ class CovertypeDataset(BaseTensorDataset):
 
     def __init__(
         self,
-        root: Optional[Union[str, Path]] = None,
+        root: str | Path | None = None,
         normalize: bool = True,
         indices=None,
-        transforms: Optional[TransformLike] = None,
+        transforms: TransformLike | None = None,
     ) -> None:
         from sklearn.datasets import fetch_covtype
 
         self.root = resolve_data_root(root)
         self.root.mkdir(parents=True, exist_ok=True)
-        data = fetch_covtype(data_home=str(self.root), download_if_missing=True)
+        data: Any = fetch_covtype(data_home=str(self.root), download_if_missing=True)
         x = torch.from_numpy(data.data.astype(np.float32))
         y = torch.from_numpy(data.target.astype(np.int64)) - 1  # 1..7 -> 0..6
 

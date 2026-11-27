@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, fields, replace
 import hashlib
 import json
 import os
-from typing import Any, Dict, Type, TypeVar
+from dataclasses import asdict, dataclass, fields, replace
+from typing import Any, TypeVar
+
 import yaml
 
 TConfig = TypeVar("TConfig", bound="BaseConfig")
@@ -23,7 +24,7 @@ class BaseConfig:
         content = json.dumps(self.to_dict(), sort_keys=True, default=str)
         return hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def to_yaml(self) -> str:
@@ -44,8 +45,8 @@ class BaseConfig:
                 yaml.dump(self.to_dict(), f, sort_keys=False)
 
     @classmethod
-    def load(cls: Type[TConfig], filepath: str) -> TConfig:
-        with open(filepath, "r", encoding="utf-8") as f:
+    def load(cls: type[TConfig], filepath: str) -> TConfig:
+        with open(filepath, encoding="utf-8") as f:
             if filepath.endswith(".json"):
                 data = json.load(f)
             else:
@@ -53,9 +54,9 @@ class BaseConfig:
         return cls.from_dict(data or {})
 
     @classmethod
-    def from_dict(cls: Type[TConfig], data: Dict[str, Any]) -> TConfig:
+    def from_dict(cls: type[TConfig], data: dict[str, Any]) -> TConfig:
         valid_fields = {f.name: f.type for f in fields(cls)}
-        filtered: Dict[str, Any] = {}
+        filtered: dict[str, Any] = {}
         for k, v in data.items():
             if k not in valid_fields:
                 continue

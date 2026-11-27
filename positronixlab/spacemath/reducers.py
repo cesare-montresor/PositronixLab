@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Callable, Dict
+from collections.abc import Callable
+
 import torch
-from torch import Tensor
 import torch.nn.functional as F
+from torch import Tensor
 
 
 def reduce_linear(activations: Tensor, **kwargs) -> Tensor:
@@ -103,7 +104,7 @@ def reduce_seq_energy(activations: Tensor, **kwargs) -> Tensor:
     return activations.reshape(activations.shape[0], -1)
 
 
-REDUCERS: Dict[str, Callable[..., Tensor]] = {
+REDUCERS: dict[str, Callable[..., Tensor]] = {
     "linear": reduce_linear,
     "conv_locality": reduce_conv_locality,
     "conv_l2": reduce_conv_l2,
@@ -115,7 +116,7 @@ REDUCERS: Dict[str, Callable[..., Tensor]] = {
     "seq_energy": reduce_seq_energy,
 }
 
-DEFAULT_REDUCER_BY_LAYER: Dict[str, str] = {
+DEFAULT_REDUCER_BY_LAYER: dict[str, str] = {
     "linear": "linear",
     "conv": "conv_locality",
     "conv2d": "conv_locality",

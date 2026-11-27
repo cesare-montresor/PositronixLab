@@ -7,17 +7,18 @@ Run from the repository root:
 """
 
 from types import SimpleNamespace
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from positronixlab.pipeline import PipelineConfigV1
 from positronixlab.tasks.compositionality.atlas_check import AtlasCheck
+from positronixlab.tasks.compositionality.compositionality import CompositionalityCheck
 from positronixlab.tasks.compositionality.weightmask_check import (
     WeightmaskCheck,
     WeightMasksMetrics,
 )
-from positronixlab.tasks.compositionality.compositionality import CompositionalityCheck
 
 
 class SyntheticModularMLP(nn.Module):

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import copy
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from collections.abc import Callable, Iterable
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -36,10 +37,10 @@ class _GumbelMaskParametrization(nn.Module):
 
     def __init__(
         self,
-        shape: Tuple[int, ...],
+        shape: tuple[int, ...],
         init_logit: float = 2.0,
         tau: float = 1.0,
-        device: Optional[torch.device] = None,
+        device: torch.device | None = None,
     ) -> None:
         super().__init__()
         self.logits = nn.Parameter(
@@ -72,7 +73,7 @@ class CsordasGumbelDiscoverer(SubnetworkDiscoverer):
         epochs: int = 10,
         init_logit: float = 2.0,
         tau: float = 1.0,
-        loss_fn: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
+        loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
     ) -> None:
         self.mask_loss_weight = mask_loss_weight
         self.lr = lr
@@ -85,7 +86,7 @@ class CsordasGumbelDiscoverer(SubnetworkDiscoverer):
         self,
         model: nn.Module,
         dataloader: Iterable[Any],
-        target_layers: Optional[List[str]] = None,
+        target_layers: list[str] | None = None,
         mask_name: str = "csordas_gumbel",
         **kwargs: Any,
     ) -> SubnetworkMask:
@@ -102,17 +103,18 @@ class CsordasGumbelDiscoverer(SubnetworkDiscoverer):
             else get_maskable_layer_names(work_model)
         )
         modules = dict(work_model.named_modules())
-        mask_modules: Dict[str, _GumbelMaskParametrization] = {}
+        mask_modules: dict[str, _GumbelMaskParametrization] = {}
 
         for layer_name in layers:
             mod = modules.get(layer_name)
-            if mod is None or not hasattr(mod, "weight") or mod.weight is None:
+            weight = getattr(mod, "weight", None) if mod is not None else None
+            if mod is None or not isinstance(weight, torch.Tensor):
                 continue
             param_mod = _GumbelMaskParametrization(
-                tuple(mod.weight.shape),
+                tuple(weight.shape),
                 init_logit=self.init_logit,
                 tau=self.tau,
-                device=mod.weight.device,
+                device=weight.device,
             )
             parametrize.register_parametrization(mod, "weight", param_mod)
             param_mod.train(True)

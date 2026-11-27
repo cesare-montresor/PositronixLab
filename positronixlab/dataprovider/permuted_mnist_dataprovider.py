@@ -8,7 +8,7 @@ matching ``are_neural_nets_modular/dataset/image/permuted_mnist.py``.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Union, Unpack
+from typing import Unpack
 
 import numpy as np
 import torch
@@ -34,8 +34,8 @@ class PermutedMnistDataset(BaseTensorDataset):
         indices=None,
         flatten: bool = True,
         normalize: bool = True,
-        transforms: Optional[TransformLike] = None,
-        data_root: Optional[Union[str, Path]] = None,
+        transforms: TransformLike | None = None,
+        data_root: str | Path | None = None,
     ) -> None:
         self.permutation = int(permutation)
         self.train = train
@@ -81,7 +81,7 @@ class PermutedMnistDataProvider(
         permutation: int = 0,
         flatten: bool = True,
         normalize: bool = True,
-        data_root: Optional[Union[str, Path]] = None,
+        data_root: str | Path | None = None,
         **kwargs: Unpack[DataProviderOptions],
     ) -> None:
         if data_root is not None and "root" not in kwargs:
@@ -121,7 +121,7 @@ class PermutedMnistDataProvider(
         )
         self._split_dataset(self.dataset, test_dataset=test_ds)
 
-    def with_permutation(self, permutation: int) -> "PermutedMnistDataProvider":
+    def with_permutation(self, permutation: int) -> PermutedMnistDataProvider:
         """Return a provider for a different permutation index (0..10)."""
         return PermutedMnistDataProvider(
             permutation=permutation,

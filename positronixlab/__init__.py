@@ -1,6 +1,7 @@
 """positronixlab: A complete framework to explore modularity in neural networks."""
 
-from importlib.metadata import PackageNotFoundError, version as _package_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _package_version
 
 try:
     __version__ = _package_version("positronixlab")

@@ -1,24 +1,26 @@
 
-from typing import  Dict
+
+from typing import Any
 
 import torch
 from torch import Tensor
+
+from positronixlab.pipeline import PipelineConfig
 from positronixlab.spacemath.common import staticmethod_compile
 from positronixlab.spacemath.spacemath import ActivationType, SpaceMath
-from positronixlab.pipeline import PipelineConfig
 
 
-class ModularSpace():
+class ModularSpace:
     
-    def __init__(self, config: PipelineConfig, observed_layers: dict[str, dict], device:torch.device=None, stats_enabled:bool=False):
+    def __init__(self, config: PipelineConfig, observed_layers: dict[str, dict], device: torch.device | None = None, stats_enabled: bool = False):
         self.config = config
         self.observed_layers = observed_layers
         self.device = device if device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.stats_enabled = stats_enabled
 
-        self.positions: Dict[str, torch.Tensor] = {}
-        self.stats: Dict[str, torch.Tensor] = {}
-        self.optimizers: Dict[str, torch.optim.Optimizer] = {}
+        self.positions: dict[str, torch.Tensor] = {}
+        self.stats: dict[str, torch.Tensor] = {}
+        self.optimizers: dict[str, torch.optim.Optimizer] = {}
 
 
         self._init_layers()
@@ -56,11 +58,11 @@ class ModularSpace():
         positions = self.positions.get(layer_id, None)
         stats = self.stats.get(layer_id, None)
         optimizer = self.optimizers.get(layer_id, None)
-        if None in (layer_info, positions, optimizer, stats):
+        if layer_info is None or positions is None or optimizer is None or stats is None:
             raise ValueError(f"Layer {layer_id} not found in ModularSpace.")
         return layer_info, positions, optimizer, stats
     
-    def process_activations(self, layer_id: str, activations: torch.Tensor )-> tuple[tuple, Tensor, Tensor | None]:
+    def process_activations(self, layer_id: str, activations: torch.Tensor) -> tuple[dict[str, Any], Tensor, Any]:
         layer_info = self.get_space(layer_id)[0]
         scores = self._process_activations(self.config.modular_space_active_q, activations, layer_info["layer_type"], layer_info["activation"])
         scores = scores.detach().clone()  # Detach and clone to avoid in-place modifications
@@ -68,7 +70,7 @@ class ModularSpace():
 
     @staticmethod_compile
     #@staticmethod
-    def _process_activations(active_q: float, activations: torch.Tensor, layer_type: str, activation_fn) -> Tensor:
+    def _process_activations(active_q: float, activations: torch.Tensor, layer_type: str, activation_fn) -> Tensor:  # pyright: ignore[reportGeneralTypeIssues]
         # [1 |0| -1]
         scores = SpaceMath.activations_to_scores( 
             activations, layer_type, activation_fn, 
@@ -79,7 +81,8 @@ class ModularSpace():
 
     def process_scores(self, layer_id: str, scores: torch.Tensor):
         _, positions, optimizer, stats = self.get_space(layer_id)
-        if not self.stats_enabled: stats = None
+        if not self.stats_enabled:
+            stats = None
         losses = self._process_scores(self.config, scores, positions, stats)
         loss= losses[0]  # total loss
         # LOSS: batch distance: break simmetry between different samples on the same centers (supposed to be weak, at the time of writing)
@@ -94,12 +97,12 @@ class ModularSpace():
 
 
         loss_names = ["loss", "loss_on", "loss_off", "loss_centers"] 
-        losses = {name : loss.detach().cpu().numpy() for name, loss in zip( loss_names, losses)}
+        losses = {name : loss.detach().cpu().numpy() for name, loss in zip( loss_names, losses, strict=False)}
         return losses, positions.detach(), stats_copy
 
     @staticmethod_compile
     #@staticmethod
-    def _process_scores(config: PipelineConfig, scores: torch.Tensor, positions: torch.Tensor, stats: torch.Tensor)-> tuple[torch.Tensor, tuple[ torch.Tensor, torch.Tensor, torch.Tensor]]:
+    def _process_scores(config: PipelineConfig, scores: torch.Tensor, positions: torch.Tensor, stats: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         bs = scores.shape[0]
         
         # [True, False]

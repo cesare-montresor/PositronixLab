@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import torch
 from torch import Tensor
@@ -37,37 +37,37 @@ class LayerSpace:
     def __init__(
         self,
         config: LayerSpaceConfig,
-        observed_layers: Dict[str, Dict[str, Any]],
-        device: Optional[torch.device] = None,
+        observed_layers: dict[str, dict[str, Any]],
+        device: torch.device | None = None,
         stats_enabled: bool = False,
         *,
         # Space geometry
-        space_type: Optional[str] = None,
+        space_type: str | None = None,
         # Activation -> scores options
-        score_method: Optional[str] = None,
-        arch_reducer: Optional[str] = None,
-        apply_activation: Optional[bool] = None,
-        active_q: Optional[float] = None,
-        cnn_locality_weight: Optional[float] = None,
+        score_method: str | None = None,
+        arch_reducer: str | None = None,
+        apply_activation: bool | None = None,
+        active_q: float | None = None,
+        cnn_locality_weight: float | None = None,
         spatial_radius: int = 3,
         # Weighting options
-        weight_method: Optional[str] = None,
-        freq_alpha: Optional[float] = None,
+        weight_method: str | None = None,
+        freq_alpha: float | None = None,
         # Contrast options
-        contrast_method: Optional[str] = None,
-        loss_on: Optional[float] = None,
-        loss_off: Optional[float] = None,
-        tau: Optional[float] = None,
+        contrast_method: str | None = None,
+        loss_on: float | None = None,
+        loss_off: float | None = None,
+        tau: float | None = None,
         # Conditional loss weights (0.0 = disabled / skipped)
-        loss_global: Optional[float] = None,
-        loss_cluster: Optional[float] = None,
-        loss_centers: Optional[float] = None,
-        loss_batch: Optional[float] = None,
-        loss_sigreg: Optional[float] = None,
+        loss_global: float | None = None,
+        loss_cluster: float | None = None,
+        loss_centers: float | None = None,
+        loss_batch: float | None = None,
+        loss_sigreg: float | None = None,
         # SIGReg options
-        sigreg_method: Optional[str] = None,
-        sigreg_target: Optional[str] = None,
-        sigreg_dim: Optional[int] = None,
+        sigreg_method: str | None = None,
+        sigreg_target: str | None = None,
+        sigreg_dim: int | None = None,
         eps: float = 1e-8,
     ) -> None:
         self.config = config
@@ -119,9 +119,9 @@ class LayerSpace:
         if self.sigreg_target not in ("centers", "positions"):
             raise ValueError(f"Unknown sigreg_target '{self.sigreg_target}'. Expected 'centers' or 'positions'.")
 
-        self.positions: Dict[str, Tensor] = {}
-        self.stats: Dict[str, Tensor] = {}
-        self.optimizers: Dict[str, torch.optim.Optimizer] = {}
+        self.positions: dict[str, Tensor] = {}
+        self.stats: dict[str, Tensor] = {}
+        self.optimizers: dict[str, torch.optim.Optimizer] = {}
 
         self._init_layers()
         self._init_space()
@@ -163,7 +163,7 @@ class LayerSpace:
         positions = self.positions.get(layer_id, None)
         optimizer = self.optimizers.get(layer_id, None)
         stats = self.stats.get(layer_id, None)
-        if None in (layer_info, positions, optimizer):
+        if layer_info is None or positions is None or optimizer is None:
             raise ValueError(f"Layer {layer_id} not found in LayerSpace.")
         return layer_info, positions, optimizer, stats
 
@@ -188,9 +188,9 @@ class LayerSpace:
         self,
         layer_id: str,
         activations: Tensor,
-        clusters_labels: Optional[Tensor] = None,
-        unit_mask: Optional[Tensor] = None,
-    ) -> Tuple[Dict[str, Any], Tensor, Optional[Any]]:
+        clusters_labels: Tensor | None = None,
+        unit_mask: Tensor | None = None,
+    ) -> tuple[dict[str, Any], Tensor, Any | None]:
         """Score raw layer activations and run one space optimization step."""
         scores = self.score_activations(layer_id, activations)
         return self.process_scores(layer_id, scores, clusters_labels=clusters_labels, unit_mask=unit_mask)
@@ -200,10 +200,10 @@ class LayerSpace:
         positions: Tensor,
         scores: Tensor,
         *,
-        stats: Optional[Tensor] = None,
-        clusters_labels: Optional[Tensor] = None,
-        unit_mask: Optional[Tensor] = None,
-    ) -> Tuple[Tensor, Dict[str, Tensor]]:
+        stats: Tensor | None = None,
+        clusters_labels: Tensor | None = None,
+        unit_mask: Tensor | None = None,
+    ) -> tuple[Tensor, dict[str, Tensor]]:
         """Conditionally compute all enabled contrast and auxiliary loss terms."""
         num_units = positions.shape[0]
         device, dtype = positions.device, positions.dtype
@@ -217,7 +217,7 @@ class LayerSpace:
         )
 
         total_loss = zero
-        metrics: Dict[str, Tensor] = {}
+        metrics: dict[str, Tensor] = {}
 
         contrast_kwargs = dict(
             space_type=self.space_type,
@@ -227,8 +227,8 @@ class LayerSpace:
             eps=self.eps,
         )
 
-        global_res: Optional[ContrastResult] = None
-        cluster_res: Optional[ContrastResult] = None
+        global_res: ContrastResult | None = None
+        cluster_res: ContrastResult | None = None
 
         # 2) Global contrast
         if self.loss_global > 0.0:
@@ -315,9 +315,9 @@ class LayerSpace:
         self,
         layer_id: str,
         scores: Tensor,
-        clusters_labels: Optional[Tensor] = None,
-        unit_mask: Optional[Tensor] = None,
-    ) -> Tuple[Dict[str, Any], Tensor, Optional[Any]]:
+        clusters_labels: Tensor | None = None,
+        unit_mask: Tensor | None = None,
+    ) -> tuple[dict[str, Any], Tensor, Any | None]:
         """Update stats, compute composite loss, step optimizer, and return (losses, positions, stats)."""
         _, positions, optimizer, stats = self.get_space(layer_id)
         if not self.stats_enabled:

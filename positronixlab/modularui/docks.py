@@ -1,4 +1,5 @@
 from dash import html
+
 from positronixlab.modularui.components import Widget
 
 
@@ -100,7 +101,7 @@ class DashboardLayout(Widget):
         self.main_panel = main_panel
         self.all_panels = {p.panel_id: p for p in [*top_panels, left_panel, main_panel]}
 
-    def render(self, state: dict = None):
+    def render(self, state: dict | None = None):
         state = state or {}
 
         def is_visible(pid):
@@ -110,7 +111,7 @@ class DashboardLayout(Widget):
             return state.get(pid, {}).get("maximized", False)
 
         children = []
-        for panel, area in zip(self.top_panels, self.TOP_AREAS):
+        for panel, area in zip(self.top_panels, self.TOP_AREAS, strict=False):
             if is_visible(panel.panel_id):
                 children.append(panel.render(maximized=is_maxed(panel.panel_id), grid_area=area))
 

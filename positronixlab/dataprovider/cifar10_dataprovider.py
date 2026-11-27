@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Union, Unpack
+from typing import Unpack
 
 import torch
 from torch import nn
@@ -25,8 +25,8 @@ class CIFAR10Dataset(BaseTensorDataset):
         self,
         train: bool = True,
         indices=None,
-        transforms: Optional[TransformLike] = None,
-        root: Optional[Union[str, Path]] = None,
+        transforms: TransformLike | None = None,
+        root: str | Path | None = None,
     ) -> None:
         self.train = train
         self.root = resolve_data_root(root)

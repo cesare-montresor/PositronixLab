@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+
 import pytest
 import torch
 import torch.nn as nn
@@ -10,18 +11,17 @@ from positronixlab.tasks.compositionality.atlas_check import (
     DiscreteDistribution,
     TensorDistribution,
 )
-from positronixlab.tasks.compositionality.weightmask_check import (
-    MultiClassWeightmaskManager,
-    WeightMaskCriterion,
-    WeightMasksMetrics,
-    WeightmaskCheck,
-)
 from positronixlab.tasks.compositionality.compositionality import (
     CompositionalityCheck,
     CompositionalityPipeline,
     StaticMaskApplier,
 )
-
+from positronixlab.tasks.compositionality.weightmask_check import (
+    MultiClassWeightmaskManager,
+    WeightmaskCheck,
+    WeightMaskCriterion,
+    WeightMasksMetrics,
+)
 
 # ---------------------------------------------------------------------------
 # Synthetic helpers (CPU-only, no external checkpoints)

@@ -2,22 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import (
     Any,
-    Callable,
-    Dict,
-    Iterator,
-    List,
     Literal,
-    Optional,
     Protocol,
-    Sequence,
-    Tuple,
     TypedDict,
     TypeVar,
-    Union,
     runtime_checkable,
 )
 
@@ -33,7 +26,7 @@ class _ApplyTransform(Protocol):
     def apply(self, x: Any) -> Any: ...
 
 
-TransformLike = Union[Callable[[Any], Any], _ApplyTransform]
+TransformLike = Callable[[Any], Any] | _ApplyTransform
 
 
 class DataProviderOptions(TypedDict, total=False):
@@ -45,11 +38,11 @@ class DataProviderOptions(TypedDict, total=False):
     """
 
     batch_size: int
-    split: Optional[Sequence[float]]
-    num_workers: Optional[int]
-    transforms: Optional[TransformLike]
+    split: Sequence[float] | None
+    num_workers: int | None
+    transforms: TransformLike | None
     indexed_dataset: bool
-    root: Optional[Union[str, Path]]
+    root: str | Path | None
     seed: int
     shuffle_train: bool
     drop_last: bool
@@ -57,12 +50,12 @@ class DataProviderOptions(TypedDict, total=False):
     pin_memory: bool
 
 
-def resolve_data_root(root: Optional[Union[str, Path]] = None) -> Path:
+def resolve_data_root(root: str | Path | None = None) -> Path:
     """Resolve dataset storage root directory (explicit *root* or default ``./data``)."""
     return Path(root) if root is not None else Path("./data")
 
 
-def apply_transform(transforms: Optional[TransformLike], x: Any) -> Any:
+def apply_transform(transforms: TransformLike | None, x: Any) -> Any:
     """Apply either a standard callable transform or a legacy ``.apply()`` transform."""
     if transforms is None:
         return x
@@ -78,9 +71,9 @@ class IndexedDataset(Dataset):
         self.dataset = dataset
 
     def __len__(self) -> int:
-        return len(self.dataset)
+        return len(self.dataset)  # type: ignore[arg-type]
 
-    def __getitem__(self, idx: int) -> Tuple[Any, ...]:
+    def __getitem__(self, idx: int) -> tuple[Any, ...]:
         item = self.dataset[idx]
         if isinstance(item, tuple):
             return (*item, idx)
@@ -99,19 +92,19 @@ class BaseTensorDataset(Dataset):
         x: torch.Tensor,
         y: torch.Tensor,
         *,
-        indices: Optional[Union[Sequence[int], np.ndarray, torch.Tensor]] = None,
-        transforms: Optional[TransformLike] = None,
+        indices: Sequence[int] | np.ndarray | torch.Tensor | None = None,
+        transforms: TransformLike | None = None,
         normalize: bool = False,
-        norm_cols: Optional[slice] = None,
-        mean: Optional[torch.Tensor] = None,
-        std: Optional[torch.Tensor] = None,
+        norm_cols: slice | None = None,
+        mean: torch.Tensor | None = None,
+        std: torch.Tensor | None = None,
         transform_per_element: bool = False,
-        name_class: Optional[Sequence[Any]] = None,
+        name_class: Sequence[Any] | None = None,
     ) -> None:
         super().__init__()
         self._full_x = x
         self._full_y = y
-        self.indices: Optional[np.ndarray] = (
+        self.indices: np.ndarray | None = (
             np.asarray(indices, dtype=np.int64) if indices is not None else None
         )
         self.transforms = transforms
@@ -135,7 +128,7 @@ class BaseTensorDataset(Dataset):
             return self._full_y
         return self._full_y[self.indices]
 
-    def compute_normalization(self, max_samples: Optional[int] = None, seed: int = 42) -> Tuple[torch.Tensor, torch.Tensor]:
+    def compute_normalization(self, max_samples: int | None = None, seed: int = 42) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute per-feature mean/std without mutating backing tensors in-place."""
         n = len(self)
         if max_samples is not None and n > max_samples:
@@ -158,10 +151,10 @@ class BaseTensorDataset(Dataset):
 
     def copy(
         self,
-        indices: Optional[Union[Sequence[int], np.ndarray, torch.Tensor]] = None,
+        indices: Sequence[int] | np.ndarray | torch.Tensor | None = None,
         *,
         transforms: Any = ...,
-    ) -> "BaseTensorDataset":
+    ) -> BaseTensorDataset:
         """Create a zero-copy view sharing the same backing tensors."""
         if indices is None:
             new_indices = self.indices
@@ -187,8 +180,8 @@ class BaseTensorDataset(Dataset):
         self,
         split: Sequence[float],
         *,
-        seed: Optional[int] = 42,
-    ) -> List["BaseTensorDataset"]:
+        seed: int | None = 42,
+    ) -> list[BaseTensorDataset]:
         """Split into zero-copy views using ``torch.utils.data.random_split``."""
         generator = torch.Generator().manual_seed(seed) if seed is not None else None
         subsets = random_split(self, list(split), generator=generator)
@@ -199,7 +192,7 @@ class BaseTensorDataset(Dataset):
             return int(len(self.indices))
         return int(len(self._full_x))
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         real_idx = int(self.indices[idx]) if self.indices is not None else idx
         x = self._full_x[real_idx]
         y = self._full_y[real_idx]
@@ -269,11 +262,11 @@ TReader = TypeVar("TReader", bound="DataReader")
 class DataReader(DataLoader):
     """PyTorch ``DataLoader`` with CUDA-aware multiprocessing defaults and plugin registry."""
 
-    _registry: dict[str, type["DataReader"]] = {}
+    _registry: dict[str, type[DataReader]] = {}
 
     def __init_subclass__(
         cls,
-        plugin_name: Optional[str] = None,
+        plugin_name: str | None = None,
         override: bool = False,
         **kwargs: Any,
     ) -> None:
@@ -284,7 +277,7 @@ class DataReader(DataLoader):
         cls._registry[key] = cls
 
     @classmethod
-    def get(cls, name: str) -> type["DataReader"]:
+    def get(cls, name: str) -> type[DataReader]:
         if name not in cls._registry:
             raise ValueError(
                 f"Unknown DataReader '{name}'. Available: {cls.list_registered()}"
@@ -292,7 +285,7 @@ class DataReader(DataLoader):
         return cls._registry[name]
 
     @classmethod
-    def list_registered(cls) -> List[str]:
+    def list_registered(cls) -> list[str]:
         return sorted(cls._registry.keys())
 
     def __init__(
@@ -301,7 +294,7 @@ class DataReader(DataLoader):
         batch_size: int = 32,
         num_workers: int = 2,
         persistent_workers: bool = True,
-        multiprocessing_context: Optional[str] = None,
+        multiprocessing_context: str | None = None,
         drop_last: bool = True,
         indexed_dataset: bool = False,
         **kwargs: Any,
@@ -323,15 +316,16 @@ class DataReader(DataLoader):
 class DataProvider:
     """Base dataset provider managing train/val/test datasets, lazy ``DataReader``s, and registry."""
 
-    _registry: dict[str, type["DataProvider"]] = {}
+    _registry: dict[str, type[DataProvider]] = {}
     _aliases: dict[str, str] = {}
+    _plugin_name: str = ""
 
-    default_split: Tuple[float, ...] = (0.7, 0.3)
+    default_split: tuple[float, ...] = (0.7, 0.3)
     supports_flatten: bool = False
 
     def __init_subclass__(
         cls,
-        plugin_name: Optional[str] = None,
+        plugin_name: str | None = None,
         aliases: Sequence[str] = (),
         override: bool = False,
         register: bool = True,
@@ -351,7 +345,7 @@ class DataProvider:
             cls._aliases[alias] = key
 
     @classmethod
-    def get(cls, name: str) -> type["DataProvider"]:
+    def get(cls, name: str) -> type[DataProvider]:
         canonical = cls._aliases.get(name, name)
         if canonical not in cls._registry:
             raise ValueError(
@@ -360,30 +354,30 @@ class DataProvider:
         return cls._registry[canonical]
 
     @classmethod
-    def list_registered(cls) -> List[str]:
+    def list_registered(cls) -> list[str]:
         return sorted(cls._registry.keys())
 
     def __init__(
         self,
         batch_size: int = 32,
-        split: Optional[Sequence[float]] = None,
-        num_workers: Optional[int] = None,
-        transforms: Optional[TransformLike] = None,
+        split: Sequence[float] | None = None,
+        num_workers: int | None = None,
+        transforms: TransformLike | None = None,
         indexed_dataset: bool = False,
-        root: Optional[Union[str, Path]] = None,
+        root: str | Path | None = None,
         seed: int = 42,
         shuffle_train: bool = True,
         drop_last: bool = True,
         persistent_workers: bool = True,
         pin_memory: bool = False,
     ) -> None:
-        self.dataset_split: List[float] = (
+        self.dataset_split: list[float] = (
             list(split) if split is not None else list(self.default_split)
         )
-        self.num_features: Optional[int] = None
-        self.num_classes: Optional[int] = None
+        self.num_features: int | None = None
+        self.num_classes: int | None = None
         self.num_workers: int = 2 if num_workers is None else num_workers
-        self.transforms: Optional[TransformLike] = transforms
+        self.transforms: TransformLike | None = transforms
         self.indexed_dataset: bool = indexed_dataset
         self.root: Path = resolve_data_root(root)
         self.seed: int = seed
@@ -393,27 +387,27 @@ class DataProvider:
         self.pin_memory: bool = pin_memory
 
         self.name: str = getattr(self, "_plugin_name", self.__class__.__name__)
-        self.criterion: Optional[torch.nn.Module] = None
-        self.x_shape: Optional[Tuple[int, ...]] = None
-        self.y_shape: Optional[Tuple[int, ...]] = None
+        self.criterion: torch.nn.Module | None = None
+        self.x_shape: tuple[int, ...] | None = None
+        self.y_shape: tuple[int, ...] | None = None
 
-        self.dataset: Optional[Dataset] = None
-        self.dataset_train: Optional[Dataset] = None
-        self.dataset_val: Optional[Dataset] = None
-        self.dataset_test: Optional[Dataset] = None
+        self.dataset: Dataset | None = None
+        self.dataset_train: Dataset | None = None
+        self.dataset_val: Dataset | None = None
+        self.dataset_test: Dataset | None = None
 
         self.batch_size: int = batch_size
-        self._train: Optional[DataReader] = None
-        self._val: Optional[DataReader] = None
-        self._test: Optional[DataReader] = None
+        self._train: DataReader | None = None
+        self._val: DataReader | None = None
+        self._test: DataReader | None = None
 
     def _split_dataset(
         self,
         dataset: Dataset,
         *,
-        test_dataset: Optional[Dataset] = None,
-        split: Optional[Sequence[float]] = None,
-        seed: Optional[int] = None,
+        test_dataset: Dataset | None = None,
+        split: Sequence[float] | None = None,
+        seed: int | None = None,
     ) -> None:
         """Populate ``dataset_train``, ``dataset_val``, and ``dataset_test`` for 2- or 3-way splits."""
         ratios = list(split) if split is not None else self.dataset_split
@@ -422,6 +416,7 @@ class DataProvider:
         if len(ratios) not in (2, 3):
             raise ValueError(f"split must have 2 or 3 entries, got {ratios!r}")
 
+        parts: Sequence[Dataset]
         if isinstance(dataset, BaseTensorDataset):
             parts = dataset.random_split(ratios, seed=use_seed)
         else:
@@ -443,16 +438,16 @@ class DataProvider:
         self,
         split: SplitName,
         *,
-        batch_size: Optional[int] = None,
-        shuffle: Optional[bool] = None,
-        drop_last: Optional[bool] = None,
-        num_workers: Optional[int] = None,
-        indexed_dataset: Optional[bool] = None,
-        persistent_workers: Optional[bool] = None,
-        pin_memory: Optional[bool] = None,
-        sampler: Optional[Sampler] = None,
+        batch_size: int | None = None,
+        shuffle: bool | None = None,
+        drop_last: bool | None = None,
+        num_workers: int | None = None,
+        indexed_dataset: bool | None = None,
+        persistent_workers: bool | None = None,
+        pin_memory: bool | None = None,
+        sampler: Sampler | None = None,
         **kwargs: Any,
-    ) -> Optional[DataReader]:
+    ) -> DataReader | None:
         """Build a fresh ``DataReader`` for *split* with optional per-call overrides."""
         dataset_map = {
             "train": self.dataset_train,
@@ -487,19 +482,19 @@ class DataProvider:
         )
 
     @property
-    def train(self) -> Optional[DataReader]:
+    def train(self) -> DataReader | None:
         if self._train is None and self.dataset_train is not None:
             self._train = self.get_loader("train")
         return self._train
 
     @property
-    def val(self) -> Optional[DataReader]:
+    def val(self) -> DataReader | None:
         if self._val is None and self.dataset_val is not None:
             self._val = self.get_loader("val")
         return self._val
 
     @property
-    def test(self) -> Optional[DataReader]:
+    def test(self) -> DataReader | None:
         if self._test is None and self.dataset_test is not None:
             self._test = self.get_loader("test")
         return self._test
@@ -510,9 +505,9 @@ class SubtaskSplit:
     """Train/val/test datasets & ``DataReader`` builders for a single compositional subtask."""
 
     name: str
-    dataset_train: Optional[Dataset] = None
-    dataset_val: Optional[Dataset] = None
-    dataset_test: Optional[Dataset] = None
+    dataset_train: Dataset | None = None
+    dataset_val: Dataset | None = None
+    dataset_test: Dataset | None = None
     batch_size: int = 64
     num_workers: int = 0
     drop_last: bool = True
@@ -522,11 +517,11 @@ class SubtaskSplit:
 
     def train_loader(
         self,
-        batch_size: Optional[int] = None,
+        batch_size: int | None = None,
         shuffle: bool = True,
-        drop_last: Optional[bool] = None,
-        indexed_dataset: Optional[bool] = None,
-    ) -> Optional[DataReader]:
+        drop_last: bool | None = None,
+        indexed_dataset: bool | None = None,
+    ) -> DataReader | None:
         if self.dataset_train is None:
             return None
         return DataReader(
@@ -544,10 +539,10 @@ class SubtaskSplit:
 
     def val_loader(
         self,
-        batch_size: Optional[int] = None,
-        drop_last: Optional[bool] = None,
-        indexed_dataset: Optional[bool] = None,
-    ) -> Optional[DataReader]:
+        batch_size: int | None = None,
+        drop_last: bool | None = None,
+        indexed_dataset: bool | None = None,
+    ) -> DataReader | None:
         if self.dataset_val is None:
             return None
         return DataReader(
@@ -565,10 +560,10 @@ class SubtaskSplit:
 
     def test_loader(
         self,
-        batch_size: Optional[int] = None,
-        drop_last: Optional[bool] = None,
-        indexed_dataset: Optional[bool] = None,
-    ) -> Optional[DataReader]:
+        batch_size: int | None = None,
+        drop_last: bool | None = None,
+        indexed_dataset: bool | None = None,
+    ) -> DataReader | None:
         if self.dataset_test is None:
             return None
         return DataReader(
@@ -593,9 +588,9 @@ class CompositionalDataProvider(DataProvider, register=False):
 
     def __init__(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         batch_size: int = 64,
-        num_workers: Optional[int] = 0,
+        num_workers: int | None = 0,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -605,8 +600,8 @@ class CompositionalDataProvider(DataProvider, register=False):
         )
         if name is not None:
             self.name = name
-        self.subtasks: Dict[str, SubtaskSplit] = {}
-        self._eval_matrix: Dict[str, List[str]] = {}
+        self.subtasks: dict[str, SubtaskSplit] = {}
+        self._eval_matrix: dict[str, list[str]] = {}
 
     def _sync_base_split(self) -> None:
         """Bind ``dataset_train``/``dataset_val``/``dataset_test`` to :attr:`base_split`."""
@@ -621,7 +616,7 @@ class CompositionalDataProvider(DataProvider, register=False):
         self._val = None
         self._test = None
 
-    def list_subtasks(self) -> List[str]:
+    def list_subtasks(self) -> list[str]:
         return list(self.subtasks.keys())
 
     def get_subtask(self, name: str) -> SubtaskSplit:
@@ -632,7 +627,7 @@ class CompositionalDataProvider(DataProvider, register=False):
             )
         return self.subtasks[name]
 
-    def eval_matrix_spec(self) -> Dict[str, List[str]]:
+    def eval_matrix_spec(self) -> dict[str, list[str]]:
         """Map each discoverable subroutine name to the subtask splits to evaluate on."""
         return dict(self._eval_matrix)
 
@@ -645,9 +640,9 @@ class CompositionalDataProvider(DataProvider, register=False):
 
     def train_loader(
         self,
-        batch_size: Optional[int] = None,
+        batch_size: int | None = None,
         shuffle: bool = True,
-        drop_last: Optional[bool] = None,
+        drop_last: bool | None = None,
     ) -> DataReader:
         loader = self.base_split.train_loader(
             batch_size=batch_size, shuffle=shuffle, drop_last=drop_last
@@ -658,8 +653,8 @@ class CompositionalDataProvider(DataProvider, register=False):
 
     def val_loader(
         self,
-        batch_size: Optional[int] = None,
-        drop_last: Optional[bool] = None,
+        batch_size: int | None = None,
+        drop_last: bool | None = None,
     ) -> DataReader:
         loader = self.base_split.val_loader(batch_size=batch_size, drop_last=drop_last)
         if loader is None:
@@ -668,8 +663,8 @@ class CompositionalDataProvider(DataProvider, register=False):
 
     def test_loader(
         self,
-        batch_size: Optional[int] = None,
-        drop_last: Optional[bool] = None,
+        batch_size: int | None = None,
+        drop_last: bool | None = None,
     ) -> DataReader:
         loader = self.base_split.test_loader(batch_size=batch_size, drop_last=drop_last)
         if loader is None:

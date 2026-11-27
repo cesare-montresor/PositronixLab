@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from collections.abc import Iterable
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -12,7 +13,7 @@ from positronixlab.baselines.base import get_maskable_layer_names
 from positronixlab.tasks.masks import SubnetworkMask
 
 
-def unpack_batch(batch: Any) -> Tuple[torch.Tensor, torch.Tensor]:
+def unpack_batch(batch: Any) -> tuple[torch.Tensor, torch.Tensor]:
     """Unpack ``(x, y)`` or ``(x, y, idx)`` batches uniformly."""
     if isinstance(batch, (tuple, list)):
         return batch[0], batch[1]
@@ -29,7 +30,7 @@ class SubnetworkDiscoverer(ABC):
         self,
         model: nn.Module,
         dataloader: Iterable[Any],
-        target_layers: Optional[List[str]] = None,
+        target_layers: list[str] | None = None,
         mask_name: str = "subnetwork",
         **kwargs: Any,
     ) -> SubnetworkMask:
@@ -57,7 +58,7 @@ class RandomMaskDiscoverer(SubnetworkDiscoverer):
         self,
         model: nn.Module,
         dataloader: Iterable[Any] = (),
-        target_layers: Optional[List[str]] = None,
+        target_layers: list[str] | None = None,
         mask_name: str = "random",
         **kwargs: Any,
     ) -> SubnetworkMask:
@@ -70,12 +71,13 @@ class RandomMaskDiscoverer(SubnetworkDiscoverer):
         gen = torch.Generator()
         gen.manual_seed(self.seed)
 
-        masks: Dict[str, torch.Tensor] = {}
+        masks: dict[str, torch.Tensor] = {}
         for layer_name in layers:
             mod = modules.get(layer_name)
-            if mod is None or not hasattr(mod, "weight") or mod.weight is None:
+            weight = getattr(mod, "weight", None) if mod is not None else None
+            if mod is None or not isinstance(weight, torch.Tensor):
                 continue
-            shape = (mod.weight.shape[0],) if self.granularity == "unit" else tuple(mod.weight.shape)
+            shape = (weight.shape[0],) if self.granularity == "unit" else tuple(weight.shape)
             masks[layer_name] = torch.rand(shape, generator=gen) < self.density
 
         return SubnetworkMask(

@@ -1,16 +1,12 @@
 import logging
-from typing import Any, List
+from typing import Any
 
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-
-
-from collections import Counter
-
 from tqdm import tqdm
-from positronixlab.pipeline import PipelineConfig
 
+from positronixlab.pipeline import PipelineConfig
 
 logger = logging.getLogger(__name__)
 
@@ -20,14 +16,14 @@ class DeeplearningBase:
     def __init__(self, 
                  config: PipelineConfig, 
                  model: nn.Module, 
-                 dataloader: DataLoader, 
-                 optimizer: torch.optim.Optimizer = None,
+                 dataloader: DataLoader | None, 
+                 optimizer: torch.optim.Optimizer | None = None,
                  draft=False,
                 ):
         self.config = config
         
         self.model = model
-        self.device = model.device
+        self.device: Any = model.device
         self.dataloader = dataloader
 
         self.task = config.task
@@ -38,7 +34,7 @@ class DeeplearningBase:
         self.batch_with_data = False
         self.batch_with_metrics = False
 
-        self.metrics = {}
+        self.metrics: dict[str, dict[str, Any]] = {}
 
         self._on_prediction = None
         self._batch_start = None
@@ -64,7 +60,7 @@ class DeeplearningBase:
         }
     
 
-    def process_batch(self, epoch: int, epoch_total: int, batch_idx: int, batch_total: int, data_batch: List[torch.Tensor]):  
+    def process_batch(self, epoch: int, epoch_total: int, batch_idx: int, batch_total: int, data_batch: list[torch.Tensor]):  
         callback_data = data_batch if self.batch_with_data else None
         self._batch_did_start(epoch, epoch_total, batch_idx, batch_total, callback_data)
                 
@@ -80,7 +76,8 @@ class DeeplearningBase:
         y = y.to(device=self.device)
 
         
-        if self.is_training: self.optimizer.zero_grad()
+        if self.optimizer is not None:
+            self.optimizer.zero_grad()
         y_hat = self.model(x)
 
         self._did_prediction(epoch, epoch_total, batch_idx, batch_total, data_batch, y_hat)
@@ -88,7 +85,9 @@ class DeeplearningBase:
         metrics = {}
         with torch.set_grad_enabled(self.is_training):
             for name, metric in self.metrics.items():      
-                criterion = metric.get("criterion") # LET IT RAISE ERROR IF NOT FOUND
+                criterion = metric.get("criterion")
+                if criterion is None:
+                    raise ValueError(f"Metric {name!r} has no criterion defined.")
                 loss = criterion(x, y, y_hat)
 
                 if self.is_training and metric.get("backward"): 
@@ -96,18 +95,20 @@ class DeeplearningBase:
 
                 metrics[name] = float(loss.data.item())
 
-        if self.is_training:
+        if self.optimizer is not None:
             self.optimizer.step()
 
         self._batch_did_end(epoch, epoch_total, batch_idx, batch_total, metrics if self.batch_with_metrics else None)
         return metrics
             
 
-    def process_epoch(self, dataloader: DataLoader, epoch: int, epoch_total: int, draft: int = False):
+    def process_epoch(self, dataloader: DataLoader | None, epoch: int, epoch_total: int, draft: int = False):
+        if dataloader is None:
+            raise ValueError("dataloader cannot be None")
         draft_batches = 20
         batch_total = len(dataloader)
         batch_cnt = 0
-        epoch_metrics = Counter({name: 0.0 for name in self.metrics.keys()})
+        epoch_metrics: dict[str, float] = {name: 0.0 for name in self.metrics.keys()}
         batch_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{epoch_total}", unit="batch")
                     
         self._epoch_did_start(epoch, epoch_total)
@@ -182,7 +183,7 @@ class DeeplearningBase:
         if self._batch_start is not None:
             self._batch_start(epoch, epoch_total, batch_idx, batch_total, data)
 
-    def _batch_did_end(self, epoch: int, epoch_total: int, batch_idx: int, batch_total: int, metrics: dict = None):
+    def _batch_did_end(self, epoch: int, epoch_total: int, batch_idx: int, batch_total: int, metrics: dict | None = None):
         if self._batch_end is not None:
             self._batch_end(epoch, epoch_total, batch_idx, batch_total, metrics)
     

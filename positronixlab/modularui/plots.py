@@ -1,14 +1,21 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
+import dash
 import dash_bootstrap_components as dbc
 import numpy as np
 import plotly.graph_objects as go
-import dash
-from dash import MATCH, Dash, Input, Output, State, dcc, html, Patch, ctx
+from dash import MATCH, Dash, Input, Output, Patch, State, ctx, dcc, html
 from dash_bootstrap_templates import load_figure_template
 
 from positronixlab.modularui.components import Widget
-from positronixlab.modularui.settings import PLOTLY_PAPER_BGCOLOR, PLOTLY_PLOT_BGCOLOR, PLOTLY_TEMPLATE, SPACELOSS_FAMILY, THEME_NAME
+from positronixlab.modularui.settings import (
+    PLOTLY_PAPER_BGCOLOR,
+    PLOTLY_PLOT_BGCOLOR,
+    PLOTLY_TEMPLATE,
+    SPACELOSS_FAMILY,
+    THEME_NAME,
+)
 
 if TYPE_CHECKING:
     from positronixlab.modularui.modularui import ModularUI
@@ -19,8 +26,8 @@ POLL_ID = "positronixlab-poll"
 _NO_DATA_STYLE = {"opacity": 0.6, "fontSize": "0.85em"}
 
 
-def _line_figure(title: str, height: int, trace_names: List[str], legend: bool = False,
-                 emphasize: Optional[str] = None) -> go.Figure:
+def _line_figure(title: str, height: int, trace_names: list[str], legend: bool = False,
+                 emphasize: str | None = None) -> go.Figure:
     fig = go.Figure()
     for name in trace_names:
         if emphasize is not None:
@@ -56,7 +63,7 @@ class MetricRow(Widget):
         self.wrap = wrap
         self.per_layer = per_layer
 
-    def render(self, keys: List[str], layer_id: Optional[str] = None):
+    def render(self, keys: list[str], layer_id: str | None = None):
         if not keys:
             return html.Div("no data yet", className=self.css_id, style=_NO_DATA_STYLE)
 
@@ -100,7 +107,7 @@ class MetricRow(Widget):
 class SpaceLossRow(Widget):
     """One chart per loss label for ONE layer card. Labels (so the number of charts) come
     from labels_fn(), i.e. from whatever dict the loss function returned."""
-    def __init__(self, css_id: str, labels_fn: Callable[[], List[str]], height: int = 90, wrap: bool = False):
+    def __init__(self, css_id: str, labels_fn: Callable[[], list[str]], height: int = 90, wrap: bool = False):
         self.css_id = css_id
         self.labels_fn = labels_fn
         self._row = MetricRow(css_id=css_id, height=height, wrap=wrap, per_layer=True)
@@ -113,7 +120,7 @@ class SpaceLossRow(Widget):
         self._row.register_callbacks(app, ui.get_layer_spaceloss)
 
 
-def loss_then_accuracy_first(labels: List[str]) -> List[str]:
+def loss_then_accuracy_first(labels: list[str]) -> list[str]:
     """Order for the training panel: loss charts, then accuracy charts, then the rest."""
     def rank(label: str):
         low = label.lower()
@@ -125,9 +132,9 @@ class GroupedChartsDisplay(Widget):
     """One chart per label; every series of that label (train/val, or one per layer...) is a
     trace on it. groups_fn() -> {label: {trace_name: values}}. Charts, traces and labels are
     all discovered from the data, and the panel rebuilds itself when that set changes."""
-    def __init__(self, css_id: str, groups_fn: Callable[[], Dict[str, Dict[str, List[float]]]],
-                 label_order: Callable[[List[str]], List[str]] = loss_then_accuracy_first,
-                 emphasize: Optional[str] = None, height: int = 120, flex_basis: int = 240,
+    def __init__(self, css_id: str, groups_fn: Callable[[], dict[str, dict[str, list[float]]]],
+                 label_order: Callable[[list[str]], list[str]] = loss_then_accuracy_first,
+                 emphasize: str | None = None, height: int = 120, flex_basis: int = 240,
                  empty_text: str = "no data yet"):
         self.css_id = css_id
         self.groups_fn = groups_fn
@@ -137,14 +144,14 @@ class GroupedChartsDisplay(Widget):
         self.flex_basis = flex_basis
         self.empty_text = empty_text
 
-    def _trace_names(self, traces) -> List[str]:
+    def _trace_names(self, traces) -> list[str]:
         """Trace order, identical at render and patch time. The emphasized one goes last (on top)."""
         names = sorted(t for t in traces if t != self.emphasize)
         if self.emphasize in traces:
             names.append(self.emphasize)
         return names
 
-    def _signature(self, groups) -> List[str]:
+    def _signature(self, groups) -> list[str]:
         return [f"{label}|{t}" for label in self.label_order(list(groups)) for t in self._trace_names(groups[label])]
 
     def _render_charts(self, groups):
@@ -218,7 +225,7 @@ class LayerBoardDisplay(Widget):
             height=215,
         )
 
-    def render(self, visible_layers: Optional[List[str]] = None) -> html.Div:
+    def render(self, visible_layers: list[str] | None = None) -> html.Div:
         return html.Div([
             dcc.Store(id=f"{self.css_id}-ids", data=self._signature(visible_layers)),
             html.Div(
@@ -228,23 +235,23 @@ class LayerBoardDisplay(Widget):
             ),
         ])
 
-    def _signature(self, visible_layers: Optional[List[str]]) -> Dict[str, List[str]]:
+    def _signature(self, visible_layers: list[str] | None) -> dict[str, list[str]]:
         return {"layers": self._filtered_layer_ids(visible_layers), "labels": list(self._spaceloss_row.labels_fn())}
 
-    def _known_layer_ids(self) -> List[str]:
+    def _known_layer_ids(self) -> list[str]:
         return self.ui.get_known_layer_ids()
 
-    def _filtered_layer_ids(self, visible_layers: Optional[List[str]]) -> List[str]:
+    def _filtered_layer_ids(self, visible_layers: list[str] | None) -> list[str]:
         all_ids = self._known_layer_ids()
         if not visible_layers:
             return all_ids
         visible = set(visible_layers)
         return [lid for lid in all_ids if lid in visible]
 
-    def _render_all_cards(self, visible_layers: Optional[List[str]]) -> List[html.Div]:
+    def _render_all_cards(self, visible_layers: list[str] | None) -> list[dbc.Card]:
         return [self._render_layer_card(layer_id) for layer_id in self._filtered_layer_ids(visible_layers)]
 
-    def _render_layer_card(self, layer_id: str) -> html.Div:
+    def _render_layer_card(self, layer_id: str) -> dbc.Card:
         info = self.ui.get_observed_layer_info(layer_id)
         header = self._render_header(layer_id, info)
         spaceloss_section = self._spaceloss_row.render(layer_id)
@@ -316,7 +323,7 @@ class LayerBoardDisplay(Widget):
         )
 
     @classmethod
-    def _render_header(cls, layer_id: str, info: Dict[str, Any]) -> html.Div:
+    def _render_header(cls, layer_id: str, info: dict[str, Any]) -> html.Div:
         parts = [f"{k}: {info[k]}" for k in cls._HEADER_INFO_KEYS if info.get(k) not in (None, "")]
         details = ", ".join(parts)
         return html.Div([

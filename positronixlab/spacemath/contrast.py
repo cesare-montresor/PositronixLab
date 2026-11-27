@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from typing import Callable, Dict, NamedTuple
+from collections.abc import Callable
+from typing import NamedTuple
+
 import torch
-from torch import Tensor
 import torch.nn.functional as F
+from torch import Tensor
 
 from positronixlab.spacemath.common import torch_compile
 from positronixlab.spacemath.space_type import (
@@ -209,7 +211,7 @@ def contrast_softmax_ce(
     )
 
 
-CONTRASTS: Dict[str, Callable[..., ContrastResult]] = {
+CONTRASTS: dict[str, Callable[..., ContrastResult]] = {
     "distance_log": contrast_distance_log,
     "distance_linear": contrast_distance_linear,
     "softmax_ce": contrast_softmax_ce,

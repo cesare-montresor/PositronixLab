@@ -1,11 +1,9 @@
-from pathlib import Path
-import sys
-import time
-
-from positronixlab.utils import utils  
-from positronixlab.modularui.modularui import ModularUI
-
 import os
+import time
+from pathlib import Path
+
+from positronixlab.modularui.modularui import ModularUI
+from positronixlab.utils import utils
 
 
 class ExampleUI:
@@ -27,7 +25,7 @@ class ExampleUI:
         self.pca_history = self.data.get("pca_history", {}) if self.data else {}
 
     def main(self):
-        print(f"Starting Example UI.\n",f"Workdir: {self.workdir}\n",f"CWD: {os.getcwd()}\n", f"ui homedir: {self.ui.homedir()}\n")
+        print("Starting Example UI.\n",f"Workdir: {self.workdir}\n",f"CWD: {os.getcwd()}\n", f"ui homedir: {self.ui.homedir()}\n")
         self.ui.run()
         self.ui.update_vars(self.all_vars)
     

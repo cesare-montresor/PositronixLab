@@ -1,14 +1,17 @@
 
 from __future__ import annotations
+
 import functools
 import getpass
-from pathlib import Path
-import torch
-from torch import nn
 import os
 import shutil
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any, TypeVar, cast
 
-from typing import Any, Callable, TypeVar
+import torch
+from torch import nn
+
 F = TypeVar("F", bound=Callable[..., Any])
 
 
@@ -40,10 +43,11 @@ def spow(x: torch.Tensor, power: float, eps: float = 1e-8, force_zero: bool = Tr
     return spow_(x.clone(), power, eps, force_zero)
 
 # Monkey-patch — done once, clearly separated from logic
-torch.Tensor.zclamp_ = zclamp_
-torch.Tensor.zclamp  = zclamp
-torch.Tensor.spow_   = spow_
-torch.Tensor.spow    = spow
+_TensorCls: Any = torch.Tensor
+_TensorCls.zclamp_ = zclamp_
+_TensorCls.zclamp = zclamp
+_TensorCls.spow_ = spow_
+_TensorCls.spow = spow
 
 
 
@@ -105,10 +109,10 @@ def torch_compile(func: F) -> F:
     if not _compile_enabled():
         return func
     compiled = torch.compile(func, mode=default_compile_mode)
-    return functools.wraps(func)(compiled)
+    return cast(F, functools.wraps(func)(compiled))
 
 
-def classmethod_compile(func: F) -> classmethod:
+def classmethod_compile(func: Callable[..., Any]) -> classmethod:
     """
     @classmethod_compile
     def f(cls, x, y): ...
@@ -116,7 +120,7 @@ def classmethod_compile(func: F) -> classmethod:
     return classmethod(torch_compile(func))
 
 
-def staticmethod_compile(func: F) -> staticmethod:
+def staticmethod_compile(func: Callable[..., Any]) -> staticmethod:
     """
     @staticmethod_compile
     def f(x, y): ...
@@ -151,8 +155,9 @@ def clear_torch_compile_cache(triton: bool = True, verbose: bool = False) -> Non
 
     try:
         import torch._inductor.codecache as codecache
-        if hasattr(codecache, "clear_cache"):
-            codecache.clear_cache()
+        clear_fn = getattr(codecache, "clear_cache", None)
+        if clear_fn is not None:
+            clear_fn()
         else:
             from torch._inductor.utils import clear_inductor_caches
             clear_inductor_caches()

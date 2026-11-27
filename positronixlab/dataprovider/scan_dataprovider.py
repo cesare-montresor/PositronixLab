@@ -14,8 +14,9 @@ automatically when present and ``split_type`` is not explicitly overridden.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Sequence, Tuple, Union, Unpack
+from typing import Any, Literal, Unpack
 
 import numpy as np
 import requests
@@ -34,7 +35,7 @@ SCANSplitType = Literal["simple", "length", "jump", "turn_left"]
 
 SCAN_BASE_URL: str = "https://raw.githubusercontent.com/brendenlake/SCAN/master"
 
-SCAN_URLS: Dict[str, Dict[str, str]] = {
+SCAN_URLS: dict[str, dict[str, str]] = {
     "simple": {
         "train": f"{SCAN_BASE_URL}/simple_split/tasks_train_simple.txt",
         "test": f"{SCAN_BASE_URL}/simple_split/tasks_test_simple.txt",
@@ -54,7 +55,7 @@ SCAN_URLS: Dict[str, Dict[str, str]] = {
 }
 
 # Fixed canonical SCAN vocabularies (invariant across splits).
-SCAN_INPUT_WORDS: Tuple[str, ...] = (
+SCAN_INPUT_WORDS: tuple[str, ...] = (
     "after",
     "and",
     "around",
@@ -70,7 +71,7 @@ SCAN_INPUT_WORDS: Tuple[str, ...] = (
     "walk",
 )
 
-SCAN_OUTPUT_WORDS: Tuple[str, ...] = (
+SCAN_OUTPUT_WORDS: tuple[str, ...] = (
     "I_JUMP",
     "I_LOOK",
     "I_RUN",
@@ -87,11 +88,11 @@ class SCANVocab:
     SOS_IDX: int = 1
     EOS_IDX: int = 2
     UNK_IDX: int = 3
-    SPECIAL_TOKENS: Tuple[str, ...] = ("<pad>", "<sos>", "<eos>", "<unk>")
+    SPECIAL_TOKENS: tuple[str, ...] = ("<pad>", "<sos>", "<eos>", "<unk>")
 
     def __init__(self, words: Sequence[str]) -> None:
-        self.itos: Tuple[str, ...] = self.SPECIAL_TOKENS + tuple(words)
-        self.stoi: Dict[str, int] = {tok: idx for idx, tok in enumerate(self.itos)}
+        self.itos: tuple[str, ...] = self.SPECIAL_TOKENS + tuple(words)
+        self.stoi: dict[str, int] = {tok: idx for idx, tok in enumerate(self.itos)}
 
     def __len__(self) -> int:
         return len(self.itos)
@@ -124,7 +125,7 @@ class SCANVocab:
 
     def decode(
         self,
-        tokens: Union[torch.Tensor, np.ndarray, Sequence[int]],
+        tokens: torch.Tensor | np.ndarray | Sequence[int],
         *,
         skip_special: bool = True,
     ) -> str:
@@ -135,7 +136,7 @@ class SCANVocab:
         else:
             seq = list(tokens)
 
-        words: List[str] = []
+        words: list[str] = []
         for idx in seq:
             i = int(idx)
             if skip_special:
@@ -148,7 +149,7 @@ class SCANVocab:
 
 
 def download_scan_file(
-    root: Union[str, Path],
+    root: str | Path,
     split_type: SCANSplitType,
     subset: Literal["train", "test"],
     *,
@@ -187,11 +188,11 @@ def download_scan_file(
     return dest
 
 
-def _parse_scan_file(path: Path) -> Tuple[List[str], List[str]]:
+def _parse_scan_file(path: Path) -> tuple[list[str], list[str]]:
     """Parse ``IN: <cmd> OUT: <actions>`` lines from a SCAN ``.txt`` file."""
-    inputs: List[str] = []
-    outputs: List[str] = []
-    with open(path, "r", encoding="utf-8") as f:
+    inputs: list[str] = []
+    outputs: list[str] = []
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -213,8 +214,8 @@ class SCANDataset(BaseTensorDataset):
         self,
         train: bool = True,
         indices=None,
-        transforms: Optional[TransformLike] = None,
-        root: Optional[Union[str, Path]] = None,
+        transforms: TransformLike | None = None,
+        root: str | Path | None = None,
         *,
         split_type: SCANSplitType = "simple",
         max_input_len: int = 16,
@@ -265,7 +266,7 @@ class SCANDataset(BaseTensorDataset):
         n = len(in_lines)
         x_np = np.full((n, max_input_len), SCANVocab.PAD_IDX, dtype=np.int64)
         y_np = np.full((n, max_output_len), SCANVocab.PAD_IDX, dtype=np.int64)
-        for i, (inp, out) in enumerate(zip(in_lines, out_lines)):
+        for i, (inp, out) in enumerate(zip(in_lines, out_lines, strict=False)):
             x_np[i] = self.in_vocab.encode(inp, max_len=max_input_len, add_sos=False, add_eos=True)
             y_np[i] = self.out_vocab.encode(out, max_len=max_output_len, add_sos=True, add_eos=True)
 
@@ -301,7 +302,7 @@ class SCANDataProvider(
         self.split_type = split_type
         self.download = download
 
-        ds_kw = dict(
+        ds_kw: dict[str, Any] = dict(
             split_type=split_type,
             max_input_len=max_input_len,
             max_output_len=max_output_len,

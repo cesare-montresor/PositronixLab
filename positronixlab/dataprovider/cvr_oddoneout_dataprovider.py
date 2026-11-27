@@ -15,7 +15,7 @@ Data loading priority:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Literal, Optional, Tuple, Union, Unpack
+from typing import Any, Literal
 
 import numpy as np
 import torch
@@ -24,7 +24,6 @@ from torch.utils.data import Dataset
 
 from positronixlab.dataprovider.dataprovider import (
     CompositionalDataProvider,
-    DataProviderOptions,
     SubtaskSplit,
     TransformLike,
     apply_transform,
@@ -34,7 +33,7 @@ from positronixlab.dataprovider.dataprovider import (
 CVRFamily = Literal["inside_contact", "inside_count", "contact_count"]
 
 # Exact Lepori et al. CVR compositional task families (indices 103..120)
-CVR_FAMILIES: Dict[str, Dict[str, Tuple[int, str]]] = {
+CVR_FAMILIES: dict[str, dict[str, tuple[int, str]]] = {
     "inside_contact": {
         "base": (103, "sn_task_1_contact_inside"),
         "inside": (104, "sn_task_1_inside"),
@@ -63,7 +62,7 @@ CVR_FAMILIES: Dict[str, Dict[str, Tuple[int, str]]] = {
 
 
 def load_cvr_png_strip(
-    path: Union[str, Path],
+    path: str | Path,
     image_size: int = 128,
 ) -> torch.Tensor:
     """Load a Lepori/CVR 4-image horizontal-strip PNG into ``(4, 3, image_size, image_size)`` float in ``[0, 1]``.
@@ -107,9 +106,9 @@ class CVROddOneOutDataset(Dataset):
         image_size: int = 64,
         seed: int = 0,
         use_real_generator: bool = False,
-        tensor_path: Optional[Union[str, Path]] = None,
-        png_dir: Optional[Union[str, Path]] = None,
-        transforms: Optional[TransformLike] = None,
+        tensor_path: str | Path | None = None,
+        png_dir: str | Path | None = None,
+        transforms: TransformLike | None = None,
     ) -> None:
         super().__init__()
         self.task_fn_name = task_fn_name
@@ -117,16 +116,17 @@ class CVROddOneOutDataset(Dataset):
         self.image_size = image_size
         self.seed = seed
         self.transforms = transforms
-        self._cached_x: Optional[torch.Tensor] = None
-        self._cached_y: Optional[torch.Tensor] = None
-        self._png_files: Optional[list[Path]] = None
+        self._cached_x: torch.Tensor | None = None
+        self._cached_y: torch.Tensor | None = None
+        self._png_files: list[Path] | None = None
         self._use_renderer: bool = False
 
         if tensor_path is not None and Path(tensor_path).exists():
             payload = torch.load(tensor_path, map_location="cpu", weights_only=True)
-            self._cached_x = payload["inputs"][:n_samples]
+            cached_x: torch.Tensor = payload["inputs"][:n_samples]
+            self._cached_x = cached_x
             self._cached_y = payload["targets"][:n_samples]
-            self.n_samples = int(self._cached_x.shape[0])
+            self.n_samples = int(cached_x.shape[0])
             return
 
         if png_dir is not None and Path(png_dir).is_dir():
@@ -137,7 +137,9 @@ class CVROddOneOutDataset(Dataset):
                 return
 
         if use_real_generator:
-            from positronixlab.baselines.lepori._cvr_gen import is_cvr_renderer_available
+            from positronixlab.baselines.lepori._cvr_gen import (
+                is_cvr_renderer_available,
+            )
 
             if is_cvr_renderer_available():
                 self._use_renderer = True
@@ -158,7 +160,7 @@ class CVROddOneOutDataset(Dataset):
     def __len__(self) -> int:
         return self.n_samples
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         if self._cached_x is not None and self._cached_y is not None:
             imgs, target = self._cached_x[idx], self._cached_y[idx]
         elif self._png_files is not None:
@@ -206,9 +208,9 @@ class CVROddOneOutDataProvider(
         image_size: int = 64,
         batch_size: int = 16,
         use_real_generator: bool = False,
-        root: Optional[Union[str, Path]] = None,
+        root: str | Path | None = None,
         seed: int = 0,
-        **kwargs: Unpack[DataProviderOptions],
+        **kwargs: Any,
     ) -> None:
         if family not in CVR_FAMILIES:
             raise ValueError(
@@ -232,7 +234,7 @@ class CVROddOneOutDataProvider(
 
         spec = CVR_FAMILIES[family]
         data_root = resolve_data_root(root) if root is not None else None
-        split_kw = dict(
+        split_kw: dict[str, Any] = dict(
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             drop_last=self.drop_last,

@@ -20,8 +20,9 @@ Data loading priority per task:
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Callable, List, Optional, Sequence, Tuple, Union, Unpack
+from typing import Any
 
 import torch
 from torch.utils.data import Dataset
@@ -29,11 +30,10 @@ from torch.utils.data import Dataset
 from positronixlab.dataprovider.cvr_oddoneout_dataprovider import load_cvr_png_strip
 from positronixlab.dataprovider.dataprovider import (
     DataProvider,
-    DataProviderOptions,
     resolve_data_root,
 )
 
-CVR_SIMCLR_BASE_TASKS: Tuple[Tuple[int, str], ...] = (
+CVR_SIMCLR_BASE_TASKS: tuple[tuple[int, str], ...] = (
     (103, "sn_task_1_contact_inside"),
     (109, "sn_task_2_inside_count"),
     (115, "sn_task_3_contact_count"),
@@ -80,11 +80,14 @@ class ContrastiveTransformations:
         self.n_views = n_views
         self.as_list = as_list
 
-    def __call__(self, x: torch.Tensor) -> Union[torch.Tensor, List[torch.Tensor]]:
+    def __call__(self, x: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
         views = [self.base_transforms(x) for _ in range(self.n_views)]
         if self.as_list:
             return views
         return torch.stack(views, dim=0)
+
+
+_DEFAULT_CVR_SIMCLR_TASKS: tuple[str, ...] = tuple(fn for _, fn in CVR_SIMCLR_BASE_TASKS)
 
 
 class CVRSimCLRDataset(Dataset):
@@ -102,13 +105,13 @@ class CVRSimCLRDataset(Dataset):
         split: str = "train",
         n_samples_per_task: int = 128,
         image_size: int = 64,
-        tasks: Sequence[str] = tuple(fn for _, fn in CVR_SIMCLR_BASE_TASKS),
+        tasks: Sequence[str] = _DEFAULT_CVR_SIMCLR_TASKS,
         n_views: int = 2,
         as_list: bool = False,
         seed: int = 0,
         use_real_generator: bool = False,
-        root: Optional[Union[str, Path]] = None,
-        transform: Optional[Callable[[torch.Tensor], Union[torch.Tensor, List[torch.Tensor]]]] = None,
+        root: str | Path | None = None,
+        transform: Callable[[torch.Tensor], torch.Tensor | list[torch.Tensor]] | None = None,
     ) -> None:
         super().__init__()
         self.split = split
@@ -129,14 +132,14 @@ class CVRSimCLRDataset(Dataset):
         )
 
         data_root = resolve_data_root(root) if root is not None else None
-        self._png_files: List[Optional[List[Path]]] = []
-        self._cached_pt: List[Optional[torch.Tensor]] = []
+        self._png_files: list[list[Path] | None] = []
+        self._cached_pt: list[torch.Tensor | None] = []
         self._use_renderer = False
 
         any_disk = False
         for fn_name in self.tasks:
-            pngs: Optional[List[Path]] = None
-            pt_tensor: Optional[torch.Tensor] = None
+            pngs: list[Path] | None = None
+            pt_tensor: torch.Tensor | None = None
             if data_root is not None:
                 png_dir = data_root / fn_name / split
                 if png_dir.is_dir():
@@ -155,7 +158,7 @@ class CVRSimCLRDataset(Dataset):
 
         if any_disk:
             counts = []
-            for pngs, pt in zip(self._png_files, self._cached_pt):
+            for pngs, pt in zip(self._png_files, self._cached_pt, strict=False):
                 if pngs is not None:
                     counts.append(len(pngs))
                 elif pt is not None:
@@ -164,12 +167,14 @@ class CVRSimCLRDataset(Dataset):
                 self.n_samples_per_task = min(counts)
 
         if not any_disk and use_real_generator:
-            from positronixlab.baselines.lepori._cvr_gen import is_cvr_renderer_available
+            from positronixlab.baselines.lepori._cvr_gen import (
+                is_cvr_renderer_available,
+            )
 
             if is_cvr_renderer_available():
                 self._use_renderer = True
 
-        self._synthetic: Optional[torch.Tensor] = None
+        self._synthetic: torch.Tensor | None = None
         if not any_disk and not self._use_renderer:
             gen = torch.Generator().manual_seed(seed)
             total = len(self.tasks) * self.n_samples_per_task
@@ -210,7 +215,7 @@ class CVRSimCLRDataset(Dataset):
 
     def __getitem__(
         self, idx: int
-    ) -> Tuple[Union[torch.Tensor, List[torch.Tensor]], torch.Tensor]:
+    ) -> tuple[torch.Tensor | list[torch.Tensor], torch.Tensor]:
         task_idx = idx // self.n_samples_per_task
         sample_idx = idx % self.n_samples_per_task
         pair = self._load_pair(task_idx, sample_idx, idx)
@@ -234,14 +239,14 @@ class CVRSimCLRDataProvider(
         n_train_per_task: int = 128,
         n_val_per_task: int = 32,
         image_size: int = 64,
-        tasks: Sequence[str] = tuple(fn for _, fn in CVR_SIMCLR_BASE_TASKS),
+        tasks: Sequence[str] = _DEFAULT_CVR_SIMCLR_TASKS,
         n_views: int = 2,
         as_list: bool = False,
         batch_size: int = 16,
         use_real_generator: bool = False,
-        root: Optional[Union[str, Path]] = None,
+        root: str | Path | None = None,
         seed: int = 0,
-        **kwargs: Unpack[DataProviderOptions],
+        **kwargs: Any,
     ) -> None:
         super().__init__(
             batch_size=batch_size,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+
 import pytest
 from ax.api.client import Client
 from ax.api.configs import (
@@ -14,9 +15,9 @@ from ax.api.configs import (
 from positronixlab.template import (
     TemplateBase,
     TemplateCovertype,
+    TemplateFactory,
     TemplateFMnistCNN,
     TemplateFMnistFC,
-    TemplateFactory,
     TemplateHiggs,
     TemplateMnistCNN,
     TemplateMnistFC,

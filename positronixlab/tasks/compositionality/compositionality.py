@@ -1,13 +1,14 @@
 import logging
-from typing import Dict, Any, Optional
+from typing import Any
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from positronixlab.pipeline import PipelineConfig
 from positronixlab.dataprovider.dataprovider import DataProvider
-from positronixlab.tasks.compositionality.weightmask_check import WeightmaskCheck
+from positronixlab.pipeline import PipelineConfig
 from positronixlab.tasks.compositionality.atlas_check import AtlasCheck
+from positronixlab.tasks.compositionality.weightmask_check import WeightmaskCheck
 
 logger = logging.getLogger(__name__)
 
@@ -17,18 +18,19 @@ class StaticMaskApplier:
     Context manager that applies static binary weight masks to target layers
     during forward passes and restores original weights upon exit.
     """
-    def __init__(self, model: nn.Module, masks: Dict[str, torch.Tensor]):
+    def __init__(self, model: nn.Module, masks: dict[str, torch.Tensor]):
         self.model = model
         self.masks = masks
-        self._handles = []
-        self._orig_weights = {}
+        self._handles: list[torch.utils.hooks.RemovableHandle] = []
+        self._orig_weights: dict[str, Any] = {}
 
     def __enter__(self):
         for name, module in self.model.named_modules():
             safe_name = name.replace('.', '_')
-            if safe_name in self.masks and hasattr(module, 'weight') and module.weight is not None:
-                mask = self.masks[safe_name].to(module.weight.device)
-                self._orig_weights[name] = module.weight
+            weight = getattr(module, 'weight', None)
+            if safe_name in self.masks and isinstance(weight, torch.Tensor):
+                mask = self.masks[safe_name].to(weight.device)
+                self._orig_weights[name] = weight
 
                 def make_pre_hook(m_mask, orig_w):
                     def pre_hook(mod, inputs):
@@ -73,7 +75,7 @@ class CompositionalityCheck:
         model: nn.Module,
         dataloader: DataLoader,
         num_classes: int,
-        device: Optional[torch.device] = None,
+        device: torch.device | None = None,
     ):
         self.model = model
         self.dataloader = dataloader
@@ -110,9 +112,9 @@ class CompositionalityCheck:
 
     def evaluate_masked_runs(
         self,
-        masks_by_class: Dict[int, Dict[str, torch.Tensor]],
+        masks_by_class: dict[int, dict[str, torch.Tensor]],
         method_name: str = "Atlas"
-    ) -> Dict[int, Dict[str, Any]]:
+    ) -> dict[int, dict[str, Any]]:
         results = {}
         for c in range(self.num_classes):
             if c not in masks_by_class:
@@ -144,9 +146,9 @@ class CompositionalityCheck:
 
     def run(
         self,
-        atlas_masks: Dict[int, Dict[str, torch.Tensor]],
-        csordas_masks: Dict[int, Dict[str, torch.Tensor]]
-    ) -> Dict[str, Any]:
+        atlas_masks: dict[int, dict[str, torch.Tensor]],
+        csordas_masks: dict[int, dict[str, torch.Tensor]]
+    ) -> dict[str, Any]:
         untainted_cm = self.compute_untainted_cm()
         untainted_total_acc = untainted_cm.diag().sum().item() / untainted_cm.sum().item()
 
@@ -198,11 +200,11 @@ class CompositionalityPipeline:
 
     def run_full_evaluation(
         self, 
-        clusters: Dict[str, torch.Tensor], 
+        clusters: dict[str, torch.Tensor], 
         atlas_threshold: float = 0.0,
         csordas_epochs: int = 5,
         csordas_lr: float = 1e-2
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
 
 
         logger.info("Generating Atlas Cluster Masks...")
@@ -224,10 +226,11 @@ class CompositionalityPipeline:
         )
         csordas_masks = csordas.run(target_layers=target_layers, num_epochs=csordas_epochs, lr=csordas_lr)
         
+        test_loader = self.dataprovider.test
         checker = CompositionalityCheck(
             model=self.model,
-            dataloader=self.dataprovider.test,
-            num_classes=self.dataprovider.num_classes
+            dataloader=test_loader,  # type: ignore[arg-type]
+            num_classes=int(self.dataprovider.num_classes or 0)
         )
         results = checker.run(atlas_masks=atlas_masks, csordas_masks=csordas_masks)
 

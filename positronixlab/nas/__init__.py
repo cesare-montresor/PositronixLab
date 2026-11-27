@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from positronixlab.nas.experiment import Experiment
     from positronixlab.nas.trial_config import TrialConfig
-    from positronixlab.nas.trial_pipeline import MetricValue, TrialPipeline, TrialResult, is_oom_error
+    from positronixlab.nas.trial_pipeline import (
+        MetricValue,
+        TrialPipeline,
+        TrialResult,
+        is_oom_error,
+    )
 
 _LAZY_EXPORTS = {
     "Experiment": ("positronixlab.nas.experiment", "Experiment"),

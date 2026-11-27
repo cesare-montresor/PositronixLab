@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import gzip
-from pathlib import Path
 import shutil
-from typing import Any, Optional, Sequence, Tuple, Union, Unpack
 import warnings
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any, Unpack, cast
 
 import numpy as np
 import pandas as pd
@@ -30,13 +31,13 @@ from positronixlab.dataprovider.dataprovider import (
 class _HIGGSPoolDataset(Dataset):
     """Non-mutating view over a split's full index pool, driven by ``EpochSubsampleSampler``."""
 
-    def __init__(self, dataset: "HIGGSDataset") -> None:
+    def __init__(self, dataset: HIGGSDataset) -> None:
         self._ds = dataset
 
     def __len__(self) -> int:
         return self._ds.split_size
 
-    def __getitem__(self, pool_idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, pool_idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         real_idx = int(self._ds.indices[pool_idx])
         return self._ds._get_raw_item(real_idx)
 
@@ -62,7 +63,7 @@ class HIGGSDataProvider(DataProvider, plugin_name="higgs"):
     def __init__(
         self,
         *,
-        epoch_size: Union[float, int] = 0.1,
+        epoch_size: float | int = 0.1,
         normalize: bool = True,
         split_seed: int = 42,
         test_seed: int = 1234,
@@ -96,19 +97,19 @@ class HIGGSDataProvider(DataProvider, plugin_name="higgs"):
             remainder_size = true_dataset_size - test_size
 
             test_split = random_split(
-                np.arange(true_dataset_size),
+                cast(Any, np.arange(true_dataset_size)),
                 [remainder_size, test_size],
                 generator=torch.Generator().manual_seed(self.test_seed),
             )
             remainder_indices = np.asarray(test_split[0].indices)
-            self.test_indices: Optional[np.ndarray] = np.asarray(test_split[1].indices)
+            self.test_indices: np.ndarray | None = np.asarray(test_split[1].indices)
 
             train_ratio = train_frac / (train_frac + val_frac)
             train_size = int(train_ratio * remainder_size)
             val_size = remainder_size - train_size
 
             trainval_split = random_split(
-                remainder_indices,
+                cast(Any, remainder_indices),
                 [train_size, val_size],
                 generator=torch.Generator().manual_seed(self.split_seed),
             )
@@ -120,7 +121,7 @@ class HIGGSDataProvider(DataProvider, plugin_name="higgs"):
             test_size = 0
 
             trainval_split = random_split(
-                np.arange(true_dataset_size),
+                cast(Any, np.arange(true_dataset_size)),
                 [train_size, val_size],
                 generator=torch.Generator().manual_seed(self.split_seed),
             )
@@ -133,9 +134,9 @@ class HIGGSDataProvider(DataProvider, plugin_name="higgs"):
         # ---- effective epoch_size per split ----
         if isinstance(epoch_size, int) and not isinstance(epoch_size, bool):
             percentage = epoch_size / max(train_size, 1)
-            epoch_size_train: Union[int, float] = epoch_size
-            epoch_size_val: Union[int, float] = max(1, int(percentage * val_size))
-            epoch_size_test: Union[int, float] = (
+            epoch_size_train: int | float = epoch_size
+            epoch_size_val: int | float = max(1, int(percentage * val_size))
+            epoch_size_test: int | float = (
                 max(1, int(percentage * test_size)) if test_size > 0 else 0
             )
         else:
@@ -144,7 +145,7 @@ class HIGGSDataProvider(DataProvider, plugin_name="higgs"):
             epoch_size_test = epoch_size
 
         # ---- build split datasets as thin views over the shared array ----
-        self.dataset_train = HIGGSDataset(
+        self.dataset_train: HIGGSDataset = HIGGSDataset(
             full_x,
             full_y,
             indices=self.train_indices,
@@ -154,7 +155,7 @@ class HIGGSDataProvider(DataProvider, plugin_name="higgs"):
             transforms=self.transforms,
             base_seed=self.epoch_seed,
         )
-        self.dataset_val = HIGGSDataset(
+        self.dataset_val: HIGGSDataset = HIGGSDataset(
             full_x,
             full_y,
             indices=self.val_indices,
@@ -164,7 +165,7 @@ class HIGGSDataProvider(DataProvider, plugin_name="higgs"):
             transforms=self.transforms,
             base_seed=self.epoch_seed + 10_000,
         )
-        self.dataset_test = None
+        self.dataset_test: HIGGSDataset | None = None
         if self.test_indices is not None and len(self.test_indices) > 0:
             self.dataset_test = HIGGSDataset(
                 full_x,
@@ -196,26 +197,27 @@ class HIGGSDataProvider(DataProvider, plugin_name="higgs"):
         # ---- normalization: computed on train, applied to val/test ----
         if normalize:
             self.dataset_train.compute_normalization()
-            self.dataset_val.apply_normalization(self.dataset_train.mean, self.dataset_train.std)
-            if self.dataset_test is not None:
-                self.dataset_test.apply_normalization(
-                    self.dataset_train.mean, self.dataset_train.std
-                )
+            if self.dataset_train.mean is not None and self.dataset_train.std is not None:
+                self.dataset_val.apply_normalization(self.dataset_train.mean, self.dataset_train.std)
+                if self.dataset_test is not None:
+                    self.dataset_test.apply_normalization(
+                        self.dataset_train.mean, self.dataset_train.std
+                    )
 
     def get_loader(
         self,
         split: SplitName,
         *,
-        batch_size: Optional[int] = None,
-        shuffle: Optional[bool] = None,
-        drop_last: Optional[bool] = None,
-        num_workers: Optional[int] = None,
-        indexed_dataset: Optional[bool] = None,
-        persistent_workers: Optional[bool] = None,
-        pin_memory: Optional[bool] = None,
-        sampler: Optional[Sampler] = None,
+        batch_size: int | None = None,
+        shuffle: bool | None = None,
+        drop_last: bool | None = None,
+        num_workers: int | None = None,
+        indexed_dataset: bool | None = None,
+        persistent_workers: bool | None = None,
+        pin_memory: bool | None = None,
+        sampler: Sampler | None = None,
         **kwargs: Any,
-    ) -> Optional[DataReader]:
+    ) -> DataReader | None:
         """Build a worker-safe ``DataReader`` using ``EpochSubsampleSampler`` for train/val."""
         if split == "train" and sampler is None and self.dataset_train is not None:
             return DataReader(
@@ -283,7 +285,7 @@ class HIGGSDataProvider(DataProvider, plugin_name="higgs"):
         }
 
 
-def _load_or_build_npy(root: Union[str, Path]) -> Tuple[torch.Tensor, torch.Tensor]:
+def _load_or_build_npy(root: str | Path) -> tuple[torch.Tensor, torch.Tensor]:
     """Ensure ``HIGGS.npy`` exists, then open it read-only memmap'd (zero-copy).
 
     Returns ``(full_x, full_y)`` backed directly by the memmap; labels are cast
@@ -355,11 +357,11 @@ class HIGGSDataset(Dataset):
         self,
         full_x: torch.Tensor,
         full_y: torch.Tensor,
-        indices: Optional[Sequence[int] | np.ndarray] = None,
-        transforms: Optional[TransformLike] = None,
-        epoch_size: Union[float, int] = 0.1,
+        indices: Sequence[int] | np.ndarray | None = None,
+        transforms: TransformLike | None = None,
+        epoch_size: float | int = 0.1,
         normalize: bool = True,
-        split_name: Optional[str] = None,
+        split_name: str | None = None,
         base_seed: int = 42,
     ) -> None:
         super().__init__()
@@ -380,14 +382,14 @@ class HIGGSDataset(Dataset):
 
         self.epoch_size = self._compute_epoch_size(epoch_size)
 
-        self.mean: Optional[torch.Tensor] = None
-        self.std: Optional[torch.Tensor] = None
+        self.mean: torch.Tensor | None = None
+        self.std: torch.Tensor | None = None
 
         self._epoch = -1
-        self.x: Optional[torch.Tensor] = None
-        self.y: Optional[torch.Tensor] = None
+        self.x: torch.Tensor | None = None
+        self.y: torch.Tensor | None = None
 
-    def _compute_epoch_size(self, epoch_size: Union[float, int]) -> int:
+    def _compute_epoch_size(self, epoch_size: float | int) -> int:
         if isinstance(epoch_size, int) and not isinstance(epoch_size, bool):
             n = min(epoch_size, self.split_size)
         elif isinstance(epoch_size, float):
@@ -419,7 +421,7 @@ class HIGGSDataset(Dataset):
         self.y = self.full_y[sorted_idx].long()
         self._epoch = epoch
 
-    def compute_normalization(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def compute_normalization(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute normalization stats from a bounded sample of the split."""
         sample_size = min(100_000, self.split_size)
         rng = np.random.default_rng(self.base_seed)
@@ -434,7 +436,7 @@ class HIGGSDataset(Dataset):
         self.mean = mean
         self.std = std
 
-    def _get_raw_item(self, real_idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _get_raw_item(self, real_idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.full_x[real_idx].float()
         y = self.full_y[real_idx].long()
 
@@ -449,9 +451,10 @@ class HIGGSDataset(Dataset):
     def __len__(self) -> int:
         return self.epoch_size
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        if self._epoch < 0:
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        if self._epoch < 0 or self.x is None or self.y is None:
             self.set_epoch(0)
+        assert self.x is not None and self.y is not None
 
         x = self.x[idx].float()
         y = self.y[idx].long()

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from collections.abc import Callable, Iterable
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -34,8 +35,8 @@ class NeuroSurgeonDiscoverer(SubnetworkDiscoverer):
         lr: float = 1e-2,
         epochs: int = 10,
         max_temp: float = 200.0,
-        mask_hparams: Optional[Dict[str, Any]] = None,
-        loss_fn: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
+        mask_hparams: dict[str, Any] | None = None,
+        loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
     ) -> None:
         self.mask_method = mask_method
         self.mask_unit = mask_unit
@@ -50,7 +51,7 @@ class NeuroSurgeonDiscoverer(SubnetworkDiscoverer):
         self,
         model: nn.Module,
         dataloader: Iterable[Any],
-        target_layers: Optional[List[str]] = None,
+        target_layers: list[str] | None = None,
         mask_name: str = "neurosurgeon",
         **kwargs: Any,
     ) -> SubnetworkMask:

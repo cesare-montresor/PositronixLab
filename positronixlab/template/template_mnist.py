@@ -6,7 +6,7 @@ from positronixlab.template.template_fmnist import TemplateCNN, TemplateFC
 
 class TemplateMnistFC(TemplateFC):
 
-    def __init__(self, name: str=None):
+    def __init__(self, name: str | None = None):
         super().__init__(name)      
          
         self.add_fixed('dataset_name', 'mnist', "str")  # Default input data shape for MNIST
@@ -14,7 +14,7 @@ class TemplateMnistFC(TemplateFC):
 
 class TemplateMnistCNN(TemplateCNN):
 
-    def __init__(self, name: str=None):
+    def __init__(self, name: str | None = None):
         super().__init__(name)    
         
         self.add_fixed('input_data_shape', 28, "int")

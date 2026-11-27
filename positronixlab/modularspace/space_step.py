@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any
+
 from torch import Tensor, nn
 
 from positronixlab.spacemath.contrast import ContrastResult, get_contrast
@@ -33,7 +35,7 @@ class SpaceStepSpec:
 
     # Activation -> score stage
     score_method: str = "quantile"
-    arch_reducer: Optional[str] = None
+    arch_reducer: str | None = None
     apply_activation: bool = False
     active_q: float = 0.80
     cnn_locality_weight: float = 0.5
@@ -63,15 +65,15 @@ class SpaceStepSpec:
 
     eps: float = 1e-8
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize this spec to a plain dictionary."""
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "SpaceStepSpec":
+    def from_dict(cls, data: Mapping[str, Any]) -> SpaceStepSpec:
         """Build from a dict using either short names or `modular_space_*` config keys."""
         valid = {f.name for f in fields(cls)}
-        kwargs: Dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
         for k, v in data.items():
             key = _CONFIG_KEY_MAP.get(k, k)
             if key in valid and v is not None:
@@ -79,7 +81,7 @@ class SpaceStepSpec:
         return cls(**kwargs)
 
     @classmethod
-    def from_config(cls, config: Any) -> "SpaceStepSpec":
+    def from_config(cls, config: Any) -> SpaceStepSpec:
         """Extract SpaceStepSpec fields from any PipelineConfig-like object or dict."""
         if isinstance(config, cls):
             return config
@@ -92,7 +94,7 @@ class SpaceStepSpec:
 
 
 # Maps flat PipelineConfigV2 field names -> SpaceStepSpec field names
-_CONFIG_KEY_MAP: Dict[str, str] = {
+_CONFIG_KEY_MAP: dict[str, str] = {
     "modular_space_distance": "space_type",
     "modular_space_type": "space_type",
     "modular_space_scoring": "score_method",
@@ -126,7 +128,7 @@ class SpaceStep:
     so it can be reused across `LayerSpace` (neurons) and recursive `OverSpace` (clusters).
     """
 
-    def __init__(self, spec: Optional[SpaceStepSpec] = None) -> None:
+    def __init__(self, spec: SpaceStepSpec | None = None) -> None:
         self.spec = spec if spec is not None else SpaceStepSpec()
         self.space_type = SpaceType.normalize_name(self.spec.space_type)
         self._weight_fn = get_weighter(self.spec.weight_method)
@@ -137,7 +139,7 @@ class SpaceStep:
         activations: Tensor,
         *,
         layer_type: str = "linear",
-        activation_fn: Optional[nn.Module] = None,
+        activation_fn: nn.Module | None = None,
     ) -> Tensor:
         """Convert raw layer activations into [-1, 1] unit scores using this spec."""
         s = self.spec
@@ -159,10 +161,10 @@ class SpaceStep:
         positions: Tensor,
         scores: Tensor,
         *,
-        stats: Optional[Tensor] = None,
-        clusters_labels: Optional[Tensor] = None,
-        unit_mask: Optional[Tensor] = None,
-    ) -> Tuple[Tensor, Dict[str, Tensor]]:
+        stats: Tensor | None = None,
+        clusters_labels: Tensor | None = None,
+        unit_mask: Tensor | None = None,
+    ) -> tuple[Tensor, dict[str, Tensor]]:
         """
         Compute the composite loss and per-component metrics dict for one batch.
 
@@ -188,7 +190,7 @@ class SpaceStep:
         )
 
         total_loss = zero
-        metrics: Dict[str, Tensor] = {}
+        metrics: dict[str, Tensor] = {}
 
         contrast_kwargs = dict(
             space_type=self.space_type,
@@ -198,8 +200,8 @@ class SpaceStep:
             eps=s.eps,
         )
 
-        global_res: Optional[ContrastResult] = None
-        cluster_res: Optional[ContrastResult] = None
+        global_res: ContrastResult | None = None
+        cluster_res: ContrastResult | None = None
 
         # 1) Global contrast
         if s.loss_global > 0.0:

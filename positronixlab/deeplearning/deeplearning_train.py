@@ -1,20 +1,17 @@
 import logging
-from typing import Callable
-
-import torch
-from torch.utils.data import DataLoader
 import time
+from collections.abc import Callable
+
 import numpy as np
+import torch
 from sklearn.metrics import confusion_matrix
-
 from torch import nn
-
-
+from torch.utils.data import DataLoader
 from tqdm.asyncio import tqdm
+
 from positronixlab.dataprovider.dataprovider import DataProvider
 from positronixlab.deeplearning.deeplearning_base import DeeplearningBase
 from positronixlab.pipeline import PipelineConfig
-
 
 logger = logging.getLogger(__name__)
 
@@ -41,20 +38,20 @@ class DeeplearningTrain:
         self.optim = None
         self.optim = self._get_optimizer()
 
-        self.early_stop: EarlyStopping = None
-        self.early_stop_metric: str = None  # key in val metrics dict used to drive early stopping
+        self.early_stop: EarlyStopping | None = None
+        self.early_stop_metric: str | None = None  # key in val metrics dict used to drive early stopping
 
         self.trainer = DeeplearningBase(self.config, self.model, self.dp.train, optimizer=self.optim, draft=self.draft)
         self.validator = DeeplearningBase(self.config, self.model, self.dp.val, optimizer=None, draft=self.draft)
 
-        self.history = {"train": [], "val": []}
+        self.history: dict[str, list[dict[str, float]]] = {"train": [], "val": []}
 
     def add_early_stopping(
         self,
         max_attempts: int = 3,
         min_gain: float = 0.01,
         metric: str = "loss",
-        minimize: bool = None,
+        minimize: bool | None = None,
     ):
         if minimize is None:
             minimize = "loss" in metric.lower()
@@ -128,7 +125,8 @@ class DeeplearningTrain:
 
         
     def train(self, epoch_total: int) -> dict:
-        if self.draft: epoch_total = 1
+        if self.draft:
+            epoch_total = 1
         self.sanity_check()
         
         for epoch in range(epoch_total):
@@ -153,14 +151,16 @@ class DeeplearningTrain:
         val_metrics, *_ = self.validator.process_epoch(self.dp.val, epoch, epoch_total, draft=self.draft)
         return val_metrics
 
-    def inference(self, dataloader: DataLoader = None, compute_cm: bool = False, force_eval: bool = True,
-                  on_batch_end: Callable = None) -> tuple[float, float, float, np.ndarray | None]:
+    def inference(self, dataloader: DataLoader | None = None, compute_cm: bool = False, force_eval: bool = True,
+                  on_batch_end: Callable | None = None) -> tuple[float, float | None, float, np.ndarray | None]:
         """
         Standalone evaluation loop (no optimizer, no registered metric criteria required).
         Returns (avg_loss, accuracy, avg_forward_time_per_sample, confusion_matrix|None).
         on_batch_end(batch_idx, batch_total, loss, acc) fires after every batch if provided.
         """
         dataloader = dataloader if dataloader is not None else self.dp.val
+        if dataloader is None:
+            raise ValueError("dataloader cannot be None")
 
         was_training = self.model.training
         if force_eval and was_training:
@@ -182,7 +182,7 @@ class DeeplearningTrain:
                 y = y.to(device=self.device)
 
                 y_hat = self.model(x)
-                loss = self.model.loss(x, y, y_hat)
+                loss = self.model.loss(x, y, y_hat)  # type: ignore[operator]
 
                 total_loss += loss.detach().item() * len(x)
                 data_num += len(x)
@@ -190,7 +190,7 @@ class DeeplearningTrain:
                 batch_acc = None
                 if self.config.task == "classification":
                     y_hat_cls = torch.argmax(y_hat, dim=1)
-                    batch_correct = torch.sum(y == y_hat_cls).item()
+                    batch_correct = int(torch.sum(y == y_hat_cls).item())
                     correct += batch_correct
                     batch_acc = batch_correct / len(x)
 

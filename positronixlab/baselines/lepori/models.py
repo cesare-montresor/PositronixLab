@@ -14,8 +14,9 @@ canonical :class:`SubnetworkMask` objects).
 from __future__ import annotations
 
 import copy
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -43,9 +44,9 @@ class OddOneOutHead(nn.Module):
 
 
 def strip_lepori_l0_keys(
-    state_dict: Dict[str, Any],
+    state_dict: dict[str, Any],
     prefix: str = "",
-) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
     """Separate base weights from Lepori ``L0Linear``/``L0Conv2d`` checkpoints.
 
     Returns:
@@ -59,8 +60,8 @@ def strip_lepori_l0_keys(
     elif isinstance(raw, dict) and "model" in raw and isinstance(raw["model"], dict):
         raw = raw["model"]
 
-    clean_weights: Dict[str, torch.Tensor] = {}
-    mask_weights: Dict[str, torch.Tensor] = {}
+    clean_weights: dict[str, torch.Tensor] = {}
+    mask_weights: dict[str, torch.Tensor] = {}
     pref = f"{prefix}." if prefix else ""
 
     for key, val in raw.items():
@@ -88,6 +89,7 @@ class CVRDecisionMLP(nn.Module):
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
+        self.fc2: nn.Linear | None
         if hidden_dim > 0:
             self.fc1 = nn.Linear(in_dim, hidden_dim)
             self.fc2 = nn.Linear(hidden_dim, out_dim)
@@ -123,8 +125,8 @@ class CVRResNetModel(SOTAModel):
         mlp_out_dim: int = 128,
         use_instance_norm: bool = True,
         pretrained: bool = False,
-        name: Optional[str] = None,
-        device: Optional[torch.device | str] = None,
+        name: str | None = None,
+        device: torch.device | str | None = None,
     ) -> None:
         super().__init__(name=name or f"CVR_{backbone_name}", device=device)
         import torchvision.models as tv_models
@@ -147,7 +149,7 @@ class CVRResNetModel(SOTAModel):
             )
 
         weights = "DEFAULT" if (pretrained and not use_instance_norm) else None
-        backbone = builders[backbone_name](weights=weights, norm_layer=norm_layer)
+        backbone: Any = builders[backbone_name](weights=weights, norm_layer=norm_layer)
         num_ftrs = backbone.fc.in_features
         backbone.fc = nn.Identity()
 
@@ -172,16 +174,16 @@ class CVRResNetModel(SOTAModel):
 
     def load_lepori_components(
         self,
-        backbone_path: Optional[str | Path] = None,
-        mlp_path: Optional[str | Path] = None,
+        backbone_path: str | Path | None = None,
+        mlp_path: str | Path | None = None,
         strict: bool = False,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor]:
         """Load Lepori ``*_backbone.pt`` and ``*_mlp.pt`` checkpoints.
 
         Returns any extracted ``*.mask_weight`` tensors keyed by canonical dotted
         module path.
         """
-        extracted_masks: Dict[str, torch.Tensor] = {}
+        extracted_masks: dict[str, torch.Tensor] = {}
         if backbone_path is not None:
             raw = torch.load(backbone_path, map_location=self.device, weights_only=True)
             clean, masks = strip_lepori_l0_keys(raw, prefix="backbone")
@@ -216,9 +218,9 @@ class CVRViTModel(SOTAModel):
         intermediate_size: int = 3072,
         mlp_hidden_dim: int = 2048,
         mlp_out_dim: int = 128,
-        pretrained_name: Optional[str] = None,
-        name: Optional[str] = None,
-        device: Optional[torch.device | str] = None,
+        pretrained_name: str | None = None,
+        name: str | None = None,
+        device: torch.device | str | None = None,
     ) -> None:
         super().__init__(name=name or "CVR_ViT", device=device)
         from transformers import ViTConfig, ViTModel
@@ -275,14 +277,14 @@ class SynEvalBertModel(SOTAModel):
 
     def __init__(
         self,
-        pretrained_name: Optional[str] = None,
+        pretrained_name: str | None = None,
         vocab_size: int = 30522,
         hidden_size: int = 512,
         num_hidden_layers: int = 4,
         num_attention_heads: int = 8,
         intermediate_size: int = 2048,
-        name: Optional[str] = None,
-        device: Optional[torch.device | str] = None,
+        name: str | None = None,
+        device: torch.device | str | None = None,
     ) -> None:
         super().__init__(name=name or "SynEval_BERT", device=device)
         from transformers import BertConfig, BertModel
@@ -308,7 +310,7 @@ class SynEvalBertModel(SOTAModel):
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
+        attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if attention_mask is None and input_ids.ndim == 4 and input_ids.shape[1] == 2:
             attention_mask = input_ids[:, 1, :, :]
@@ -339,7 +341,7 @@ class SynEvalBertModel(SOTAModel):
 def _simclr_similarity_and_masks(
     embeddings: torch.Tensor,
     temperature: float,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Compute scaled cosine similarity matrix (diagonal masked) and positive-pair mask."""
     if embeddings.ndim != 2 or embeddings.shape[0] < 2 or embeddings.shape[0] % 2 != 0:
         raise ValueError(
@@ -377,7 +379,7 @@ class SimCLRLoss(nn.Module):
     def forward(
         self,
         embeddings: torch.Tensor,
-        targets: Optional[torch.Tensor] = None,
+        targets: torch.Tensor | None = None,
     ) -> torch.Tensor:
         del targets
         logits, pos_mask = _simclr_similarity_and_masks(embeddings, self.temperature)
@@ -389,7 +391,7 @@ class SimCLRLoss(nn.Module):
 def simclr_ranking_metrics(
     embeddings: torch.Tensor,
     temperature: float = 0.07,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Compute SimCLR positive-pair ranking metrics (``top1``, ``top5``, ``mean_pos``).
 
     Matches ``SimCLRModel.info_nce_loss`` logging (``acc_top1``, ``acc_top5``,
@@ -441,8 +443,8 @@ class CVRSimCLRModel(SOTAModel):
         mlp_out_dim: int = 128,
         use_instance_norm: bool = True,
         temperature: float = 0.07,
-        name: Optional[str] = None,
-        device: Optional[torch.device | str] = None,
+        name: str | None = None,
+        device: torch.device | str | None = None,
     ) -> None:
         super().__init__(
             name=name or f"CVR_SimCLR_{backbone_name}",
@@ -472,7 +474,7 @@ class CVRSimCLRModel(SOTAModel):
                 f"Choose from {sorted(builders.keys())}."
             )
 
-        backbone = builders[backbone_name](weights=None, norm_layer=norm_layer)
+        backbone: Any = builders[backbone_name](weights=None, norm_layer=norm_layer)
         num_ftrs = backbone.fc.in_features
         backbone.fc = nn.Identity()
 
@@ -483,7 +485,7 @@ class CVRSimCLRModel(SOTAModel):
 
     @staticmethod
     def _flatten_views(
-        views: Union[torch.Tensor, Sequence[torch.Tensor]],
+        views: torch.Tensor | Sequence[torch.Tensor],
     ) -> torch.Tensor:
         if isinstance(views, (list, tuple)):
             if len(views) != 2:
@@ -519,7 +521,7 @@ class CVRSimCLRModel(SOTAModel):
 
     def forward(
         self,
-        views: Union[torch.Tensor, Sequence[torch.Tensor]],
+        views: torch.Tensor | Sequence[torch.Tensor],
     ) -> torch.Tensor:
         imgs = self._flatten_views(views)
         return self.encode(imgs)
@@ -529,7 +531,7 @@ class CVRSimCLRModel(SOTAModel):
         *,
         mlp_hidden_dim: int = 2048,
         mlp_out_dim: int = 128,
-        device: Optional[torch.device | str] = None,
+        device: torch.device | str | None = None,
     ) -> CVRResNetModel:
         """Create a downstream :class:`CVRResNetModel` initialized with this pretrained backbone.
 
@@ -548,7 +550,7 @@ class CVRSimCLRModel(SOTAModel):
         ooo.backbone.load_state_dict(copy.deepcopy(self.backbone.state_dict()), strict=True)
         return ooo
 
-    def save_lepori_components(self, out_dir: Union[str, Path]) -> Tuple[Path, Path]:
+    def save_lepori_components(self, out_dir: str | Path) -> tuple[Path, Path]:
         """Save ``backbone.pt`` and ``mlp.pt`` matching ``Vision/CVR/SimCLR.py``."""
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
@@ -560,8 +562,8 @@ class CVRSimCLRModel(SOTAModel):
 
     def load_lepori_components(
         self,
-        backbone_path: Optional[Union[str, Path]] = None,
-        mlp_path: Optional[Union[str, Path]] = None,
+        backbone_path: str | Path | None = None,
+        mlp_path: str | Path | None = None,
         strict: bool = True,
     ) -> None:
         """Load ``backbone.pt`` and/or ``mlp.pt`` saved by ``SimCLR.py`` or :meth:`save_lepori_components`."""
@@ -576,12 +578,12 @@ class CVRSimCLRModel(SOTAModel):
 
 
 def _move_views(
-    views: Union[torch.Tensor, Sequence[torch.Tensor]],
+    views: torch.Tensor | Sequence[torch.Tensor],
     device: torch.device,
-) -> Union[torch.Tensor, List[torch.Tensor]]:
-    if isinstance(views, (list, tuple)):
-        return [v.to(device) for v in views]
-    return views.to(device)
+) -> torch.Tensor | list[torch.Tensor]:
+    if isinstance(views, torch.Tensor):
+        return views.to(device)
+    return [v.to(device) for v in views]
 
 
 def pretrain_simclr(
@@ -592,9 +594,9 @@ def pretrain_simclr(
     lr: float = 5e-4,
     weight_decay: float = 0.0,
     temperature: float = 0.07,
-    checkpoint_dir: Optional[Union[str, Path]] = None,
-    device: Optional[torch.device | str] = None,
-) -> Dict[str, Any]:
+    checkpoint_dir: str | Path | None = None,
+    device: torch.device | str | None = None,
+) -> dict[str, Any]:
     """Run Lepori et al.'s SimCLR contrastive pretraining loop on *model*.
 
     Reference: ``libs/Compositional_Subnetworks/Vision/CVR/SimCLR.py`` and
@@ -618,9 +620,9 @@ def pretrain_simclr(
     train_loader = dataprovider.train if hasattr(dataprovider, "train") else dataprovider
     val_loader = getattr(dataprovider, "val", None)
 
-    history: Dict[str, List[Dict[str, float]]] = {"train": [], "val": []}
+    history: dict[str, list[dict[str, float]]] = {"train": [], "val": []}
     best_score = -1.0
-    best_state: Optional[Dict[str, torch.Tensor]] = None
+    best_state: dict[str, torch.Tensor] | None = None
 
     for _epoch in range(epochs):
         model.train()
@@ -646,7 +648,7 @@ def pretrain_simclr(
             tr_epoch = dict(tr_totals)
         history["train"].append(tr_epoch)
 
-        val_epoch: Optional[Dict[str, float]] = None
+        val_epoch: dict[str, float] | None = None
         if val_loader is not None:
             model.eval()
             va_totals = {"loss": 0.0, "top1": 0.0, "top5": 0.0, "mean_pos": 0.0}
@@ -676,7 +678,7 @@ def pretrain_simclr(
         model.load_state_dict(best_state, strict=True)
         model.to(target_device)
 
-    saved_paths: Optional[Tuple[Path, Path]] = None
+    saved_paths: tuple[Path, Path] | None = None
     if checkpoint_dir is not None:
         saved_paths = model.save_lepori_components(checkpoint_dir)
 

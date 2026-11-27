@@ -1,7 +1,6 @@
 import torch
 
 
-
 def sigreg(pos: torch.Tensor, sketch_dim: int = 64, method: str = "weak") -> torch.Tensor:
     """Dispatch isotropic Gaussian regularization ('weak' covariance or 'strong' characteristic function)."""
     if method == "weak":

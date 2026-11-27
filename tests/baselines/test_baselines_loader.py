@@ -5,10 +5,12 @@ from __future__ import annotations
 import pytest
 import torch
 
-from positronixlab.baselines import ModelLoader, OddOneOutHead, is_neurosurgeon_available
-from positronixlab.baselines.csordas import strip_csordas_mask_keys
-from positronixlab.baselines.lepori import CVRResNetModel, strip_lepori_l0_keys
-from positronixlab.baselines.neurosurgeon import strip_neurosurgeon_mask_keys
+from positronixlab.baselines import (
+    ModelLoader,
+    OddOneOutHead,
+    is_neurosurgeon_available,
+)
+from positronixlab.baselines.lepori import CVRResNetModel
 
 
 def test_registry_lists_csordas_and_lepori_models():

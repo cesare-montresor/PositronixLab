@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 import logging
 import time
-from typing import Any, Dict, List, Optional
-
+from abc import ABC, abstractmethod
+from typing import Any
 
 from parallelazy import PluginManager, is_debugpy_attached
 
 from positronixlab.pipeline.pipeline_config import PipelineConfig, PipelineOptions
-
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +24,7 @@ class Pipeline(ABC):
     def __init__(
         self,
         config: PipelineConfig,
-        options: Optional[PipelineOptions] = None,
+        options: PipelineOptions | None = None,
     ):
         self.config = config
         self.options = options or PipelineOptions()
@@ -49,18 +47,18 @@ class Pipeline(ABC):
     def run_log_dir(self) -> str:
         return self.plugin_manager.run_log_dir
 
-    def enable_monitoring(self, hotkey: Optional[str] = "m") -> None:
+    def enable_monitoring(self, hotkey: str | None = "m") -> None:
         """Enable `parallelazy` runtime monitoring (and optional report hotkey)."""
         self.plugin_manager.enable_monitoring()
         if hotkey:
             self.plugin_manager.enable_report_hotkey(hotkey)
 
-    def run(self, parallel: Optional[bool] = None) -> None:
+    def run(self, parallel: bool | None = None) -> None:
         """Start all loaded plugins."""
         use_parallel = self.options.parallel_plugins if parallel is None else parallel
         self.plugin_manager.start_all_plugins(parallel=use_parallel)
 
-    def get_env(self, key: Optional[str] = None) -> Any:
+    def get_env(self, key: str | None = None) -> Any:
         """Read a key (or the full dict when `key=None`) from the shared plugin environment."""
         return self.plugin_manager.env_get(key) if key is not None else self.plugin_manager.env_get()
 
@@ -82,7 +80,7 @@ class Pipeline(ABC):
                 return True
         return False
 
-    def get_errors(self) -> Dict[str, List[str]]:
+    def get_errors(self) -> dict[str, list[str]]:
         """
         Collect error messages across all loaded plugins.
 
@@ -90,10 +88,10 @@ class Pipeline(ABC):
         works even if the worker process already died), falling back to
         `plugin_errors(plugin_id)` when alive.
         """
-        errors: Dict[str, List[str]] = {}
+        errors: dict[str, list[str]] = {}
         statuses = self.plugin_manager.plugin_status_all()
         for plugin_id, status in statuses.items():
-            errs: List[str] = []
+            errs: list[str] = []
             raw_errs = getattr(status.worker_status, "errors", None) if status.worker_status else None
             if isinstance(raw_errs, (list, tuple)) and raw_errs:
                 errs = [str(e) for e in raw_errs]
@@ -112,11 +110,11 @@ class Pipeline(ABC):
 
     def wait(
         self,
-        timeout_sec: Optional[float] = None,
-        poll_interval: Optional[float] = None,
-        terminate_on_error: Optional[bool] = None,
-        status_log_interval: Optional[float] = None,
-        verbose: Optional[bool] = None,
+        timeout_sec: float | None = None,
+        poll_interval: float | None = None,
+        terminate_on_error: bool | None = None,
+        status_log_interval: float | None = None,
+        verbose: bool | None = None,
     ) -> None:
         """
         Block until `is_complete()` is True, an error occurs, or `timeout_sec` elapses.
@@ -193,7 +191,7 @@ class Pipeline(ABC):
             self._closed = True
             self.plugin_manager.close()
 
-    def __enter__(self) -> "Pipeline":
+    def __enter__(self) -> Pipeline:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:

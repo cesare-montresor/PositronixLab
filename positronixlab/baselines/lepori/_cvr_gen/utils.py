@@ -1,9 +1,8 @@
 import os
-import numpy as np
-
-from PIL import Image
 
 import cv2
+import numpy as np
+from PIL import Image
 
 
 def cat_lists(lists):
@@ -497,13 +496,13 @@ def save_image_human_exp(images, meta, base_path):
     images = images.reshape([im_shape[0]//dim_0, dim_0, 4, dim_0, 3]).transpose([0,2,1,3,4]).reshape([-1, dim_0, dim_0, 3])
     for i in range(len(images)):
         idx1, idx2 = i//4, i%4 
-        save_path = os.path.join(base_path, '{:02d}_{}.png'.format(idx1, idx2))
+        save_path = os.path.join(base_path, f'{idx1:02d}_{idx2}.png')
         img = Image.fromarray(images[i,pad:dim_0-pad, pad:dim_0-pad]).convert('RGB')
         img.save(save_path)
 
 
 def save_image_bin(images, base_path, task_name):
-    save_path = base_path + '{}.png'.format(task_name)
+    save_path = base_path + f'{task_name}.png'
     if images.dtype != np.uint8:
         images = (images*255).astype(np.uint8)
     img = Image.fromarray(images).convert('1')
@@ -512,7 +511,7 @@ def save_image_bin(images, base_path, task_name):
 
 
 def save_image(images, base_path, task_name):
-    save_path = base_path + '{}.png'.format(task_name)
+    save_path = base_path + f'{task_name}.png'
     # if images.dtype != np.uint8:
     #     images = (images*255).astype(np.uint8)
     img = Image.fromarray(images).convert('RGB')

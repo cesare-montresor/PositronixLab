@@ -10,10 +10,10 @@ Run:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import os
 import tempfile
+from dataclasses import dataclass
 
 from positronixlab.nas import Experiment, TrialConfig, TrialResult
 from positronixlab.template import TemplateBase

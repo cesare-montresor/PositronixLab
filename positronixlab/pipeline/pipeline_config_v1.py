@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+
 from positronixlab.pipeline.pipeline_config import PipelineConfig
+
 
 @dataclass
 class PipelineConfigV1(PipelineConfig):

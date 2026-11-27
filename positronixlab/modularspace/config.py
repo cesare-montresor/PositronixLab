@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 from positronixlab.pipeline.config import BaseConfig
 
@@ -22,7 +21,7 @@ class LayerSpaceConfig(BaseConfig):
 
     # Composable SpaceStep stage selectors
     modular_space_scoring: str = "quantile"
-    modular_space_reducer: Optional[str] = None
+    modular_space_reducer: str | None = None
     modular_space_apply_activation: bool = False
     modular_space_weighting: str = "raw"
     modular_space_contrast: str = "distance_log"

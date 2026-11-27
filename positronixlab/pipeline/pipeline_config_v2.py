@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Optional
 
 from positronixlab.pipeline.pipeline_config import PipelineConfig
 
@@ -61,7 +60,7 @@ class PipelineConfigV2(PipelineConfig):
 
     # Composable space-step stage selectors (Ax choices)
     modular_space_scoring: str = "quantile"
-    modular_space_reducer: Optional[str] = None
+    modular_space_reducer: str | None = None
     modular_space_apply_activation: bool = False
     modular_space_weighting: str = "raw"
     modular_space_contrast: str = "distance_log"

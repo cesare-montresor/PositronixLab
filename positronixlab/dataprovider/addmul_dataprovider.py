@@ -13,7 +13,7 @@ Supports both:
 
 from __future__ import annotations
 
-from typing import Dict, List, Literal, Optional, Tuple, Unpack
+from typing import Any, Literal
 
 import numpy as np
 import torch
@@ -23,7 +23,6 @@ from torch.utils.data import Dataset
 
 from positronixlab.dataprovider.dataprovider import (
     CompositionalDataProvider,
-    DataProviderOptions,
     SubtaskSplit,
     TransformLike,
     apply_transform,
@@ -59,21 +58,21 @@ def addmul_exact_accuracy(logits: torch.Tensor, targets: torch.Tensor) -> float:
 class AddMulDataset(Dataset):
     """Synthetic modulo-``10**n_digits`` addition/multiplication dataset."""
 
-    OP_IDS: Tuple[str, str] = ("add", "mul")
-    SETS: Tuple[str, str, str] = ("train", "test", "valid")
-    _CACHE: Dict[str, Dict[str, np.ndarray]] = {}
+    OP_IDS: tuple[str, str] = ("add", "mul")
+    SETS: tuple[str, str, str] = ("train", "test", "valid")
+    _CACHE: dict[str, dict[str, np.ndarray]] = {}
 
     def __init__(
         self,
         split: str = "train",
         n_samples: int = 100_000,
         n_digits: int = 2,
-        restrict: Optional[List[str]] = None,
+        restrict: list[str] | None = None,
         *,
-        restrict_op: Optional[str] = None,
+        restrict_op: str | None = None,
         target_mode: TargetMode = "digits",
-        seed: Optional[int] = None,
-        transforms: Optional[TransformLike] = None,
+        seed: int | None = None,
+        transforms: TransformLike | None = None,
     ) -> None:
         super().__init__()
         if split not in self.SETS:
@@ -115,13 +114,13 @@ class AddMulDataset(Dataset):
             if cache_key not in self._CACHE:
                 rng = np.random.RandomState(eff_seed)
                 args = rng.randint(0, mod, (n_samples, 2))
-                ops = rng.randint(0, 2, (n_samples,))
+                ops_raw = rng.randint(0, 2, (n_samples,))
                 add_res = (args[:, 0] + args[:, 1]) % mod
                 mul_res = (args[:, 0] * args[:, 1]) % mod
-                res = np.where(ops == 0, add_res, mul_res)
+                res = np.where(ops_raw == 0, add_res, mul_res)
                 self._CACHE[cache_key] = {
                     "args": args,
-                    "op": ops.astype(np.uint8),
+                    "op": ops_raw.astype(np.uint8),
                     "res": res,
                 }
 
@@ -148,7 +147,7 @@ class AddMulDataset(Dataset):
     def __len__(self) -> int:
         return int(self.ops.shape[0])
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         arg_digits = torch.from_numpy(_split_digits(self.n_digits, self.args[idx])).long()
         op_val = int(self.ops[idx])
 
@@ -181,15 +180,15 @@ class AddMulDataProvider(
         n_train_samples: int = 100_000,
         n_val_samples: int = 10_000,
         n_test_samples: int = 10_000,
-        restrict: Optional[List[str]] = None,
+        restrict: list[str] | None = None,
         *,
-        n_train: Optional[int] = None,
-        n_val: Optional[int] = None,
-        n_test: Optional[int] = None,
+        n_train: int | None = None,
+        n_val: int | None = None,
+        n_test: int | None = None,
         target_mode: TargetMode = "digits",
-        seed: Optional[int] = None,
+        seed: int | None = None,
         batch_size: int = 64,
-        **kwargs: Unpack[DataProviderOptions],
+        **kwargs: Any,
     ) -> None:
         if n_train is not None:
             n_train_samples = n_train
@@ -217,7 +216,7 @@ class AddMulDataProvider(
         self.y_shape = (n_digits,) if target_mode == "digits" else ()
         self.criterion = AddMulLoss() if target_mode == "digits" else nn.CrossEntropyLoss()
 
-        split_kw = dict(
+        split_kw: dict[str, Any] = dict(
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             drop_last=self.drop_last,
@@ -226,7 +225,7 @@ class AddMulDataProvider(
             pin_memory=self.pin_memory,
         )
 
-        def _build_split(sub_name: str, sub_restrict: Optional[List[str]], sub_op: Optional[str], offset: int) -> SubtaskSplit:
+        def _build_split(sub_name: str, sub_restrict: list[str] | None, sub_op: str | None, offset: int) -> SubtaskSplit:
             base_s = None if seed is None else (seed + offset * 10)
             return SubtaskSplit(
                 name=sub_name,
@@ -272,7 +271,7 @@ class AddMulDataProvider(
         }
         self._sync_base_split()
 
-    def with_restrict(self, restrict: Optional[List[str]]) -> "AddMulDataProvider":
+    def with_restrict(self, restrict: list[str] | None) -> AddMulDataProvider:
         """Return a new provider restricted to a subset of operations (e.g. ``['add']``)."""
         return AddMulDataProvider(
             n_digits=self.n_digits,

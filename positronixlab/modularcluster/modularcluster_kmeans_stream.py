@@ -1,10 +1,10 @@
+from typing import Literal
+
+import numpy as np
 import torch
 import torch.nn.functional as F
-from typing import Dict, Literal, Optional, Tuple
-
-from sklearn.metrics import silhouette_score
-
 from faiss import Kmeans as FAISS_KMeans
+from sklearn.metrics import silhouette_score
 
 from positronixlab.utils.utils import suppress_output
 
@@ -27,12 +27,12 @@ class ModularClusterKmeansStream:
     def __init__(
         self,
         metric: Literal['euclidean', 'cosine'] = 'cosine',
-        k_min: Optional[int] = None,
-        k_max: Optional[int] = None,
+        k_min: int | None = None,
+        k_max: int | None = None,
         max_iter: int = 100,
         tol: float = 1e-5,
         n_init: int = 1,
-        device: Optional[torch.device] = None,
+        device: torch.device | None = None,
         verbose: bool = False,
         precompute_distances: bool = True
     ):
@@ -58,12 +58,12 @@ class ModularClusterKmeansStream:
         self.verbose = verbose
         self.precompute_distances = precompute_distances
 
-        self.centroids = None
-        self.labels = None
-        self.best_score = None
-        self.best_k = None
-        self.silhouette_scores = {}
-        self.distance_cache = None
+        self.centroids: torch.Tensor | None = None
+        self.labels: torch.Tensor | None = None
+        self.best_score: float | None = None
+        self.best_k: int | None = None
+        self.silhouette_scores: dict[int, float] = {}
+        self.distance_cache: np.ndarray | None = None
 
         # Effective max_iter for the current fit() call (may be overridden
         # per-call for warm-started continuations); reset after each fit().
@@ -72,9 +72,9 @@ class ModularClusterKmeansStream:
         # Per-k centroid cache, persists ACROSS fit() calls (not reset in
         # fit()) so consecutive timesteps can warm-start FAISS training.
         # Keyed by k -> np.ndarray of shape (k, n_features).
-        self._centroid_cache: Dict[int, "object"] = {}
+        self._centroid_cache: dict[int, np.ndarray] = {}
 
-    def _compute_k_range(self, n: int) -> Tuple[int, int]:
+    def _compute_k_range(self, n: int) -> tuple[int, int]:
         """Compute heuristic K range based on dataset size."""
         k_min = self.k_min or max(2, int(n ** 0.5 / 2))
         k_max = self.k_max or min(int((2 * n) ** 0.5), n // 2)
@@ -100,16 +100,16 @@ class ModularClusterKmeansStream:
         if k < 2:
             return -1.0  # Silhouette score undefined for k < 2
 
-        labels = labels.cpu().numpy()
+        labels_np = labels.cpu().numpy()
 
         if self.precompute_distances:
-            score = silhouette_score(self.distance_cache, labels, metric='precomputed')
+            score = silhouette_score(self.distance_cache, labels_np, metric='precomputed')
         else:
-            score = silhouette_score(x.cpu().numpy(), labels, metric=self.metric)
+            score = silhouette_score(x.cpu().numpy(), labels_np, metric=self.metric)
 
-        return score
+        return float(score)
 
-    def _kmeans(self, x: torch.Tensor, k: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _kmeans(self, x: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
         """Run KMeans clustering for a single K value, warm-starting from a
         cached centroid set for this k if one exists and matches dimensions."""
         spherical = (self.metric == 'cosine')
@@ -141,7 +141,8 @@ class ModularClusterKmeansStream:
         centroids = torch.from_numpy(kmeans.centroids).to(self.device)
         # Cache converged centroids for this k so the next fit() at the same
         # k (typically the following timestep) can warm-start from here.
-        self._centroid_cache[k] = kmeans.centroids.copy()
+        if kmeans.centroids is not None:
+            self._centroid_cache[k] = kmeans.centroids.copy()
 
         # Assign labels based on nearest centroid
         dists = self._distance(x, centroids)
@@ -216,9 +217,9 @@ class ModularClusterKmeansStream:
     def fit(
         self,
         x: torch.Tensor,
-        warm_start_k: Optional[int] = None,
-        k_search_radius: Optional[int] = None,
-        max_iter_override: Optional[int] = None,
+        warm_start_k: int | None = None,
+        k_search_radius: int | None = None,
+        max_iter_override: int | None = None,
     ) -> 'ModularClusterKmeansStream':
         """
         Fit KMeans with adaptive K selection.
@@ -291,11 +292,13 @@ class ModularClusterKmeansStream:
         """Fit and return cluster labels. Accepts the same optional
         warm-start kwargs as fit()."""
         self.fit(x, **fit_kwargs)
+        if self.labels is None:
+            raise RuntimeError("Clustering fit() did not produce labels.")
         return self.labels
 
     def print_stats(self):
         """Print clustering statistics."""
-        if self.centroids is None or self.labels is None:
+        if self.centroids is None or self.labels is None or self.best_k is None:
             print("Model not fitted yet.")
             return
 

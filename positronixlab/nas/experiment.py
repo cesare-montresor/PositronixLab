@@ -1,26 +1,19 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import gc
 import json
 import logging
 import os
 import time
+import warnings
+from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import (
     Any,
-    Callable,
-    Dict,
     Generic,
-    List,
-    Mapping,
-    Optional,
-    Sequence,
-    Tuple,
-    Type,
     TypeVar,
-    Union,
 )
-import warnings
+
 import yaml
 
 with warnings.catch_warnings():
@@ -31,7 +24,12 @@ with warnings.catch_warnings():
     from ax.core.trial_status import TrialStatus
 
 from positronixlab.nas.trial_config import TrialConfig
-from positronixlab.nas.trial_pipeline import MetricValue, TrialPipeline, TrialResult, is_oom_error
+from positronixlab.nas.trial_pipeline import (
+    MetricValue,
+    TrialPipeline,
+    TrialResult,
+    is_oom_error,
+)
 from positronixlab.pipeline.pipeline_config import PipelineOptions
 from positronixlab.template.template_base import TemplateBase
 
@@ -90,26 +88,26 @@ class Experiment(Generic[TConfig]):
         template: TemplateBase,
         objective: str,
         *,
-        trial_pipeline_cls: Optional[Type[TrialPipeline]] = None,
-        eval_fn: Optional[Callable[[TConfig], Union[TrialResult, Dict[str, MetricValue]]]] = None,
-        config_cls: Type[TConfig] = TrialConfig,  # type: ignore[assignment]
-        pipeline_options: Optional[PipelineOptions] = None,
-        outcome_constraints: Optional[Sequence[str]] = None,
-        tracking_metrics: Optional[Sequence[str]] = None,
+        trial_pipeline_cls: type[TrialPipeline] | None = None,
+        eval_fn: Callable[[TConfig], TrialResult | dict[str, MetricValue]] | None = None,
+        config_cls: type[TConfig] = TrialConfig,  # type: ignore[assignment]
+        pipeline_options: PipelineOptions | None = None,
+        outcome_constraints: Sequence[str] | None = None,
+        tracking_metrics: Sequence[str] | None = None,
         output_dir: str = "output",
         generation_method: str = "fast",
-        initialization_budget: Optional[int] = None,
+        initialization_budget: int | None = None,
         initialize_with_center: bool = True,
         parallel_init: int = 1,
         parallel_bo: int = 1,
-        gpu_ids: Optional[Sequence[int]] = None,
-        trial_timeout_sec: Optional[float] = None,
+        gpu_ids: Sequence[int] | None = None,
+        trial_timeout_sec: float | None = None,
         poll_interval: float = 0.25,
         oom_retries: int = 2,
         oom_backoff_sec: float = 15.0,
         oom_final_status: str = "abandoned",
         reconcile_running: str = "fail",
-        random_seed: Optional[int] = None,
+        random_seed: int | None = None,
     ):
         if trial_pipeline_cls is None and eval_fn is None:
             raise ValueError("Provide either `trial_pipeline_cls` or `eval_fn`.")
@@ -198,7 +196,7 @@ class Experiment(Generic[TConfig]):
             init_budget = max(5, self.parallel_init)
 
         client.configure_generation_strategy(
-            method=self.generation_method,
+            method=self.generation_method,  # type: ignore[arg-type]
             initialization_budget=init_budget,
             initialize_with_center=self.initialize_with_center,
             allow_exceeding_initialization_budget=(self.parallel_init > 1),
@@ -251,7 +249,7 @@ class Experiment(Generic[TConfig]):
         self,
         prior_db_path: str,
         prior_experiment_name: str,
-        filter_fn: Optional[Callable[[Dict[str, Any]], bool]] = None,
+        filter_fn: Callable[[dict[str, Any]], bool] | None = None,
     ) -> int:
         """
         Attach completed trials from a prior SQLite Ax experiment as warm-start
@@ -267,25 +265,27 @@ class Experiment(Generic[TConfig]):
         prior_exp = prior_client._experiment
         data_df = prior_exp.lookup_data().df
 
-        extracted: List[Tuple[Dict[str, Any], Dict[str, MetricValue]]] = []
+        extracted: list[tuple[dict[str, Any], dict[str, MetricValue]]] = []
         for idx, trial in prior_exp.trials.items():
-            if trial.status != TrialStatus.COMPLETED or getattr(trial, "arm", None) is None:
+            arm = getattr(trial, "arm", None)
+            if trial.status != TrialStatus.COMPLETED or arm is None:
                 continue
-            params = dict(trial.arm.parameters)
+            params = dict(arm.parameters)
             if filter_fn is not None and not filter_fn(params):
                 continue
 
             trial_rows = data_df[data_df["trial_index"] == idx]
             if trial_rows.empty:
                 continue
-            raw_data: Dict[str, MetricValue] = {}
+            raw_data: dict[str, MetricValue] = {}
             for _, row in trial_rows.iterrows():
-                mean = float(row["mean"])
-                sem = row.get("sem")
+                row_any: Any = row
+                mean = float(row_any["mean"])
+                sem = row_any.get("sem")
                 if sem is not None and sem == sem:  # not NaN
-                    raw_data[str(row["metric_name"])] = (mean, float(sem))
+                    raw_data[str(row_any["metric_name"])] = (mean, float(sem))
                 else:
-                    raw_data[str(row["metric_name"])] = mean
+                    raw_data[str(row_any["metric_name"])] = mean
             extracted.append((params, raw_data))
 
         # Re-bind Ax SQLAlchemy session factory back to this experiment's DB
@@ -317,7 +317,7 @@ class Experiment(Generic[TConfig]):
         self,
         trial_index: int,
         params: Mapping[str, Any],
-        gpu_id: Optional[int] = None,
+        gpu_id: int | None = None,
     ) -> TConfig:
         tdir = self._trial_dir(trial_index)
         config = self.config_cls.from_trial(
@@ -403,7 +403,7 @@ class Experiment(Generic[TConfig]):
         gpu_id = self.gpu_ids[0] if self.gpu_ids else None
         config = self._build_trial_config(trial_index, params, gpu_id=gpu_id)
 
-        last_result: Optional[TrialResult] = None
+        last_result: TrialResult | None = None
         total_attempts = 1 + self.oom_retries
         for attempt in range(1, total_attempts + 1):
             _release_cuda_cache()
@@ -431,8 +431,8 @@ class Experiment(Generic[TConfig]):
     def run(
         self,
         n_trials: int,
-        fixed_parameters: Optional[Dict[str, Any]] = None,
-    ) -> List[Tuple[TConfig, Dict[str, Tuple[float, Optional[float]]], int]]:
+        fixed_parameters: dict[str, Any] | None = None,
+    ) -> list[tuple[TConfig, dict[str, tuple[float, float | None]], int]]:
         """
         Run (or resume) until `n_trials` trials have reached a terminal state
         (`COMPLETED` / `ABANDONED` / `EARLY_STOPPED`), then export summary and
@@ -456,7 +456,7 @@ class Experiment(Generic[TConfig]):
             if not trials_batch:
                 break
 
-            oom_deferred: List[Tuple[int, Mapping[str, Any]]] = []
+            oom_deferred: list[tuple[int, Mapping[str, Any]]] = []
 
             if len(trials_batch) == 1:
                 t_idx, params = next(iter(trials_batch.items()))
@@ -468,7 +468,7 @@ class Experiment(Generic[TConfig]):
                 else:
                     self._record_trial_result(t_idx, config, result)
             else:
-                configs: Dict[int, TConfig] = {}
+                configs: dict[int, TConfig] = {}
                 with ThreadPoolExecutor(max_workers=len(trials_batch)) as executor:
                     futures = {}
                     for slot, (t_idx, params) in enumerate(trials_batch.items()):
@@ -503,14 +503,14 @@ class Experiment(Generic[TConfig]):
     def get_best(
         self,
         use_model_predictions: bool = False,
-    ) -> List[Tuple[TConfig, Dict[str, Tuple[float, Optional[float]]], int]]:
+    ) -> list[tuple[TConfig, dict[str, tuple[float, float | None]], int]]:
         """
         Return best trial(s) as `[(TrialConfig, prediction_dict, trial_index), ...]`.
         Dispatches to `get_pareto_frontier()` for MOO and `get_best_parameterization()`
         for single-objective experiments.
         """
         fixed = self.template.get_fixed()
-        items: List[Tuple[Mapping[str, Any], Dict[str, Tuple[float, Optional[float]]], int]] = []
+        items: list[tuple[Mapping[str, Any], Mapping[str, Any], int]] = []
 
         if self.is_multi_objective:
             frontier = self.client.get_pareto_frontier(use_model_predictions=use_model_predictions)
@@ -522,16 +522,16 @@ class Experiment(Generic[TConfig]):
             )
             items.append((params, pred, int(t_idx)))
 
-        results: List[Tuple[TConfig, Dict[str, Tuple[float, Optional[float]]], int]] = []
-        for params, pred, t_idx in items:
+        results: list[tuple[TConfig, dict[str, tuple[float, float | None]], int]] = []
+        for item_params, item_pred, t_idx in items:
             cfg = self.config_cls.from_trial(
-                params=params,
+                params=item_params,
                 fixed=fixed,
                 experiment_name=self.name,
                 trial_index=t_idx,
                 trial_dir=self._trial_dir(t_idx),
             )
-            results.append((cfg, pred, t_idx))
+            results.append((cfg, dict(item_pred), t_idx))
         return results
 
     def export_summary(self) -> str:
@@ -547,7 +547,7 @@ class Experiment(Generic[TConfig]):
     def export_best(
         self,
         use_model_predictions: bool = False,
-    ) -> List[Tuple[TConfig, Dict[str, Tuple[float, Optional[float]]], int]]:
+    ) -> list[tuple[TConfig, dict[str, tuple[float, float | None]], int]]:
         """Export best / Pareto frontier configs to `best/` and write `best_summary.json`."""
         self.export_summary()
         try:

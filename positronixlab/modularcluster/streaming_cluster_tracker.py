@@ -1,14 +1,16 @@
 
-from typing import Any, Dict, Optional
+import logging
+from typing import Any, Literal
 
 import numpy as np
 import torch
 from scipy.optimize import linear_sum_assignment
 from sklearn.metrics import adjusted_rand_score
 
-from positronixlab.modularcluster.modularcluster_kmeans_stream import ModularClusterKmeansStream
+from positronixlab.modularcluster.modularcluster_kmeans_stream import (
+    ModularClusterKmeansStream,
+)
 
-import logging
 logger = logging.getLogger(__name__)
 
 
@@ -34,13 +36,13 @@ class StreamingClusterTracker:
     def __init__(
         self,
         layer_id: str,
-        metric: str = "cosine",
-        k_min: Optional[int] = None,
-        k_max: Optional[int] = None,
+        metric: Literal["euclidean", "cosine"] = "cosine",
+        k_min: int | None = None,
+        k_max: int | None = None,
         max_iter: int = 100,
         tol: float = 1e-5,
         n_init: int = 1,
-        device: Optional[torch.device] = None,
+        device: torch.device | None = None,
         verbose: bool = False,
         precompute_distances: bool = True,
         # --- streaming-specific knobs ---
@@ -95,14 +97,14 @@ class StreamingClusterTracker:
         self.debounce_steps = debounce_steps
 
         # Streaming state
-        self.ema_positions: Optional[np.ndarray] = None
-        self.last_published_labels: Optional[np.ndarray] = None
-        self.last_published_centroids: Optional[np.ndarray] = None
-        self.last_published_k: Optional[int] = None
-        self.last_stats: Optional[Dict[str, Any]] = None
+        self.ema_positions: np.ndarray | None = None
+        self.last_published_labels: np.ndarray | None = None
+        self.last_published_centroids: np.ndarray | None = None
+        self.last_published_k: int | None = None
+        self.last_stats: dict[str, Any] | None = None
 
         self._steps_since_full_search = 0
-        self._pending_k: Optional[int] = None
+        self._pending_k: int | None = None
         self._pending_k_streak = 0
 
     def _drift(self, positions: np.ndarray) -> float:
@@ -167,7 +169,11 @@ class StreamingClusterTracker:
         prev_score = self.kmeans.silhouette_scores.get(self.last_published_k)
         new_score = self.kmeans.silhouette_scores.get(new_k, self.kmeans.best_score)
 
-        wins_by_margin = prev_score is None or (new_score - prev_score) > self.hysteresis_margin
+        wins_by_margin = (
+            prev_score is None
+            or new_score is None
+            or (new_score - prev_score) > self.hysteresis_margin
+        )
         if not wins_by_margin:
             self._pending_k = None
             self._pending_k_streak = 0
@@ -183,7 +189,7 @@ class StreamingClusterTracker:
             return new_k
         return self.last_published_k
 
-    def update(self, positions: np.ndarray) -> Optional[Dict[str, Any]]:
+    def update(self, positions: np.ndarray) -> dict[str, Any] | None:
         """
         Process one timestep of positions for this layer.
 
@@ -217,9 +223,11 @@ class StreamingClusterTracker:
         self._update_ema(positions)
 
         new_k = self.kmeans.best_k
+        if new_k is None or self.kmeans.centroids is None or self.kmeans.labels is None:
+            return None
         accepted_k = self._gate_k_change(new_k)
 
-        if accepted_k != new_k:
+        if accepted_k != new_k and self.last_stats is not None:
             # Held back by hysteresis/debounce: republish the previous
             # cluster assignment unchanged, just refresh diagnostics.
             stats = dict(self.last_stats)

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import sys
 import types
-from typing import Optional
+from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
@@ -26,8 +25,8 @@ def _ensure_parallelazy_stub() -> None:
 
     @dataclass
     class _StubManagerOptions:
-        work_dir: Optional[str] = None
-        log_dir: Optional[str] = None
+        work_dir: str | None = None
+        log_dir: str | None = None
         display_logs: bool = True
         write_logs: bool = True
 

@@ -1,10 +1,9 @@
 import threading
+from abc import ABC, abstractmethod
+from collections import deque
+from collections.abc import Callable
 
 import torch
-from abc import ABC, abstractmethod
-from typing import Dict, Callable, Set
-from collections import deque
-
 
 # ---------------------------------------------------------
 # Reducers: stato per-chiave, drain() restituisce solo le chiavi "sporche"
@@ -13,7 +12,7 @@ from collections import deque
 
 class Reducer(ABC):
     def __init__(self) -> None:
-        self._dirty: Set[str] = set()
+        self._dirty: set[str] = set()
 
     @abstractmethod
     def update(self, key: str, value: torch.Tensor) -> None: ...
@@ -22,10 +21,10 @@ class Reducer(ABC):
     def _snapshot(self, key: str) -> torch.Tensor:
         """Valore aggregato per `key` (tensore indipendente dallo stato)."""
 
-    def _after_drain(self, key: str) -> None:
+    def _after_drain(self, key: str) -> None:  # noqa: B027
         """Hook per reset a blocchi (es. mean)."""
 
-    def drain(self) -> Dict[str, torch.Tensor]:
+    def drain(self) -> dict[str, torch.Tensor]:
         out = {}
         for key in self._dirty:
             out[key] = self._snapshot(key)
@@ -38,7 +37,7 @@ class LastReducer(Reducer):
     """Tiene solo l'ultimo valore (decimazione pura)."""
     def __init__(self) -> None:
         super().__init__()
-        self._s: Dict[str, torch.Tensor] = {}
+        self._s: dict[str, torch.Tensor] = {}
 
     def update(self, key, value):
         self._s[key] = value.clone()
@@ -53,7 +52,7 @@ class EmaReducer(Reducer):
     def __init__(self, alpha: float = 0.3) -> None:
         super().__init__()
         self.alpha = alpha
-        self._s: Dict[str, torch.Tensor] = {}
+        self._s: dict[str, torch.Tensor] = {}
 
     def update(self, key, value):
         s = self._s.get(key)
@@ -71,8 +70,8 @@ class MeanReducer(Reducer):
     """Media aritmetica dei messaggi arrivati dall'ultimo drain (blocco)."""
     def __init__(self) -> None:
         super().__init__()
-        self._sum: Dict[str, torch.Tensor] = {}
-        self._n: Dict[str, int] = {}
+        self._sum: dict[str, torch.Tensor] = {}
+        self._n: dict[str, int] = {}
         self._lock = threading.Lock()
 
     def update(self, key, value):
@@ -105,7 +104,7 @@ class WindowReducer(Reducer):
     def __init__(self, maxlen: int = 200) -> None:
         super().__init__()
         self.maxlen = maxlen
-        self._w: Dict[str, deque] = {}
+        self._w: dict[str, deque] = {}
 
     def update(self, key, value):
         self._w.setdefault(key, deque(maxlen=self.maxlen)).append(value.clone())
@@ -128,9 +127,9 @@ class DisplacementReducer(Reducer):
         self.method = method
         
         # _keyframe stores the structural reference we measure against
-        self._keyframe: Dict[str, torch.Tensor] = {}
+        self._keyframe: dict[str, torch.Tensor] = {}
         # _pending stores the tensor waiting to be pulled by drain()
-        self._pending: Dict[str, torch.Tensor] = {}
+        self._pending: dict[str, torch.Tensor] = {}
         self._lock = threading.Lock()
 
     def update(self, key: str, value: torch.Tensor) -> None:
@@ -162,7 +161,7 @@ class DisplacementReducer(Reducer):
                 self._pending[key] = value.clone()
                 self._dirty.add(key)
 
-    def drain(self) -> Dict[str, torch.Tensor]:
+    def drain(self) -> dict[str, torch.Tensor]:
         # Sincronizza il drain con il lock per prevenire l'eliminazione 
         # di chiavi pendenti durante un update ad alta frequenza.
         with self._lock:
@@ -178,6 +177,6 @@ class DisplacementReducer(Reducer):
             del self._pending[key]
 
 
-REDUCERS: Dict[str, Callable[..., Reducer]] = {
+REDUCERS: dict[str, Callable[..., Reducer]] = {
     "last": LastReducer, "ema": EmaReducer, "mean": MeanReducer, "window": WindowReducer, "displacement": DisplacementReducer
 }

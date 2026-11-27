@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Optional, Type, TypeVar
+from typing import Any, TypeVar
 
 from positronixlab.pipeline.pipeline_config import PipelineConfig
 
@@ -19,28 +20,28 @@ class TrialConfig(PipelineConfig):
     for Ax parameter mapping.
     """
 
-    experiment_name: Optional[str] = None
-    trial_index: Optional[int] = None
-    trial_dir: Optional[str] = None
-    gpu_id: Optional[int] = None
+    experiment_name: str | None = None
+    trial_index: int | None = None
+    trial_dir: str | None = None
+    gpu_id: int | None = None
 
     @classmethod
     def from_trial(
-        cls: Type[TTrialConfig],
+        cls: type[TTrialConfig],
         params: Mapping[str, Any],
-        fixed: Optional[Mapping[str, Any]] = None,
+        fixed: Mapping[str, Any] | None = None,
         *,
-        experiment_name: Optional[str] = None,
-        trial_index: Optional[int] = None,
-        trial_dir: Optional[str] = None,
-        gpu_id: Optional[int] = None,
-        name: Optional[str] = None,
+        experiment_name: str | None = None,
+        trial_index: int | None = None,
+        trial_dir: str | None = None,
+        gpu_id: int | None = None,
+        name: str | None = None,
     ) -> TTrialConfig:
         """
         Build a typed `TrialConfig` subclass by merging template fixed constants
         with Ax-generated parameters (Ax params take precedence).
         """
-        merged: Dict[str, Any] = {}
+        merged: dict[str, Any] = {}
         if fixed:
             merged.update(fixed)
         if params:

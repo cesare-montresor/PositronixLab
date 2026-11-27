@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from positronixlab.modularspace.space_step import SpaceStepSpec
 
-
-PRESETS: Dict[str, Dict[str, Any]] = {
+PRESETS: dict[str, dict[str, Any]] = {
     # Reproduces ModularSpace v1: global distance_log + centers repulsion
     "v1_centers": {
         "modular_space_distance": "cosine",
@@ -65,12 +64,12 @@ PRESETS: Dict[str, Dict[str, Any]] = {
 }
 
 
-def list_presets() -> List[str]:
+def list_presets() -> list[str]:
     """Return sorted names of all registered space loss presets."""
     return sorted(PRESETS.keys())
 
 
-def get_preset(name: str, **overrides: Any) -> Dict[str, Any]:
+def get_preset(name: str, **overrides: Any) -> dict[str, Any]:
     """Return a copy of a preset config dict with optional overrides (ideal for ablations)."""
     key = str(name).strip().lower()
     if key not in PRESETS:

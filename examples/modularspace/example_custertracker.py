@@ -15,11 +15,9 @@ from __future__ import annotations
 
 import argparse
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import count
-from pathlib import Path
-import sys
-from typing import List, Sequence
 
 import numpy as np
 import plotly.graph_objects as go
@@ -31,14 +29,14 @@ from skimage.util import view_as_windows
 def group_activation(num_groups: int, activation_pattern: str) -> torch.Tensor:
     weights = None
     if activation_pattern == "always":
-        weights = torch.ones((num_groups))
+        weights = torch.ones(num_groups)
     elif activation_pattern == "uniform":
-        weights = torch.rand((num_groups))
+        weights = torch.rand(num_groups)
     elif activation_pattern == "normal":
-        weights = torch.randn((num_groups))
+        weights = torch.randn(num_groups)
         weights = (weights - weights.min() + 0.1) / (weights.max() - weights.min())
     elif activation_pattern == "skewed":
-        weights = torch.rand((num_groups)) ** 2
+        weights = torch.rand(num_groups) ** 2
 
     weights = weights / weights.sum()
     weights *= num_groups
@@ -220,8 +218,8 @@ class BatchEmbeddingProcess:
         np.random.seed(self.config.seed)
 
         self.step_index = 0
-        self.loss_history: List[float] = []
-        self.activation_history: List[np.ndarray] = []
+        self.loss_history: list[float] = []
+        self.activation_history: list[np.ndarray] = []
 
         self._build_groups()
         self.group_weights = group_activation(len(self.groups), self.config.activation_pattern).to(self.device)
@@ -234,7 +232,7 @@ class BatchEmbeddingProcess:
         self.unit_labels = self._build_unit_labels()
         self.last_loss = 0.0
         self.last_acts = np.zeros(len(self.groups), dtype=np.float32)
-        self.last_active_groups: List[int] = []
+        self.last_active_groups: list[int] = []
 
     def _build_groups(self) -> None:
         if self.config.group_pattern == "window":

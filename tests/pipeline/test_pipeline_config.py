@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import sys
 import types
-from typing import Optional
+from dataclasses import dataclass
 
 import pytest
 
@@ -26,8 +25,8 @@ def _ensure_parallelazy_stub() -> bool:
 
     @dataclass
     class _StubManagerOptions:
-        work_dir: Optional[str] = None
-        log_dir: Optional[str] = None
+        work_dir: str | None = None
+        log_dir: str | None = None
         display_logs: bool = True
         write_logs: bool = True
 
@@ -58,12 +57,12 @@ class _DataMixin(BaseConfig):
 class _TrainMixin(BaseConfig):
     learning_rate: float = 0.001
     use_amp: bool = False
-    tag: Optional[str] = None
+    tag: str | None = None
 
 
 @dataclass
 class _ComposedConfig(_TrainMixin, _DataMixin):
-    seed: Optional[int] = None
+    seed: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +177,7 @@ def test_base_config_from_dict_bool_coercion(raw, expected):
 
 def test_lazy_init_unknown_attribute_raises():
     with pytest.raises(AttributeError, match="has no attribute 'DoesNotExist'"):
-        _ = getattr(pipeline_pkg, "DoesNotExist")
+        _ = pipeline_pkg.DoesNotExist
 
 
 @pytest.mark.xfail(

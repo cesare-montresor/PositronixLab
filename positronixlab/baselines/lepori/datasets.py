@@ -22,8 +22,9 @@ Language (SynEval Syntactic Odd-One-Out, tasks 0–19, ``prajjwal1/bert-small``,
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Union, Unpack
+from typing import Any
 
 from positronixlab.baselines.lepori._syneval_gen import (
     SYNEVAL_PAPER_SIZES,
@@ -33,9 +34,11 @@ from positronixlab.baselines.lepori._syneval_gen import (
 from positronixlab.dataprovider.config import DataConfig
 from positronixlab.dataprovider.cvr_oddoneout_dataprovider import (
     CVR_FAMILIES,
-    CVROddOneOutDataProvider as CVROddOneOutSOTAProvider,
     CVROddOneOutDataset,
     load_cvr_png_strip,
+)
+from positronixlab.dataprovider.cvr_oddoneout_dataprovider import (
+    CVROddOneOutDataProvider as CVROddOneOutSOTAProvider,
 )
 from positronixlab.dataprovider.cvr_simclr_dataprovider import (
     CVR_SIMCLR_BASE_TASKS,
@@ -44,13 +47,15 @@ from positronixlab.dataprovider.cvr_simclr_dataprovider import (
     CVRSimCLRDataset,
     build_simclr_transforms,
 )
-from positronixlab.dataprovider.dataprovider import DataProviderOptions
 from positronixlab.dataprovider.syneval_oddoneout_dataprovider import (
     SYNEVAL_FAMILIES,
+)
+from positronixlab.dataprovider.syneval_oddoneout_dataprovider import (
     SynevalOddOneOutDataProvider as SynEvalOddOneOutSOTAProvider,
+)
+from positronixlab.dataprovider.syneval_oddoneout_dataprovider import (
     SynevalOddOneOutDataset as SynEvalOddOneOutDataset,
 )
-
 
 # ---------------------------------------------------------------------------
 # Vision: CVR Odd-One-Out & SimCLR paper builders (Lepori et al., tasks 103..120)
@@ -65,9 +70,9 @@ def cvr_inside_contact(
     image_size: int = 128,
     batch_size: int = 64,
     use_real_generator: bool = True,
-    root: Optional[Union[str, Path]] = None,
+    root: str | Path | None = None,
     seed: int = 0,
-    **kwargs: Unpack[DataProviderOptions],
+    **kwargs: Any,
 ) -> CVROddOneOutSOTAProvider:
     """Lepori et al. CVR ``inside_contact`` family (tasks 103–108, ``128x128``)."""
     return CVROddOneOutSOTAProvider(
@@ -92,9 +97,9 @@ def cvr_inside_count(
     image_size: int = 128,
     batch_size: int = 64,
     use_real_generator: bool = True,
-    root: Optional[Union[str, Path]] = None,
+    root: str | Path | None = None,
     seed: int = 0,
-    **kwargs: Unpack[DataProviderOptions],
+    **kwargs: Any,
 ) -> CVROddOneOutSOTAProvider:
     """Lepori et al. CVR ``inside_count`` family (tasks 109–114, ``128x128``)."""
     return CVROddOneOutSOTAProvider(
@@ -119,9 +124,9 @@ def cvr_contact_count(
     image_size: int = 128,
     batch_size: int = 64,
     use_real_generator: bool = True,
-    root: Optional[Union[str, Path]] = None,
+    root: str | Path | None = None,
     seed: int = 0,
-    **kwargs: Unpack[DataProviderOptions],
+    **kwargs: Any,
 ) -> CVROddOneOutSOTAProvider:
     """Lepori et al. CVR ``contact_count`` family (tasks 115–120, ``128x128``)."""
     return CVROddOneOutSOTAProvider(
@@ -147,9 +152,9 @@ def cvr_simclr(
     n_views: int = 2,
     as_list: bool = False,
     use_real_generator: bool = True,
-    root: Optional[Union[str, Path]] = None,
+    root: str | Path | None = None,
     seed: int = 0,
-    **kwargs: Unpack[DataProviderOptions],
+    **kwargs: Any,
 ) -> CVRSimCLRDataProvider:
     """Lepori et al. CVR SimCLR pretraining dataset (base tasks 103, 109, 115, ``128x128``)."""
     return CVRSimCLRDataProvider(
@@ -179,12 +184,12 @@ def syneval_sv_singular(
     max_length: int = 50,
     batch_size: int = 32,
     tokenizer_name: str = "prajjwal1/bert-small",
-    tokenizer: Optional[Callable[..., Dict[str, Any]]] = None,
-    root: Optional[Union[str, Path]] = None,
-    raw_data_path: Optional[Union[str, Path]] = None,
+    tokenizer: Callable[..., dict[str, Any]] | None = None,
+    root: str | Path | None = None,
+    raw_data_path: str | Path | None = None,
     download: bool = True,
     seed: int = 0,
-    **kwargs: Unpack[DataProviderOptions],
+    **kwargs: Any,
 ) -> SynEvalOddOneOutSOTAProvider:
     """Lepori et al. SynEval ``sv_singular`` family (``9500/500/1000``, ``max_length=50``, ``bert-small``)."""
     return SynEvalOddOneOutSOTAProvider(
@@ -212,12 +217,12 @@ def syneval_sv_plural(
     max_length: int = 50,
     batch_size: int = 32,
     tokenizer_name: str = "prajjwal1/bert-small",
-    tokenizer: Optional[Callable[..., Dict[str, Any]]] = None,
-    root: Optional[Union[str, Path]] = None,
-    raw_data_path: Optional[Union[str, Path]] = None,
+    tokenizer: Callable[..., dict[str, Any]] | None = None,
+    root: str | Path | None = None,
+    raw_data_path: str | Path | None = None,
     download: bool = True,
     seed: int = 0,
-    **kwargs: Unpack[DataProviderOptions],
+    **kwargs: Any,
 ) -> SynEvalOddOneOutSOTAProvider:
     """Lepori et al. SynEval ``sv_plural`` family (``9500/500/1000``, ``max_length=50``, ``bert-small``)."""
     return SynEvalOddOneOutSOTAProvider(
@@ -245,12 +250,12 @@ def syneval_pro_ant_singular(
     max_length: int = 50,
     batch_size: int = 32,
     tokenizer_name: str = "prajjwal1/bert-small",
-    tokenizer: Optional[Callable[..., Dict[str, Any]]] = None,
-    root: Optional[Union[str, Path]] = None,
-    raw_data_path: Optional[Union[str, Path]] = None,
+    tokenizer: Callable[..., dict[str, Any]] | None = None,
+    root: str | Path | None = None,
+    raw_data_path: str | Path | None = None,
     download: bool = True,
     seed: int = 0,
-    **kwargs: Unpack[DataProviderOptions],
+    **kwargs: Any,
 ) -> SynEvalOddOneOutSOTAProvider:
     """Lepori et al. SynEval ``pro_ant_singular`` family (``2500/200/200``, ``max_length=50``, ``bert-small``)."""
     return SynEvalOddOneOutSOTAProvider(
@@ -278,12 +283,12 @@ def syneval_pro_ant_plural(
     max_length: int = 50,
     batch_size: int = 32,
     tokenizer_name: str = "prajjwal1/bert-small",
-    tokenizer: Optional[Callable[..., Dict[str, Any]]] = None,
-    root: Optional[Union[str, Path]] = None,
-    raw_data_path: Optional[Union[str, Path]] = None,
+    tokenizer: Callable[..., dict[str, Any]] | None = None,
+    root: str | Path | None = None,
+    raw_data_path: str | Path | None = None,
     download: bool = True,
     seed: int = 0,
-    **kwargs: Unpack[DataProviderOptions],
+    **kwargs: Any,
 ) -> SynEvalOddOneOutSOTAProvider:
     """Lepori et al. SynEval ``pro_ant_plural`` family (``2500/200/200``, ``max_length=50``, ``bert-small``)."""
     return SynEvalOddOneOutSOTAProvider(
@@ -303,7 +308,7 @@ def syneval_pro_ant_plural(
     )
 
 
-PAPER_CONFIGS: Dict[str, DataConfig] = {
+PAPER_CONFIGS: dict[str, DataConfig] = {
     **{
         f"cvr_{fam}": DataConfig(
             name=f"lepori_cvr_{fam}",

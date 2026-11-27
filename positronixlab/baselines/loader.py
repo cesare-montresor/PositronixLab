@@ -6,14 +6,15 @@ benchmarks across all baseline works (``csordas``, ``lepori``, ``neurosurgeon``)
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 import torch
 import torch.nn as nn
 
 from positronixlab.baselines.base import (
-    CompositionalDataProvider,
+    DataProvider,
     SOTADatasetSpec,
     SOTAModel,
     SOTAModelSpec,
@@ -54,7 +55,7 @@ from positronixlab.baselines.neurosurgeon.adapter import (
 from positronixlab.utils.utils import load_data, save_data
 
 
-def _detect_checkpoint_format(state_dict: Dict[str, Any]) -> str:
+def _detect_checkpoint_format(state_dict: dict[str, Any]) -> str:
     """Detect whether a checkpoint came from Csordas, Lepori, NeuroSurgeon, or plain PyTorch."""
     keys = list(state_dict.keys())
     if "model" in state_dict and isinstance(state_dict["model"], dict):
@@ -74,7 +75,7 @@ def _detect_checkpoint_format(state_dict: Dict[str, Any]) -> str:
 class ModelLoader:
     """Unified factory & checkpoint loader for baseline modularity architectures."""
 
-    _REGISTRY: Dict[str, SOTAModelSpec] = {}
+    _REGISTRY: dict[str, SOTAModelSpec] = {}
 
     @classmethod
     def register(
@@ -84,7 +85,7 @@ class ModelLoader:
         task_type: str,
         builder: Callable[..., SOTAModel],
         description: str = "",
-        default_exclude_patterns: Tuple[str, ...] = (),
+        default_exclude_patterns: tuple[str, ...] = (),
     ) -> None:
         cls._REGISTRY[arch] = SOTAModelSpec(
             arch=arch,
@@ -96,7 +97,7 @@ class ModelLoader:
         )
 
     @classmethod
-    def list_models(cls, source: Optional[str] = None) -> List[str]:
+    def list_models(cls, source: str | None = None) -> list[str]:
         if source is None:
             return sorted(cls._REGISTRY.keys())
         return sorted(k for k, v in cls._REGISTRY.items() if v.source == source)
@@ -113,7 +114,7 @@ class ModelLoader:
     def create(
         cls,
         arch: str,
-        device: Optional[torch.device | str] = None,
+        device: torch.device | str | None = None,
         **kwargs: Any,
     ) -> SOTAModel:
         return cls.get_spec(arch).builder(device=device, **kwargs)
@@ -124,17 +125,17 @@ class ModelLoader:
         model: nn.Module,
         path: str | Path,
         *,
-        arch: Optional[str] = None,
-        model_kwargs: Optional[Dict[str, Any]] = None,
-        dataset_name: Optional[str] = None,
-        metrics: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        arch: str | None = None,
+        model_kwargs: dict[str, Any] | None = None,
+        dataset_name: str | None = None,
+        metrics: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Path:
         """Save a self-describing checkpoint bundle for later reload via :meth:`load_bundle`."""
         out_path = Path(path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         resolved_arch = arch or getattr(model, "arch", None) or getattr(model, "sota_arch", None)
-        bundle: Dict[str, Any] = {
+        bundle: dict[str, Any] = {
             "format": "positronix_sota_bundle_v1",
             "arch": resolved_arch,
             "model_kwargs": dict(model_kwargs or {}),
@@ -151,10 +152,10 @@ class ModelLoader:
         cls,
         path: str | Path,
         *,
-        device: Optional[torch.device | str] = None,
+        device: torch.device | str | None = None,
         strict: bool = True,
         **override_model_kwargs: Any,
-    ) -> Tuple[SOTAModel, Dict[str, Any]]:
+    ) -> tuple[SOTAModel, dict[str, Any]]:
         """Load a self-describing bundle saved by :meth:`save`.
 
         Returns ``(model, info)`` where ``info`` contains ``arch``, ``model_kwargs``,
@@ -186,17 +187,17 @@ class ModelLoader:
     def load(
         cls,
         arch: str,
-        checkpoint: Optional[str | Path | Dict[str, Any]] = None,
-        backbone_checkpoint: Optional[str | Path] = None,
-        mlp_checkpoint: Optional[str | Path] = None,
-        device: Optional[torch.device | str] = None,
+        checkpoint: str | Path | dict[str, Any] | None = None,
+        backbone_checkpoint: str | Path | None = None,
+        mlp_checkpoint: str | Path | None = None,
+        device: torch.device | str | None = None,
         strict: bool = False,
         return_mask: bool = False,
         **model_kwargs: Any,
     ) -> Any:
         """Create a model and optionally load weights (auto-detecting checkpoint format)."""
         model = cls.create(arch, device=device, **model_kwargs)
-        extracted_scores: Dict[str, torch.Tensor] = {}
+        extracted_scores: dict[str, torch.Tensor] = {}
         ckpt_format = "plain"
 
         if (backbone_checkpoint is not None or mlp_checkpoint is not None) and isinstance(
@@ -252,10 +253,10 @@ class ModelLoader:
     def wrap_neurosurgeon(
         cls,
         model: nn.Module,
-        target_layers: Optional[List[str]] = None,
+        target_layers: list[str] | None = None,
         mask_method: str = "continuous_sparsification",
         mask_unit: str = "weight",
-        mask_hparams: Optional[Dict[str, Any]] = None,
+        mask_hparams: dict[str, Any] | None = None,
         freeze_base: bool = True,
         l0_lambda: float = 1e-8,
         deepcopy_model: bool = True,
@@ -275,7 +276,7 @@ class ModelLoader:
 class DataProviderLoader:
     """Unified factory for baseline compositional benchmark datasets."""
 
-    _REGISTRY: Dict[str, SOTADatasetSpec] = {}
+    _REGISTRY: dict[str, SOTADatasetSpec] = {}
 
     @classmethod
     def register(
@@ -283,7 +284,7 @@ class DataProviderLoader:
         name: str,
         source: str,
         task_type: str,
-        builder: Callable[..., CompositionalDataProvider],
+        builder: Callable[..., DataProvider],
         description: str = "",
     ) -> None:
         cls._REGISTRY[name] = SOTADatasetSpec(
@@ -295,13 +296,13 @@ class DataProviderLoader:
         )
 
     @classmethod
-    def list_datasets(cls, source: Optional[str] = None) -> List[str]:
+    def list_datasets(cls, source: str | None = None) -> list[str]:
         if source is None:
             return sorted(cls._REGISTRY.keys())
         return sorted(k for k, v in cls._REGISTRY.items() if v.source == source)
 
     @classmethod
-    def create(cls, name: str, **kwargs: Any) -> CompositionalDataProvider:
+    def create(cls, name: str, **kwargs: Any) -> DataProvider:
         if name not in cls._REGISTRY:
             raise ValueError(
                 f"Unknown baseline dataset {name!r}. Available: {cls.list_datasets()}"

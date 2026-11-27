@@ -16,7 +16,7 @@ loaded via :func:`strip_csordas_mask_keys`.
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -26,8 +26,8 @@ from positronixlab.baselines.base import SOTAModel
 
 
 def strip_csordas_mask_keys(
-    state_dict: Dict[str, Any],
-) -> Tuple[Dict[str, torch.Tensor], Dict[str, Dict[str, torch.Tensor]]]:
+    state_dict: dict[str, Any],
+) -> tuple[dict[str, torch.Tensor], dict[str, dict[str, torch.Tensor]]]:
     """Separate base model weights from Csordas ``MaskedModel`` checkpoints.
 
     Handles both plain ``state_dict``s and wrapped dicts (``{"model": ...}`` or
@@ -42,8 +42,8 @@ def strip_csordas_mask_keys(
     if isinstance(raw, dict) and "model" in raw and isinstance(raw["model"], dict):
         raw = raw["model"]
 
-    clean_weights: Dict[str, torch.Tensor] = {}
-    stage_masks: Dict[str, Dict[str, torch.Tensor]] = {}
+    clean_weights: dict[str, torch.Tensor] = {}
+    stage_masks: dict[str, dict[str, torch.Tensor]] = {}
 
     for key, val in raw.items():
         if not isinstance(val, torch.Tensor):
@@ -71,9 +71,9 @@ class CsordasFeedforwardModel(SOTAModel):
         self,
         n_inputs: int,
         n_outputs: int,
-        layer_sizes: Optional[List[int]] = None,
-        name: Optional[str] = None,
-        device: Optional[torch.device | str] = None,
+        layer_sizes: list[int] | None = None,
+        name: str | None = None,
+        device: torch.device | str | None = None,
     ) -> None:
         super().__init__(name=name or "CsordasFeedforwardModel", device=device)
         sizes = list(layer_sizes) if layer_sizes is not None else [800, 800, 256]
@@ -83,7 +83,7 @@ class CsordasFeedforwardModel(SOTAModel):
         self.layers = nn.ModuleList(
             [
                 nn.Linear(in_s, out_s)
-                for in_s, out_s in zip([n_inputs] + sizes, sizes + [n_outputs])
+                for in_s, out_s in zip([n_inputs] + sizes, sizes + [n_outputs], strict=False)
             ]
         )
         self.reset_parameters()
@@ -93,10 +93,11 @@ class CsordasFeedforwardModel(SOTAModel):
     def reset_parameters(self) -> None:
         last_idx = len(self.layers) - 1
         for i, layer in enumerate(self.layers):
-            gain = 1.0 if i == last_idx else nn.init.calculate_gain("relu")
-            nn.init.xavier_normal_(layer.weight, gain=gain)
-            if layer.bias is not None:
-                layer.bias.data.zero_()
+            if isinstance(layer, nn.Linear):
+                gain = 1.0 if i == last_idx else nn.init.calculate_gain("relu")
+                nn.init.xavier_normal_(layer.weight, gain=gain)
+                if layer.bias is not None:
+                    layer.bias.data.zero_()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         out = x
@@ -119,8 +120,8 @@ class CsordasConvModel(SOTAModel):
         in_channels: int = 3,
         out_channels: int = 10,
         dropout: bool = True,
-        name: Optional[str] = None,
-        device: Optional[torch.device | str] = None,
+        name: str | None = None,
+        device: torch.device | str | None = None,
     ) -> None:
         super().__init__(name=name or "CsordasConvModel", device=device)
         self.in_channels = in_channels
@@ -162,8 +163,8 @@ class CsordasLSTMModel(SOTAModel):
         state_size: int = 256,
         n_layers: int = 2,
         batch_first: bool = True,
-        name: Optional[str] = None,
-        device: Optional[torch.device | str] = None,
+        name: str | None = None,
+        device: torch.device | str | None = None,
     ) -> None:
         super().__init__(name=name or "CsordasLSTMModel", device=device)
         self.n_inputs = n_inputs
@@ -221,9 +222,9 @@ class CsordasResNet110(SOTAModel):
         self,
         num_classes: int = 10,
         in_channels: int = 3,
-        num_blocks: Tuple[int, int, int] = (18, 18, 18),
-        name: Optional[str] = None,
-        device: Optional[torch.device | str] = None,
+        num_blocks: tuple[int, int, int] = (18, 18, 18),
+        name: str | None = None,
+        device: torch.device | str | None = None,
     ) -> None:
         super().__init__(name=name or "CsordasResNet110", device=device)
         self.in_planes = 16
@@ -266,6 +267,7 @@ class _PositionalEncoding(nn.Module):
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         self.register_buffer("pe", pe.unsqueeze(0))  # (1, max_len, d_model)
+        self.pe: torch.Tensor
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x + self.pe[:, : x.size(1)]
@@ -290,8 +292,8 @@ class CsordasTransformerEncDec(SOTAModel):
         ff_multiplier: float = 2.0,
         dropout: float = 0.1,
         max_len: int = 512,
-        name: Optional[str] = None,
-        device: Optional[torch.device | str] = None,
+        name: str | None = None,
+        device: torch.device | str | None = None,
     ) -> None:
         super().__init__(name=name or "CsordasTransformerEncDec", device=device)
         self.input_embedding = nn.Embedding(n_input_tokens, state_size)
@@ -313,9 +315,9 @@ class CsordasTransformerEncDec(SOTAModel):
     def forward(
         self,
         src: torch.Tensor,
-        tgt: Optional[torch.Tensor] = None,
-        src_key_padding_mask: Optional[torch.Tensor] = None,
-        tgt_key_padding_mask: Optional[torch.Tensor] = None,
+        tgt: torch.Tensor | None = None,
+        src_key_padding_mask: torch.Tensor | None = None,
+        tgt_key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if tgt is None:
             tgt = src

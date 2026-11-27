@@ -1,27 +1,25 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import functools
 import sys
 import types
-from typing import Optional
-import warnings
+from dataclasses import dataclass
 
 import pytest
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from positronixlab.modularobserver.layerobserver import LayerObserver
 from positronixlab.modularobserver.modelmapper import (
+    TRACE_ALWAYS,
     GraphFormatter,
     ModelEdge,
     ModelGraph,
     ModelMapper,
     ModelNode,
-    TRACE_ALWAYS,
     extract_layer_io_metrics,
 )
-from positronixlab.modularobserver.layerobserver import LayerObserver
 from positronixlab.spacemath.common import is_layer, is_linear
 
 
@@ -36,8 +34,8 @@ def _ensure_parallelazy_stub() -> None:
 
     @dataclass
     class _StubManagerOptions:
-        work_dir: Optional[str] = None
-        log_dir: Optional[str] = None
+        work_dir: str | None = None
+        log_dir: str | None = None
         display_logs: bool = True
         write_logs: bool = True
 
@@ -55,7 +53,6 @@ def _ensure_parallelazy_stub() -> None:
 
 _ensure_parallelazy_stub()
 from positronixlab.modularobserver.modularobserver import ModularObserver  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Test Models

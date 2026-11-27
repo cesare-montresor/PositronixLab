@@ -1,4 +1,6 @@
 
+from typing import Any
+
 from torch import nn
 
 from positronixlab.pipeline import PipelineConfig
@@ -10,7 +12,7 @@ class MetaCriterion:
     This class can be extended to include various configuration parameters.
     """
     def __init__(self, config: PipelineConfig):
-        self.custom_losses = {}
+        self.custom_losses: dict[str, Any] = {}
         self.task =  config.task  # Default task is regression
         self.criterion_type = config.criterion_type
 
@@ -18,7 +20,8 @@ class MetaCriterion:
         self.custom_losses[name] = function
     
     def loss(self, x, y, y_hat):
-        if self.task == 'autoencoder': y = x
+        if self.task == 'autoencoder':
+            y = x
 
         name = self.criterion_type
         if name == 'cross_entropy':
@@ -39,8 +42,8 @@ class MetaCriterion:
             raise ValueError(f"Unsupported criterion type: {name}")
         
 class MetaMetric:
-    def __init__(self, config: PipelineConfig, metric_type: str = None):
-        self.custom_metric = {}
+    def __init__(self, config: PipelineConfig, metric_type: str | None = None):
+        self.custom_metric = {}  # type: ignore[method-assign, assignment]
         self.task =  config.task  # Default task is regression
         self.metric_type = metric_type 
         if self.metric_type is None:
@@ -53,7 +56,7 @@ class MetaMetric:
           # Use task as metric type for simplicity
 
     def custom_metric(self, name, function):
-        self.custom_metric[name] = function
+        self.custom_metric[name] = function  # pyright: ignore[reportIndexIssue]
     
     def metric(self, x, y, y_hat):
         result = None 
@@ -68,8 +71,8 @@ class MetaMetric:
             union = y_hat.sum() + y.sum() - intersection
             iou = intersection / (union + 1e-8)
             result = iou
-        elif self.metric_type in self.custom_metric:
-            result = self.custom_metric[self.metric_type](x, y, y_hat)
+        elif self.metric_type in self.custom_metric:  # pyright: ignore[reportOperatorIssue]
+            result = self.custom_metric[self.metric_type](x, y, y_hat)  # pyright: ignore[reportIndexIssue]
         else:
             raise ValueError(f"Unsupported metric type: {self.metric_type}")
 

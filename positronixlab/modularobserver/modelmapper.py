@@ -1,14 +1,15 @@
-import torch
 import warnings
-from torch import nn
-import torch.nn.functional as F
-from torch.overrides import TorchFunctionMode
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Set, Optional, Any, Union
+from typing import Any
+
+import torch
+import torch.nn.functional as F
+from torch import nn
+from torch.overrides import TorchFunctionMode
 
 # Assume these are imported from your existing project structure
 from positronixlab.spacemath.spacemath import LayerType
-
 
 # =====================================================================
 # 0. Trace budget sentinel
@@ -21,9 +22,9 @@ TRACE_ALWAYS = -1  # dynamic tracing never deactivates on its own
 # 1. Metric Extractor Utility
 # =====================================================================
 
-def extract_layer_io_metrics(module: nn.Module) -> Dict[str, Any]:
+def extract_layer_io_metrics(module: nn.Module) -> dict[str, Any]:
     """Extracts input/output dimensions and the domain-specific unit type."""
-    metrics = {'in_units': None, 'out_units': None, 'unit_type': 'unknown', 'param_ids': set()}
+    metrics: dict[str, Any] = {'in_units': None, 'out_units': None, 'unit_type': 'unknown', 'param_ids': set()}
 
     # Anchor parameter IDs for gradient mapping later
     metrics['param_ids'] = {id(p) for p in module.parameters(recurse=False) if p.requires_grad}
@@ -58,12 +59,12 @@ class ModelNode:
     class_name: str
     module_ref: nn.Module
     layer_type: Any
-    param_ids: Set[int]
-    in_units: Optional[int] = None
-    out_units: Optional[int] = None
+    param_ids: set[int]
+    in_units: int | None = None
+    out_units: int | None = None
     unit_type: str = 'unknown'
-    activation_fn: Optional[Callable] = None
-    depth: Optional[int] = None
+    activation_fn: Callable | None = None
+    depth: int | None = None
 
     # Fields describing what the module currently *is* -- always trust the
     # freshly-extracted value over the stored one. module_ref is compared by
@@ -103,7 +104,7 @@ class ModelNode:
 
         return changed
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serializes full node metadata (module_ref/activation_fn stringified)."""
         return {
             'id': self.name,
@@ -127,7 +128,7 @@ class ModelEdge:
     def name(self) -> str:
         return f"{self.source}-{self.target}"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {'source': self.source, 'target': self.target}
 
     def __key(self):
@@ -145,8 +146,8 @@ class ModelGraph:
     """Holds nodes/edges and owns their serialization."""
 
     def __init__(self):
-        self.nodes: Dict[str, ModelNode] = {}
-        self.edges: Set[ModelEdge] = set()
+        self.nodes: dict[str, ModelNode] = {}
+        self.edges: set[ModelEdge] = set()
 
     def add_node(self, node: ModelNode) -> bool:
         """Adds a new node, or refreshes an existing one in place via
@@ -178,7 +179,7 @@ class GraphFormatter:
 
 
     @classmethod
-    def to_dict(cls, graph: ModelGraph) -> Dict[str, List|Dict[str, Any]]:
+    def to_dict(cls, graph: ModelGraph) -> dict[str, list|dict[str, Any]]:
         """Returns a dict with 'nodes' and 'edges' lists for the graph."""
         return {
             "nodes": cls.nodes_dict(graph),
@@ -187,14 +188,14 @@ class GraphFormatter:
     
     
     @classmethod
-    def to_cytoscape(cls, graph: ModelGraph) -> Dict[str, List]:
+    def to_cytoscape(cls, graph: ModelGraph) -> dict[str, list]:
         """Serializes the full graph for Dash Cytoscape."""
         elements = [cls.node_to_cytoscape(node) for node in graph.nodes.values()]
         elements += [cls.edge_to_cytoscape(edge) for edge in graph.edges]
         return {'elements': elements}
 
     @classmethod
-    def node_to_cytoscape(cls, node: ModelNode) -> Dict[str, Any]:
+    def node_to_cytoscape(cls, node: ModelNode) -> dict[str, Any]:
         """Serializes a single node for Dash Cytoscape."""
         data = node.to_dict()
         label_keys = ['id', 'class_name', 'unit_type', 'in_units', 'out_units', 'activation_fn']
@@ -205,27 +206,27 @@ class GraphFormatter:
         return { 'data': data, 'classes': classes }
 
     @classmethod
-    def edge_to_cytoscape(cls, edge: ModelEdge) -> Dict[str, Any]:
+    def edge_to_cytoscape(cls, edge: ModelEdge) -> dict[str, Any]:
         """Serializes a single edge for Dash Cytoscape."""
         return {'data': edge.to_dict()}
 
     @classmethod
-    def nodes_dict(cls, graph: ModelGraph) -> Dict[str, Any]:
+    def nodes_dict(cls, graph: ModelGraph) -> dict[str, Any]:
         """Returns all node metadata, keyed by node id."""
         return {name: node.to_dict() for name, node in graph.nodes.items()}
 
     @classmethod
-    def nodes_list(cls, graph: ModelGraph) -> List[Dict[str, Any]]:
+    def nodes_list(cls, graph: ModelGraph) -> list[dict[str, Any]]:
         """Returns all node metadata, keyed by node id."""
         return [node.to_dict() for node in graph.nodes.values()]
 
     @classmethod
-    def edges_list(cls, graph: ModelGraph) -> List[Dict[str, Any]]:
+    def edges_list(cls, graph: ModelGraph) -> list[dict[str, Any]]:
         """Returns all edge metadata, keyed by edge."""
         return [edge.to_dict() for edge in graph.edges]
 
     @classmethod
-    def edges_dict(cls, graph: ModelGraph) -> Dict[str, Any]:
+    def edges_dict(cls, graph: ModelGraph) -> dict[str, Any]:
         """Returns all edge metadata, keyed by edge."""
         return {edge.name: edge.to_dict() for edge in graph.edges}
 
@@ -257,7 +258,7 @@ class ModelMapper:
     """Handles PyTorch topology, metric mapping, and dynamic tracing."""
 
     @staticmethod
-    def _validate_trace_budget(value: Union[int, float]) -> Union[int, float]:
+    def _validate_trace_budget(value: int | float) -> int | float:
         if isinstance(value, float):
             if not (0.0 <= value <= 1.0):
                 warnings.warn(
@@ -269,20 +270,20 @@ class ModelMapper:
                 )
         return value
 
-    def nodes(self) -> Dict[str, ModelNode]:
+    def nodes(self) -> dict[str, ModelNode]:
         """Returns all nodes' metadata as a dictionary keyed by node id."""
         return GraphFormatter.nodes_dict(self.graph)
 
-    def edges(self) -> List[ModelEdge]:
-        """Returns all edges as a list of Edge objects."""
+    def edges(self) -> list[dict[str, Any]]:
+        """Returns all edges as a list of serialized edge dicts."""
         return GraphFormatter.edges_list(self.graph)
 
     def __init__(
         self,
         model: nn.Module,
-        trace_samples: Union[int, float] = 0,
-        is_suitable_layer: Optional[Callable[[nn.Module, str], bool]] = None,
-        on_graph_changed: Optional[Callable[['ModelMapper'], None]] = None,
+        trace_samples: int | float = 0,
+        is_suitable_layer: Callable[[nn.Module, str], bool] | None = None,
+        on_graph_changed: Callable[['ModelMapper'], None] | None = None,
     ):
         self.model = model
         # How eagerly upcoming calls should trace:
@@ -299,8 +300,8 @@ class ModelMapper:
         self.graph = ModelGraph()
 
         # Tracing State
-        self.sequence: List[str] = []
-        self._hooks: List[torch.utils.hooks.RemovableHandle] = []
+        self.sequence: list[str] = []
+        self._hooks: list[torch.utils.hooks.RemovableHandle] = []
         self._interceptor = _MapperInterceptor(self)
         self._graph_changed_in_pass = False
         self._has_run_static = False
@@ -309,9 +310,9 @@ class ModelMapper:
     def map(
         self,
         model: nn.Module,
-        data: Optional[torch.Tensor] = None,
-        trace_samples: Optional[int] = None,
-    ) -> Dict[str, List]:
+        data: torch.Tensor | None = None,
+        trace_samples: int | None = None,
+    ) -> ModelGraph:
         """
         Single entry point for keeping the graph in sync with `model`.
 
@@ -396,7 +397,7 @@ class ModelMapper:
         if self._graph_changed_in_pass and self.on_graph_changed:
             self.on_graph_changed(self)
 
-    def _add_node(self, name: str, module: nn.Module, default_depth: Optional[int] = None):
+    def _add_node(self, name: str, module: nn.Module, default_depth: int | None = None):
         io_metrics = extract_layer_io_metrics(module)
         node = ModelNode(
             name=name,
@@ -439,15 +440,19 @@ class ModelMapper:
         for i in range(1, len(self.sequence)):
             curr_id, prev_id = self.sequence[i], self.sequence[i - 1]
             if curr_id in nodes and nodes[curr_id].depth is None:
-                if prev_id in nodes and nodes[prev_id].depth is not None:
-                    nodes[curr_id].depth = nodes[prev_id].depth + 1
+                if prev_id in nodes:
+                    prev_depth = nodes[prev_id].depth
+                    if prev_depth is not None:
+                        nodes[curr_id].depth = prev_depth + 1
 
         # 2. Backward Pass: Assign (next - 1)
         for i in range(len(self.sequence) - 2, -1, -1):
             curr_id, next_id = self.sequence[i], self.sequence[i + 1]
             if curr_id in nodes and nodes[curr_id].depth is None:
-                if next_id in nodes and nodes[next_id].depth is not None:
-                    nodes[curr_id].depth = nodes[next_id].depth - 1
+                if next_id in nodes:
+                    next_depth = nodes[next_id].depth
+                    if next_depth is not None:
+                        nodes[curr_id].depth = next_depth - 1
 
         # 3. Fallback for completely isolated/unanchored nodes
         current_depth = 0

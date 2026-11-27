@@ -1,5 +1,10 @@
 from positronixlab.stats.filter import DisplacementFilter
-from positronixlab.stats.processor import PROCESSORS, OverallProcessor, Processor, UmapProcessor
+from positronixlab.stats.processor import (
+    PROCESSORS,
+    OverallProcessor,
+    Processor,
+    UmapProcessor,
+)
 from positronixlab.stats.reducer import (
     REDUCERS,
     DisplacementReducer,

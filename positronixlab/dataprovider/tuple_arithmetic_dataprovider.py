@@ -12,7 +12,7 @@ Supports both:
 
 from __future__ import annotations
 
-from typing import Dict, Literal, Optional, Tuple, Unpack
+from typing import Any, Literal
 
 import numpy as np
 import torch
@@ -23,7 +23,6 @@ from torch.utils.data import Dataset
 from positronixlab.dataprovider.addmul_dataprovider import TargetMode, _split_digits
 from positronixlab.dataprovider.dataprovider import (
     CompositionalDataProvider,
-    DataProviderOptions,
     SubtaskSplit,
     TransformLike,
     apply_transform,
@@ -37,7 +36,7 @@ class TupleArithmeticLoss(nn.Module):
         self,
         n_tuples: int = 2,
         n_digits: int = 2,
-        restrict_tuple: Optional[int] = None,
+        restrict_tuple: int | None = None,
     ) -> None:
         super().__init__()
         self.n_tuples = n_tuples
@@ -58,11 +57,11 @@ def tuple_arithmetic_accuracy(
     targets: torch.Tensor,
     n_tuples: int = 2,
     n_digits: int = 2,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Return total and per-tuple exact-match accuracy."""
     preds = logits.reshape(logits.shape[0], n_tuples, n_digits, 10).argmax(dim=-1)
     tuple_ok = (preds == targets.long()).all(dim=-1)
-    res: Dict[str, float] = {"total": float(tuple_ok.all(dim=-1).float().mean().item())}
+    res: dict[str, float] = {"total": float(tuple_ok.all(dim=-1).float().mean().item())}
     for t in range(n_tuples):
         res[f"tuple_{t}"] = float(tuple_ok[:, t].float().mean().item())
     return res
@@ -71,8 +70,8 @@ def tuple_arithmetic_accuracy(
 class TupleArithmeticDataset(Dataset):
     """Synthetic double-addition / multi-tuple arithmetic dataset."""
 
-    SETS: Tuple[str, str, str] = ("train", "test", "valid")
-    _CACHE: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+    SETS: tuple[str, str, str] = ("train", "test", "valid")
+    _CACHE: dict[str, tuple[np.ndarray, np.ndarray]] = {}
 
     def __init__(
         self,
@@ -81,11 +80,11 @@ class TupleArithmeticDataset(Dataset):
         n_tuples: int = 2,
         n_samples: int = 100_000,
         op: Literal["add", "mul"] = "add",
-        restrict_tuple: Optional[int] = None,
+        restrict_tuple: int | None = None,
         *,
         target_mode: TargetMode = "digits",
-        seed: Optional[int] = None,
-        transforms: Optional[TransformLike] = None,
+        seed: int | None = None,
+        transforms: TransformLike | None = None,
     ) -> None:
         super().__init__()
         if split not in self.SETS:
@@ -130,7 +129,7 @@ class TupleArithmeticDataset(Dataset):
     def __len__(self) -> int:
         return self.n_samples
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         in_digits = torch.from_numpy(_split_digits(self.n_digits, self.inputs[idx])).long()
         onehot_in = F.one_hot(in_digits, num_classes=10).float()
         if self.restrict_tuple is not None:
@@ -167,15 +166,15 @@ class TupleArithmeticDataProvider(
         n_val_samples: int = 10_000,
         n_test_samples: int = 10_000,
         op: Literal["add", "mul"] = "add",
-        restrict_tuple: Optional[int] = None,
+        restrict_tuple: int | None = None,
         *,
-        n_train: Optional[int] = None,
-        n_val: Optional[int] = None,
-        n_test: Optional[int] = None,
+        n_train: int | None = None,
+        n_val: int | None = None,
+        n_test: int | None = None,
         target_mode: TargetMode = "digits",
-        seed: Optional[int] = None,
+        seed: int | None = None,
         batch_size: int = 64,
-        **kwargs: Unpack[DataProviderOptions],
+        **kwargs: Any,
     ) -> None:
         if n_train is not None:
             n_train_samples = n_train
@@ -213,7 +212,7 @@ class TupleArithmeticDataProvider(
             else nn.CrossEntropyLoss()
         )
 
-        split_kw = dict(
+        split_kw: dict[str, Any] = dict(
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             drop_last=self.drop_last,
@@ -222,7 +221,7 @@ class TupleArithmeticDataProvider(
             pin_memory=self.pin_memory,
         )
 
-        def _make_split(sub_name: str, sub_restrict: Optional[int], offset: int) -> SubtaskSplit:
+        def _make_split(sub_name: str, sub_restrict: int | None, offset: int) -> SubtaskSplit:
             base_s = None if seed is None else (seed + offset)
             return SubtaskSplit(
                 name=sub_name,
@@ -273,8 +272,8 @@ class TupleArithmeticDataProvider(
         self._sync_base_split()
 
     def with_restrict_tuple(
-        self, restrict_tuple: Optional[int]
-    ) -> "TupleArithmeticDataProvider":
+        self, restrict_tuple: int | None
+    ) -> TupleArithmeticDataProvider:
         """Return a new provider restricted to a single tuple index (e.g. ``0`` or ``1``)."""
         return TupleArithmeticDataProvider(
             n_digits=self.n_digits,
@@ -282,7 +281,7 @@ class TupleArithmeticDataProvider(
             n_train_samples=self.n_train_samples,
             n_val_samples=self.n_val_samples,
             n_test_samples=self.n_test_samples,
-            op=self.op,
+            op=self.op,  # type: ignore[arg-type]
             restrict_tuple=restrict_tuple,
             target_mode=self.target_mode,
             batch_size=self.batch_size,

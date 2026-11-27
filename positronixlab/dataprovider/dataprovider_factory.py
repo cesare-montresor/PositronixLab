@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import importlib
-from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence, Tuple, Union
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
 
 from positronixlab.dataprovider.config import DataConfig, DatasetName
 from positronixlab.dataprovider.dataprovider import DataProvider
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
 
 # Lazy module map so built-in providers register on demand without importing
 # heavyweight dependencies (sklearn, torchvision, pandas) upfront.
-_BUILTIN_MODULES: Dict[str, str] = {
+_BUILTIN_MODULES: dict[str, str] = {
     "iris": "positronixlab.dataprovider.iris_dataprovider",
     "mnist": "positronixlab.dataprovider.mnist_dataprovider",
     "fashion_mnist": "positronixlab.dataprovider.fmnist_dataprovider",
@@ -41,7 +42,7 @@ _BUILTIN_MODULES: Dict[str, str] = {
 }
 
 # Family-parameterized baseline presets routed to canonical dataprovider classes.
-_FAMILY_PRESETS: Dict[str, Tuple[str, Dict[str, Any]]] = {
+_FAMILY_PRESETS: dict[str, tuple[str, dict[str, Any]]] = {
     "lepori:cvr_inside_contact": ("cvr_odd_one_out", {"family": "inside_contact"}),
     "lepori:cvr_inside_count": ("cvr_odd_one_out", {"family": "inside_count"}),
     "lepori:cvr_contact_count": ("cvr_odd_one_out", {"family": "contact_count"}),
@@ -78,7 +79,7 @@ class DataProviderFactory:
 
     @staticmethod
     def create(
-        dataset_name: Union[DatasetName, str],
+        dataset_name: DatasetName | str,
         *,
         flatten: bool = False,
         **kwargs: Any,
@@ -107,15 +108,16 @@ class DataProviderFactory:
 
     @staticmethod
     def from_config(
-        config: Union[DataConfig, "PipelineConfig", Any],
-        split: Optional[Sequence[float]] = None,
-        num_workers: Optional[int] = None,
-        indexed_dataset: Optional[bool] = None,
+        config: DataConfig | PipelineConfig | Any,
+        split: Sequence[float] | None = None,
+        num_workers: int | None = None,
+        indexed_dataset: bool | None = None,
         **extra_kwargs: Any,
     ) -> DataProvider:
         """Build a ``DataProvider`` from ``DataConfig``, ``PipelineConfig``, or duck-typed config."""
-        name = config.dataset_name
-        batch_size = config.batch_size
+        cfg: Any = config
+        name = cfg.dataset_name
+        batch_size = cfg.batch_size
         flatten = bool(
             getattr(config, "flatten", False)
             or getattr(config, "model_type", None) == "fc"
@@ -131,7 +133,7 @@ class DataProviderFactory:
             else getattr(config, "indexed_dataset", False)
         )
 
-        kwargs: Dict[str, Any] = {
+        kwargs: dict[str, Any] = {
             "batch_size": batch_size,
             "num_workers": use_workers,
             "indexed_dataset": use_indexed,

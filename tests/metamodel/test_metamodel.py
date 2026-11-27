@@ -1,4 +1,5 @@
 from collections import OrderedDict
+
 import pytest
 import torch
 import torch.nn as nn
@@ -12,7 +13,6 @@ from positronixlab.metamodel import (
     MetaTransform,
     ResNet,
 )
-
 
 # ---------------------------------------------------------------------------
 # MetaModelConfig

@@ -181,6 +181,7 @@ def test_neurosurgeon_discoverer_continuous_sparsification_and_neuron_mode():
 
 def test_version_matches_distribution():
     import importlib.metadata as md
+
     import positronixlab
 
     assert positronixlab.__version__ == md.version("positronixlab")
