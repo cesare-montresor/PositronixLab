@@ -84,11 +84,11 @@ class DeeplearningTrain:
         if phase in ("val", "both"):
             self.validator.on_prediction(callback)
 
-    def on_batch_start(self, callback: Callable, phase: str = "both"):
+    def on_batch_start(self, callback: Callable, with_data: bool = False, phase: str = "both"):
         if phase in ("train", "both"):
-            self.trainer.on_batch_start(callback)
+            self.trainer.on_batch_start(callback, with_data=with_data)
         if phase in ("val", "both"):
-            self.validator.on_batch_start(callback)
+            self.validator.on_batch_start(callback, with_data=with_data)
 
     def on_batch_end(self, callback: Callable, with_metrics: bool = False, phase: str = "both"):
         if phase in ("train", "both"):
@@ -203,19 +203,24 @@ class DeeplearningTrain:
 
                 if self.draft:
                     draft_batches -= 1
-                    if draft_batches < 0:
+                    if draft_batches <= 0:
                         print('Draft inference: Early breaking.')
                         break
 
         forward_time = time.time() - forward_time
 
         cm = None
-        if compute_cm and self.config.task == "classification":
+        if compute_cm and self.config.task == "classification" and data_num > 0:
             cm = confusion_matrix(real_class, predicted_class)
 
-        total_loss = float(total_loss / data_num)
-        val_acc = float(correct / data_num) if self.config.task == "classification" else None
-        forward_time = float(forward_time / data_num)
+        if data_num > 0:
+            total_loss = float(total_loss / data_num)
+            val_acc = float(correct / data_num) if self.config.task == "classification" else None
+            forward_time = float(forward_time / data_num)
+        else:
+            total_loss = 0.0
+            val_acc = 0.0 if self.config.task == "classification" else None
+            forward_time = 0.0
 
         if force_eval and was_training:
             self.model.train()

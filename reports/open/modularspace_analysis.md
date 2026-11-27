@@ -1,7 +1,8 @@
 # `positronixlab/modularspace` — Open Issues Analysis
 
-> **Status (2026-11-27 — `v0.1.3` / `5740a0c` + working tree):** **40 passed, 4 xfailed, 0 failed** (`tests/modularspace/`).
-> **Note:** Stale `layerspace_old.py` and `custertracking.example.py` were removed; all 9 bugs below (**B1–B9**) remain open, plus v0.1.3 **B5** (`custertracker.py:147, 156, 161, 165, 223` — precision-only overlap, merge weighting by `old.sizes`, unbounded `self.history`, `assert old is not None`) and minor hygiene (`zip` without `strict=`, one-line `if`).
+> **Status (2026-11-27):** **44 passed, 0 xfailed, 0 failed** (`tests/modularspace/`).
+> **Solved issues archive:** All 4 xfailed P1 bugs (**B1, B3, B4, B5**) and cleanup moved to [solved/modularspace_solved.md](file:///home/cesare/Projects/PositronixLab/reports/solved/modularspace_solved.md).
+> **Note:** Remaining non-xfailed bugs (**B2, B6–B9**) remain open below, plus v0.1.3 **B5** (`custertracker.py:147, 156, 165, 223` — precision-only overlap, merge weighting by `old.sizes`, unbounded `self.history`).
 
 ---
 

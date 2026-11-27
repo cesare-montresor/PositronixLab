@@ -48,10 +48,6 @@ def test_modularspace_unknown_layer_raises():
         space.get_space("missing_layer")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug B1: ModularSpace.get_space checks `None in (layer_info, positions, optimizer, stats)` and raises ValueError when stats_enabled=False (modularspace.py:59)",
-)
 def test_modularspace_works_with_stats_disabled():
     cfg = PipelineConfigV1(modular_space_size=4)
     space = ModularSpace(

@@ -675,10 +675,6 @@ def test_bug_reconcile_running_fail_on_resume(tmp_path):
     assert exp2.client._experiment.trials[0].status == TrialStatus.FAILED
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug: experiment.py:458+_retry_oom_solo runs 2+oom_retries attempts on solo trials instead of 1+oom_retries",
-)
 def test_bug_solo_oom_retry_off_by_one(tmp_path):
     tpl = TemplateBase("oom_solo_bug")
     tpl.add_range("modular_space_size", [4, 8], "int")
@@ -704,22 +700,14 @@ def test_bug_solo_oom_retry_off_by_one(tmp_path):
         random_seed=0,
     )
     exp.run(n_trials=1)
-    assert calls == 2  # Expected 1 initial + 1 retry, actual is 3
+    assert calls == 2  # Expected 1 initial + 1 retry
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug: trial_config.py:57 uses setdefault('device', ...) which does not overwrite an explicit None",
-)
 def test_bug_trial_config_gpu_id_with_none_device():
     cfg = TrialConfig.from_trial(params={}, fixed={"device": None}, gpu_id=1)
     assert cfg.device == "cuda:1"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug: trial_pipeline.py:115 treats bool as int/float and line 114 crashes on (mean, None) tuple",
-)
 def test_bug_extract_metrics_bool_and_none_sem():
     pipe = _SimplePipeline(TrialConfig(), PipelineOptions(display_logs=False, write_logs=False))
     try:
@@ -730,10 +718,6 @@ def test_bug_extract_metrics_bool_and_none_sem():
         pipe.shutdown()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug: experiment.py:551 export_best() does not remove stale best/trial_*.yaml files on subsequent exports",
-)
 def test_bug_export_best_leaves_stale_yaml(tmp_path):
     tpl = TemplateBase("stale_best")
     tpl.add_range("learning_rate", [1e-4, 1e-2], "float", scaling="log")
@@ -757,10 +741,6 @@ def test_bug_export_best_leaves_stale_yaml(tmp_path):
     assert yaml_files == ["trial_001.yaml"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug: experiment.py:254-286 warm_start_from() does not restore global SESSION_FACTORY in a finally block on error",
-)
 def test_bug_warm_start_error_leaks_global_db_session(tmp_path):
     from ax.storage.sqa_store.db import get_engine
 

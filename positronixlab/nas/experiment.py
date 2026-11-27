@@ -257,39 +257,40 @@ class Experiment(Generic[TConfig]):
         """
         prior_url = f"sqlite:///{os.path.abspath(prior_db_path)}"
         _ensure_sqlite_db(prior_url)
-        prior_storage = StorageConfig(url=prior_url)
-        prior_client = Client.load_from_database(
-            experiment_name=prior_experiment_name,
-            storage_config=prior_storage,
-        )
-        prior_exp = prior_client._experiment
-        data_df = prior_exp.lookup_data().df
+        try:
+            prior_storage = StorageConfig(url=prior_url)
+            prior_client = Client.load_from_database(
+                experiment_name=prior_experiment_name,
+                storage_config=prior_storage,
+            )
+            prior_exp = prior_client._experiment
+            data_df = prior_exp.lookup_data().df
 
-        extracted: list[tuple[dict[str, Any], dict[str, MetricValue]]] = []
-        for idx, trial in prior_exp.trials.items():
-            arm = getattr(trial, "arm", None)
-            if trial.status != TrialStatus.COMPLETED or arm is None:
-                continue
-            params = dict(arm.parameters)
-            if filter_fn is not None and not filter_fn(params):
-                continue
+            extracted: list[tuple[dict[str, Any], dict[str, MetricValue]]] = []
+            for idx, trial in prior_exp.trials.items():
+                arm = getattr(trial, "arm", None)
+                if trial.status != TrialStatus.COMPLETED or arm is None:
+                    continue
+                params = dict(arm.parameters)
+                if filter_fn is not None and not filter_fn(params):
+                    continue
 
-            trial_rows = data_df[data_df["trial_index"] == idx]
-            if trial_rows.empty:
-                continue
-            raw_data: dict[str, MetricValue] = {}
-            for _, row in trial_rows.iterrows():
-                row_any: Any = row
-                mean = float(row_any["mean"])
-                sem = row_any.get("sem")
-                if sem is not None and sem == sem:  # not NaN
-                    raw_data[str(row_any["metric_name"])] = (mean, float(sem))
-                else:
-                    raw_data[str(row_any["metric_name"])] = mean
-            extracted.append((params, raw_data))
-
-        # Re-bind Ax SQLAlchemy session factory back to this experiment's DB
-        _ensure_sqlite_db(self._db_url)
+                trial_rows = data_df[data_df["trial_index"] == idx]
+                if trial_rows.empty:
+                    continue
+                raw_data: dict[str, MetricValue] = {}
+                for _, row in trial_rows.iterrows():
+                    row_any: Any = row
+                    mean = float(row_any["mean"])
+                    sem = row_any.get("sem")
+                    if sem is not None and sem == sem:  # not NaN
+                        raw_data[str(row_any["metric_name"])] = (mean, float(sem))
+                    else:
+                        raw_data[str(row_any["metric_name"])] = mean
+                extracted.append((params, raw_data))
+        finally:
+            # Re-bind Ax SQLAlchemy session factory back to this experiment's DB
+            _ensure_sqlite_db(self._db_url)
 
         attached = 0
         for params, raw_data in extracted:
@@ -395,7 +396,13 @@ class Experiment(Generic[TConfig]):
             workers = min(workers, len(self.gpu_ids)) if workers > 1 else workers
         return max(1, min(workers, remaining))
 
-    def _retry_oom_solo(self, trial_index: int, params: Mapping[str, Any]) -> None:
+    def _retry_oom_solo(
+        self,
+        trial_index: int,
+        params: Mapping[str, Any],
+        *,
+        already_solo: bool = False,
+    ) -> None:
         """
         Re-run a trial that hit OOM solo (concurrency=1) with backoff retries
         to handle both parallel-batch contention and transient shared-GPU load.
@@ -404,7 +411,9 @@ class Experiment(Generic[TConfig]):
         config = self._build_trial_config(trial_index, params, gpu_id=gpu_id)
 
         last_result: TrialResult | None = None
-        total_attempts = 1 + self.oom_retries
+        total_attempts = self.oom_retries if already_solo else 1 + self.oom_retries
+        if already_solo and self.oom_backoff_sec > 0:
+            time.sleep(self.oom_backoff_sec)
         for attempt in range(1, total_attempts + 1):
             _release_cuda_cache()
             logger.info(
@@ -456,7 +465,7 @@ class Experiment(Generic[TConfig]):
             if not trials_batch:
                 break
 
-            oom_deferred: list[tuple[int, Mapping[str, Any]]] = []
+            oom_deferred: list[tuple[int, Mapping[str, Any], bool]] = []
 
             if len(trials_batch) == 1:
                 t_idx, params = next(iter(trials_batch.items()))
@@ -464,7 +473,7 @@ class Experiment(Generic[TConfig]):
                 config = self._build_trial_config(t_idx, params, gpu_id=gpu_id)
                 result = self._run_single_trial(config)
                 if result.is_oom and self.oom_retries > 0:
-                    oom_deferred.append((t_idx, params))
+                    oom_deferred.append((t_idx, params, True))
                 else:
                     self._record_trial_result(t_idx, config, result)
             else:
@@ -486,12 +495,12 @@ class Experiment(Generic[TConfig]):
                                 t_idx,
                                 len(trials_batch),
                             )
-                            oom_deferred.append((t_idx, params))
+                            oom_deferred.append((t_idx, params, False))
                         else:
                             self._record_trial_result(t_idx, configs[t_idx], result)
 
-            for t_idx, params in oom_deferred:
-                self._retry_oom_solo(t_idx, params)
+            for t_idx, params, already_solo in oom_deferred:
+                self._retry_oom_solo(t_idx, params, already_solo=already_solo)
 
             self.export_summary()
 
@@ -555,6 +564,10 @@ class Experiment(Generic[TConfig]):
         except Exception as exc:
             logger.warning("Could not extract best parameterization: %s", exc)
             return []
+
+        for fname in os.listdir(self.best_dir):
+            if fname.startswith("trial_") and fname.endswith(".yaml"):
+                os.remove(os.path.join(self.best_dir, fname))
 
         summary_entries = []
         for cfg, pred, t_idx in best_items:

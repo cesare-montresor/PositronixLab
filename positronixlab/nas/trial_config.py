@@ -55,7 +55,8 @@ class TrialConfig(PipelineConfig):
             merged["trial_dir"] = trial_dir
         if gpu_id is not None:
             merged["gpu_id"] = gpu_id
-            merged.setdefault("device", f"cuda:{gpu_id}")
+            if not merged.get("device"):
+                merged["device"] = f"cuda:{gpu_id}"
 
         if name is not None:
             merged["name"] = name

@@ -334,9 +334,10 @@ class LayerSpace:
             unit_mask=unit_mask,
         )
 
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        optimizer.step()
+        if loss.requires_grad:
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            optimizer.step()
 
         losses_dict = {name: val.detach().cpu().numpy() for name, val in metrics.items()}
         stats_copy = None if stats is None else stats.detach().cpu().numpy()

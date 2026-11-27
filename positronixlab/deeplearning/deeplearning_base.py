@@ -84,17 +84,24 @@ class DeeplearningBase:
         self._did_prediction(epoch, epoch_total, batch_idx, batch_total, data_batch, y_hat)
 
         metrics = {}
+        backward_losses: list[torch.Tensor] = []
         with torch.set_grad_enabled(self.is_training):
-            for name, metric in self.metrics.items():      
+            for name, metric in self.metrics.items():
                 criterion = metric.get("criterion")
                 if criterion is None:
                     raise ValueError(f"Metric {name!r} has no criterion defined.")
                 loss = criterion(x, y, y_hat)
 
-                if self.is_training and metric.get("backward"): 
-                    loss.backward()
+                if self.is_training and metric.get("backward"):
+                    backward_losses.append(loss)
 
-                metrics[name] = float(loss.data.item())
+                metrics[name] = float(loss.detach().item()) if isinstance(loss, torch.Tensor) else float(loss)
+
+            if backward_losses:
+                total_loss = backward_losses[0]
+                for extra_loss in backward_losses[1:]:
+                    total_loss = total_loss + extra_loss
+                total_loss.backward()
 
         if self.optimizer is not None:
             self.optimizer.step()
@@ -109,6 +116,7 @@ class DeeplearningBase:
         draft_batches = 20
         batch_total = len(dataloader)
         batch_cnt = 0
+        batch_idx = -1
         epoch_metrics: dict[str, float] = {name: 0.0 for name in self.metrics.keys()}
         batch_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{epoch_total}", unit="batch")
                     
@@ -125,20 +133,18 @@ class DeeplearningBase:
                 metrics_txt = " | ".join([f"{name}:{value:.5f}" for name, value in batch_metrics.items()])
                 desc = f"E {epoch+1}/{epoch_total} | {metrics_txt}"
                 batch_bar.set_description(desc)
-                batch_bar.update()
 
                 
                 if draft:
                     draft_batches -= 1
-                    if draft_batches< 0: 
+                    if draft_batches <= 0:
                         print('Draft train: Early breaking.')
-                        draft_batches = 20
                         break
 
 
-        for name, _value in batch_metrics.items():
-            epoch_metrics.setdefault(name, 0.0)
-            epoch_metrics[name] /= batch_cnt
+        if batch_cnt > 0:
+            for name in list(epoch_metrics.keys()):
+                epoch_metrics[name] /= batch_cnt
 
         for name, value in epoch_metrics.items():
             metric = self.metrics[name]

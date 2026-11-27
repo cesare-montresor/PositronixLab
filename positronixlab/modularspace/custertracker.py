@@ -171,6 +171,9 @@ class ClusterTracker:
 
         order = torch.argsort(sizes_new, descending=True).tolist()
         for j in order:
+            if k_old == 0:
+                no_lineage.append(j)
+                continue
             row = frac[j]
             best_i = int(torch.argmax(row).item())
             best_frac = float(row[best_i].item())
@@ -283,8 +286,12 @@ class ClusterTracker:
         """
 
         m = int(children_centroids.shape[0])
+        if m == 0:
+            return parent_outer.new_zeros((0, self.d_out))
         if m == 1:
-            return parent_outer.unsqueeze(0)
+            radius = self.gap_scale * (children_centroids.norm().clamp_min(1.0) / 2.0)
+            directions = _seeded_unit_directions(seed, 1, self.d_out, self.device)
+            return parent_outer.unsqueeze(0) + radius * directions
 
         pairwise = torch.cdist(children_centroids, children_centroids)
         mask = ~torch.eye(m, dtype=torch.bool, device=pairwise.device)

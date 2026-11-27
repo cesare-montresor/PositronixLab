@@ -498,10 +498,6 @@ class TestKnownBugs:
         base.process_batch(0, 1, 0, 1, batch)
         assert model.last_forward_grad_enabled is False
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug B5: DeeplearningBase.process_epoch() raises UnboundLocalError on an empty DataLoader",
-    )
     def test_b5_process_epoch_empty_dataloader(self):
         cfg = TaskTrainConfig()
         model = TinyClassifier()
@@ -514,10 +510,6 @@ class TestKnownBugs:
         assert batch_total == 0
         assert isinstance(metrics, dict)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug B7: draft mode decrements draft_batches=20 and breaks on < 0, executing 21 batches instead of 20",
-    )
     def test_b7_draft_mode_processes_20_batches(self):
         cfg = TaskTrainConfig()
         model = TinyClassifier()
@@ -535,18 +527,10 @@ class TestKnownBugs:
         base.process_epoch(dl, epoch=0, epoch_total=1, draft=True)
         assert seen == 20
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug B8: DeeplearningTrain.on_batch_start() omits the with_data parameter supported by DeeplearningBase",
-    )
     def test_b8_train_on_batch_start_accepts_with_data(self):
         sig = inspect.signature(DeeplearningTrain.on_batch_start)
         assert "with_data" in sig.parameters
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug B9: Multiple backward=True metrics call loss.backward() without retain_graph or summing losses",
-    )
     def test_b9_multiple_backward_metrics(self):
         cfg = TaskTrainConfig()
         model = TinyClassifier()

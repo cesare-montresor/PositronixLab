@@ -58,7 +58,7 @@ class ModularSpace:
         positions = self.positions.get(layer_id, None)
         stats = self.stats.get(layer_id, None)
         optimizer = self.optimizers.get(layer_id, None)
-        if layer_info is None or positions is None or optimizer is None or stats is None:
+        if layer_info is None or positions is None or optimizer is None or (self.stats_enabled and stats is None):
             raise ValueError(f"Layer {layer_id} not found in ModularSpace.")
         return layer_info, positions, optimizer, stats
     

@@ -76,10 +76,6 @@ def test_space_step_matches_layerspace_compute_loss():
     assert set(m_step.keys()) == set(m_ls.keys())
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug B3: LayerSpace.process_scores calls loss.backward() on a detached zero tensor when all active losses are 0.0 (layerspace.py:210,338)",
-)
 def test_layerspace_all_zero_losses_does_not_crash():
     cfg = LayerSpaceConfig(
         modular_space_loss_global=0.0,

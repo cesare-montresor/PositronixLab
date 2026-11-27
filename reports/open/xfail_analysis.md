@@ -1,8 +1,8 @@
 # Open `xfail` Bugs Analysis
 
 > **Scope:** All remaining `@pytest.mark.xfail(strict=True)` regression tests under `tests/`.
-> **Totals (2026-11-27 — all P0 bugs solved!):** **71** open `xfail` markers (**71** test cases) across **12** modules (14 test files).
-> **All P0 silent-correctness bugs resolved (14 xfail tests cleared):** `deeplearning` B4, `metamodel` B1/B3a/B3b/B8, `spacemath` #9/#10/#11, `template` #2/#3(×2)/#5, `utils` B3, and `modularcluster` B2(×2) — all moved to `reports/solved/`. `dataprovider`, `baselines`, and `pipeline` have 0 open `xfail` markers.
+> **Totals (2026-11-27 — all P0 + `modularspace`/`nas`/`deeplearning` P1s solved!):** **58** open `xfail` markers (**58** test cases) across **10** modules (10 test files).
+> **Modules now at 0 open `xfail`s (5 of 15):** `baselines`, `dataprovider`, `modularspace`, `nas`, `pipeline`.
 
 ---
 
@@ -15,14 +15,12 @@
 | **`modularui`** | 8 | [test_modularui.py](file:///home/cesare/Projects/PositronixLab/tests/modularui/test_modularui.py) | [modularui_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularui_analysis.md) |
 | **`metamodel`** | 6 | [test_metamodel.py](file:///home/cesare/Projects/PositronixLab/tests/metamodel/test_metamodel.py) | [metamodel_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/metamodel_analysis.md) |
 | **`spacemath`** | 6 | [test_spacemath_extended.py](file:///home/cesare/Projects/PositronixLab/tests/spacemath/test_spacemath_extended.py) | [spacemath_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/spacemath_analysis.md) |
-| **`deeplearning`** | 5 | [test_deeplearning.py](file:///home/cesare/Projects/PositronixLab/tests/deeplearning/test_deeplearning.py) | [deeplearning_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/deeplearning_analysis.md) |
 | **`modularobserver`** | 5 | [test_modularobserver.py](file:///home/cesare/Projects/PositronixLab/tests/modularobserver/test_modularobserver.py) | [modularobserver_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularobserver_analysis.md) |
-| **`nas`** | 5 | [test_nas.py](file:///home/cesare/Projects/PositronixLab/tests/nas/test_nas.py) | [nas_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/nas_analysis.md) |
 | **`utils`** | 5 | [test_utils.py](file:///home/cesare/Projects/PositronixLab/tests/utils/test_utils.py) | [utils_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/utils_analysis.md) |
-| **`modularspace`** | 4 | [test_clustertracker.py](file:///home/cesare/Projects/PositronixLab/tests/modularspace/test_clustertracker.py), [test_modularspace.py](file:///home/cesare/Projects/PositronixLab/tests/modularspace/test_modularspace.py), [test_space_step.py](file:///home/cesare/Projects/PositronixLab/tests/modularspace/test_space_step.py) | [modularspace_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularspace_analysis.md) |
 | **`template`** | 3 | [test_template.py](file:///home/cesare/Projects/PositronixLab/tests/template/test_template.py) | [template_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/template_analysis.md) |
+| **`deeplearning`** | 1 | [test_deeplearning.py](file:///home/cesare/Projects/PositronixLab/tests/deeplearning/test_deeplearning.py) | [deeplearning_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/deeplearning_analysis.md) |
 | **`modularcluster`** | 1 | [test_streaming_kmeans.py](file:///home/cesare/Projects/PositronixLab/tests/modularcluster/test_streaming_kmeans.py) | [modularcluster_analysis.md](file:///home/cesare/Projects/PositronixLab/reports/open/modularcluster_analysis.md) |
-| **Total** | **71** | **14 test files** | |
+| **Total** | **58** | **10 test files** | |
 
 ---
 

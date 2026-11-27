@@ -110,10 +110,25 @@ class TrialPipeline(Pipeline):
             return {}
         out: dict[str, MetricValue] = {}
         for k, v in raw.items():
+            if isinstance(v, bool):
+                continue
             if isinstance(v, (tuple, list)) and len(v) == 2:
-                out[str(k)] = (float(v[0]), float(v[1]))
+                mean_v, sem_v = v
+                if isinstance(mean_v, bool) or isinstance(sem_v, bool):
+                    continue
+                if sem_v is None:
+                    out[str(k)] = float(mean_v)
+                else:
+                    out[str(k)] = (float(mean_v), float(sem_v))
             elif isinstance(v, (int, float)):
                 out[str(k)] = float(v)
+            elif hasattr(v, "item") and callable(v.item):
+                try:
+                    scalar = v.item()
+                    if not isinstance(scalar, bool) and isinstance(scalar, (int, float)):
+                        out[str(k)] = float(scalar)
+                except (TypeError, ValueError):
+                    pass
         return out
 
     def extract_metadata(self, env: dict[str, Any]) -> dict[str, Any]:

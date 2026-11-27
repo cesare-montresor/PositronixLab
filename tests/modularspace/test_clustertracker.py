@@ -124,10 +124,6 @@ def test_modular_overspace_update_and_queries():
     assert overspace.get_events("unknown") == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug B4: ClusterTracker._match_and_project calls torch.argmax on empty row when k_old == 0 (custertracker.py:175)",
-)
 def test_clustertracker_recovers_from_empty_previous_step():
     tracker = ClusterTracker(d_out=2, seed=0)
     tracker.step(torch.tensor([-1, -1, -1]), torch.zeros(0, 3))
@@ -136,10 +132,6 @@ def test_clustertracker_recovers_from_empty_previous_step():
     assert [e.kind for e in ev1] == ["add"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bug B5: switch calls _split_positions with 1 centroid (m==1), returning parent_outer unchanged (custertracker.py:239,286-287)",
-)
 def test_clustertracker_split_positions_single_child_offsets_from_parent():
     tracker = ClusterTracker(d_out=2, seed=0, gap_scale=0.5)
     parent = torch.tensor([1.0, 2.0])
